@@ -4,10 +4,9 @@
 #   ./infra/chrome-nano.sh
 #
 # - Sets the three chrome://flags Linger needs (in Chrome's "Local State"), backing it up first:
-#     prompt-api-for-gemini-nano-multimodal-input = Enabled
-#     optimization-guide-on-device-model          = Enabled BypassPerfRequirement
-#       (needed when on-device-internals says "GPU blocked", e.g. Intel iGPU on Wayland)
-#     ignore-gpu-blocklist                        = Enabled
+#     Prompt API for Gemini Nano with multimodal input = Enabled
+#     Override software rendering list (ignore-gpu-blocklist) = Enabled
+#       (needed when on-device-internals says "GPU blocked", e.g. Intel iGPU on Mesa)
 # - Launches Chrome with TMPDIR on your home disk. On distros where /tmp is a small RAM disk,
 #   the multi-GB model download can fail there silently.
 # Refuses to run while Chrome is open, because Chrome rewrites Local State on exit.
@@ -30,13 +29,16 @@ import json, sys
 path = sys.argv[1]
 d = json.load(open(path, encoding="utf-8"))
 flags = d.setdefault("browser", {}).setdefault("enabled_labs_experiments", [])
+# Internal names as Chrome 158 stores them (chrome://flags labels differ). Chrome silently drops
+# names it doesn't know, so check chrome://flags after launch.
+# optimization-guide-on-device-model (BypassPerfRequirement) no longer exists in 158; on an
+# Intel iGPU, ignore-gpu-blocklist alone moved the performance class from "GPU blocked" to 5.
 want = {
-    "prompt-api-for-gemini-nano-multimodal-input": "prompt-api-for-gemini-nano-multimodal-input@1",
-    "optimization-guide-on-device-model": "optimization-guide-on-device-model@2",  # Enabled BypassPerfRequirement
+    "prompt-api-multimodal-input": "prompt-api-multimodal-input@1",
     "ignore-gpu-blocklist": "ignore-gpu-blocklist",
 }
-# Drop any existing choice for these flags (including older names), then add ours.
-flags[:] = [f for f in flags if f.split("@")[0] not in want and not f.startswith("prompt-api-multimodal-input")]
+old = {"prompt-api-for-gemini-nano-multimodal-input", "optimization-guide-on-device-model"}
+flags[:] = [f for f in flags if f.split("@")[0] not in want and f.split("@")[0] not in old]
 flags.extend(want.values())
 json.dump(d, open(path, "w", encoding="utf-8"))
 print("flags now:", ", ".join(flags))
