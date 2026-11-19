@@ -273,8 +273,9 @@ export default function App() {
     pointRef.current = { x, y };
   };
 
+  // The multi-GB Nano download is never started implicitly; only the explicit
+  // "Download Gemini Nano (one time)" button in the top bar triggers it.
   const startEyes = async () => {
-    warmDeviceModel();
     setError(null);
     setStage("loading");
     setFaceSeen(false);
@@ -343,7 +344,6 @@ export default function App() {
   };
 
   const startMouse = () => {
-    warmDeviceModel();
     trackerRef.current?.stop();
     setError(null);
     setMode("mouse");
@@ -397,7 +397,7 @@ export default function App() {
         return `Downloading Gemini Nano${pct}${elapsed}. Help comes from the cloud meanwhile`;
       }
       case "downloadable":
-        return "Download Gemini Nano (one time)";
+        return "Optional: get private on-device help (one-time download, a few GB)";
       case "checking":
         return "Checking for an on-device model";
       default:
@@ -671,7 +671,7 @@ function NanoHelp({
             Chrome needs about 22 GB of free disk space and a graphics card with more than 4 GB of memory (or 16 GB of RAM).
             <code>chrome://on-device-internals</code> shows whether this computer qualifies.
           </li>
-          <li>Come back here. When the top bar offers "Download Gemini Nano", click it once; the download runs in the background.</li>
+          <li>Come back here. When the top bar offers on-device help, click it once; Chrome downloads the model (a few GB) in the background.</li>
         </ol>
         <div className="cta">
           <button className="primary" onClick={onRecheck}>Check again</button>
