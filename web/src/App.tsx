@@ -55,9 +55,19 @@ export default function App() {
   const refreshNano = useCallback(async () => {
     const r = await nanoReport();
     setNano(r);
-    // Never step back from "downloading" to "downloadable" while our own download is running.
-    setDevice((d) => (d === "downloading" && r.state === "downloadable" ? d : r.state));
+    // While our own download call is pending Chrome may still say "downloadable" for a moment.
+    // Give it 30 s; after that, Chrome never started, so offer the button again.
+    const stalled = downloadStartedAt.current !== null && Date.now() - downloadStartedAt.current > 30_000;
+    setDevice((d) => (d === "downloading" && r.state === "downloadable" && !stalled ? d : r.state));
+    if (r.state !== "downloading" && (r.state !== "downloadable" || stalled)) downloadStartedAt.current = null;
   }, []);
+  const downloadStartedAt = useRef<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (device !== "downloading") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [device]);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<SetupStage>("loading");
   const [faceSeen, setFaceSeen] = useState(false);
@@ -231,6 +241,7 @@ export default function App() {
     if (!firebaseConfigured) return;
     if (device !== "downloadable" && device !== "downloading") return;
     setDevice("downloading");
+    downloadStartedAt.current ??= Date.now();
     readerModel(tuning?.cloudModel ?? "gemini-3.5-flash-lite")
       .initializeDeviceModel((p) => setDownload(p))
       .then(refreshNano)
@@ -379,8 +390,12 @@ export default function App() {
     switch (device) {
       case "available":
         return "Gemini Nano ready on this device";
-      case "downloading":
-        return `Downloading Gemini Nano${download ? `, ${Math.round(download * 100)}%` : ""}`;
+      case "downloading": {
+        const pct = download > 0 ? `, ${(download * 100).toFixed(download < 0.1 ? 1 : 0)}%` : "";
+        const secs = downloadStartedAt.current ? Math.round((now - downloadStartedAt.current) / 1000) : 0;
+        const elapsed = secs ? `, ${secs < 60 ? `${secs} s` : `${Math.floor(secs / 60)} min`}` : "";
+        return `Downloading Gemini Nano${pct}${elapsed}. Help comes from the cloud meanwhile`;
+      }
       case "downloadable":
         return "Download Gemini Nano (one time)";
       case "checking":
@@ -388,7 +403,7 @@ export default function App() {
       default:
         return "No on-device model here, help comes from the cloud";
     }
-  }, [device, download]);
+  }, [device, download, now]);
 
   const avg = (a: number[]) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
   const reading = mode === "eyes" || mode === "mouse";
@@ -399,9 +414,9 @@ export default function App() {
       <header className="bar">
         <div className="brand">Linger</div>
         <div className="status">
-          {device === "unavailable" && firebaseConfigured ? (
+          {(device === "unavailable" || device === "downloading") && firebaseConfigured ? (
             <button className={`pill device-${device}`} onClick={() => setNanoHelp(true)}>
-              {deviceLabel}. Why?
+              {deviceLabel}. {device === "downloading" ? "Details" : "Why?"}
             </button>
           ) : device === "downloadable" && firebaseConfigured ? (
             <button className={`pill device-${device}`} onClick={warmDeviceModel}>
@@ -621,7 +636,9 @@ function NanoHelp({
   const isChrome = !!report && /Google Chrome/.test(report.browser);
   const verdict = !report
     ? "Checking…"
-    : isChromium
+    : report.state === "downloading" || report.raw === "downloadable"
+      ? "Chrome is fetching the model (2–4 GB). The first download often sits near 0% for several minutes. To watch it: chrome://on-device-internals → Model Status. To nudge it: chrome://components → Optimization Guide On Device Model → Check for update."
+      : isChromium
       ? "You're using Chromium. Gemini Nano only ships in Google Chrome, so open this page in Google Chrome."
       : !isChrome
         ? "Gemini Nano runs in Google Chrome on a desktop computer. Open this page in Chrome 139 or later."
