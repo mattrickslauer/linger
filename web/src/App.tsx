@@ -26,6 +26,7 @@ type SetupStage = "loading" | "camera" | "ready";
 
 const CALIB_POINTS = [0.1, 0.5, 0.9].flatMap((y) => [0.1, 0.5, 0.9].map((x) => ({ x, y })));
 const ROUGH_CALIBRATION_PX = 180;
+const CALIB_MIN_SAMPLES = 12;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Shown {
@@ -215,7 +216,7 @@ export default function App() {
   }, [mode]);
 
   useEffect(() => {
-    if (mode !== "eyes" && mode !== "setup") return;
+    if (mode !== "eyes" && mode !== "setup" && mode !== "calibrating") return;
     const id = setInterval(() => {
       setFrames(trackerRef.current?.frames ?? 0);
       setFaceSeen(performance.now() - lastFaceAt.current < 600);
@@ -231,6 +232,8 @@ export default function App() {
     host.appendChild(v);
     return () => {
       if (v.parentElement === host) host.removeChild(v);
+      // Removing a <video> from the document pauses it; the tracker needs it running.
+      if (v.srcObject) v.play().catch(() => {});
     };
   }, [mode, stage]);
 
@@ -308,14 +311,22 @@ export default function App() {
       await sleep(900);
       sampling.current = { on: true, target };
       const start = samples.current.f.length;
+      // Collect for at least 1.3 s, and keep going (up to 5 s) until this dot has enough
+      // eye samples. Blinks and brief tracking drop-outs then cost time, not accuracy.
+      const t0 = performance.now();
       await sleep(1300);
+      while (samples.current.f.length - start < CALIB_MIN_SAMPLES && performance.now() - t0 < 5000) await sleep(100);
       sampling.current.on = false;
       perPoint.push({ start, end: samples.current.f.length });
     }
     setCalibIndex(-1);
     const s = samples.current;
-    if (s.f.length < 40) {
-      setError("The camera could not see your eyes clearly. Face the screen in good light and try again.");
+    const thinDots = perPoint.filter((p) => p.end - p.start < 5).length;
+    if (s.f.length < 40 || thinDots > 2) {
+      console.warn("Calibration samples per dot:", perPoint.map((p) => p.end - p.start));
+      setError(
+        `The camera could only see your eyes for ${s.f.length} moments across ${CALIB_POINTS.length} dots. Face the screen with light on your face (not behind you), keep your glasses free of glare, and try again.`,
+      );
       trackerRef.current?.stop();
       setMode("intro");
       return;
@@ -593,6 +604,9 @@ export default function App() {
         <div className="calibrate" role="dialog" aria-label="Eye calibration">
           <p>
             Look at the dot until it moves. Point {calibIndex + 1} of {CALIB_POINTS.length}.
+            <span className={`eyes-state ${faceSeen ? "ok" : "lost"}`}>
+              {faceSeen ? "Eyes found" : "Can't see your eyes. Face the screen."}
+            </span>
           </p>
           <div
             key={calibIndex}

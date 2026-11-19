@@ -227,6 +227,17 @@ try {
     const ready = await until(page.getByRole("heading", { name: /Move into view|We can see your eyes/ }), 60000);
     check("A10 face tracker and camera ready", ready, `${((Date.now() - t2) / 1000).toFixed(1)} s`);
     check("A10 calibration waits for a face", await page.getByRole("button", { name: "Begin calibration" }).isDisabled());
+    // Regression: calibration unmounts the preview, and browsers pause a <video> removed from
+    // the document. A paused camera means zero calibration samples ("could not see your eyes").
+    const keepsPlaying = await page.evaluate(async () => {
+      const v = document.querySelector(".preview video");
+      if (!v) return "no preview video";
+      const t = v.currentTime;
+      v.remove();
+      await new Promise((r) => setTimeout(r, 800));
+      return !v.paused && v.currentTime > t ? true : `paused=${v.paused} advanced=${v.currentTime > t}`;
+    });
+    check("A10 camera keeps running when the preview is removed", keepsPlaying === true, String(keepsPlaying));
     await page.screenshot({ path: join(shots, "a10-setup.png") });
     await page.getByRole("button", { name: "Cancel" }).click();
 

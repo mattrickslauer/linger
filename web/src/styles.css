@@ -250,6 +250,10 @@ figcaption { font-family: var(--ui); font-size: 0.95rem; color: var(--ink-soft);
   box-shadow: 0 0 0 10px color-mix(in srgb, var(--lamp-edge) 60%, transparent);
   animation: shrink 900ms ease-in forwards;
 }
+.calibrate p { text-align: center; }
+.eyes-state { display: block; margin-top: 0.4rem; font-size: 0.9rem; font-weight: 700; }
+.eyes-state.ok { color: var(--device); }
+.eyes-state.lost { color: var(--danger); }
 @keyframes shrink { from { transform: scale(2.2); } to { transform: scale(1); } }
 
 .gaze {

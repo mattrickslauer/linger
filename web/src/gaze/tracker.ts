@@ -76,6 +76,9 @@ export class GazeTracker {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const lm = this.landmarker;
+    // Browsers pause a <video> when it is removed from the document (e.g. when the setup
+    // preview unmounts). A paused video never produces a new frame, so resume it.
+    if (this.stream && this.video.paused) this.video.play().catch(() => {});
     if (!lm || this.video.readyState < 2 || this.video.currentTime === this.lastVideoTime) return;
     this.lastVideoTime = this.video.currentTime;
     const t = performance.now();
