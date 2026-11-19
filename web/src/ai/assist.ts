@@ -97,17 +97,45 @@ export function parseHelp(raw: string): ParagraphHelp {
 }
 
 /** Is Gemini Nano usable in this browser right now? Used to decide speculative prefetch. */
-export async function onDeviceAvailability(): Promise<"available" | "downloadable" | "downloading" | "unavailable"> {
-  const LM = (globalThis as unknown as { LanguageModel?: { availability: (o?: object) => Promise<string> } })
-    .LanguageModel;
-  if (!LM) return "unavailable";
+export type NanoState = "available" | "downloadable" | "downloading" | "unavailable";
+
+export interface NanoReport {
+  state: NanoState;
+  /** what Chrome actually said, for the diagnostics panel */
+  hasPromptApi: boolean;
+  raw: string;
+  browser: string;
+}
+
+// Same options the reader model uses, so this matches what the Firebase SDK will see.
+const NANO_OPTIONS = {
+  expectedInputs: [{ type: "text", languages: ["en"] }],
+  expectedOutputs: [{ type: "text", languages: ["en"] }],
+};
+
+function browserName(): string {
+  const brands = (navigator as unknown as { userAgentData?: { brands: { brand: string; version: string }[] } }).userAgentData?.brands;
+  const real = brands?.find((b) => !/Not.?A.?Brand/i.test(b.brand) && b.brand !== "Chromium");
+  const chromium = brands?.find((b) => b.brand === "Chromium");
+  if (real) return `${real.brand} ${real.version}`;
+  if (chromium) return `Chromium ${chromium.version}`;
+  return navigator.userAgent.match(/(Firefox|Safari|Chrome)\/[\d.]+/)?.[0] ?? "unknown";
+}
+
+export async function nanoReport(): Promise<NanoReport> {
+  const LM = (globalThis as unknown as { LanguageModel?: { availability: (o?: object) => Promise<string> } }).LanguageModel;
+  const browser = browserName();
+  if (!LM) return { state: "unavailable", hasPromptApi: false, raw: "LanguageModel is not defined", browser };
   try {
-    return (await LM.availability({ expectedInputs: [{ type: "text", languages: ["en"] }] })) as
-      | "available"
-      | "downloadable"
-      | "downloading"
-      | "unavailable";
-  } catch {
-    return "unavailable";
+    const raw = await LM.availability(NANO_OPTIONS);
+    const state: NanoState = raw === "available" || raw === "downloadable" || raw === "downloading" ? raw : "unavailable";
+    return { state, hasPromptApi: true, raw, browser };
+  } catch (e) {
+    return { state: "unavailable", hasPromptApi: true, raw: e instanceof Error ? e.message : String(e), browser };
   }
+}
+
+/** Is Gemini Nano usable in this browser right now? Used to decide speculative prefetch. */
+export async function onDeviceAvailability(): Promise<NanoState> {
+  return (await nanoReport()).state;
 }

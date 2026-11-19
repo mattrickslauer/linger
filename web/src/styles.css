@@ -362,6 +362,11 @@ button.pill { border: 0; cursor: pointer; text-decoration: underline; text-under
 .sheet h2 { font-family: var(--read); font-weight: 600; margin: 0; font-size: 1.4rem; }
 .sheet p, .sheet ol { margin: 0; }
 .sheet ol { padding-left: 1.25rem; display: grid; gap: 0.4rem; }
+.sheet .verdict { font-weight: 700; }
+.diag { margin: 0; display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.diag div { display: flex; gap: 0.5rem; }
+.diag dt { color: var(--ink-soft); min-width: 7rem; }
+.diag dd { margin: 0; overflow-wrap: anywhere; }
 .sheet code { font-size: 0.85em; background: var(--paper); padding: 0.05rem 0.3rem; border-radius: 4px; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- camera setup */

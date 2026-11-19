@@ -9,7 +9,8 @@ import {
   explainFigure,
   explainParagraph,
   friendlyError,
-  onDeviceAvailability,
+  nanoReport,
+  type NanoReport,
   type ParagraphHelp,
   type Route,
   type Timed,
@@ -50,6 +51,13 @@ export default function App() {
   const [frames, setFrames] = useState(0);
   const [pasting, setPasting] = useState(false);
   const [nanoHelp, setNanoHelp] = useState(false);
+  const [nano, setNano] = useState<NanoReport | null>(null);
+  const refreshNano = useCallback(async () => {
+    const r = await nanoReport();
+    setNano(r);
+    // Never step back from "downloading" to "downloadable" while our own download is running.
+    setDevice((d) => (d === "downloading" && r.state === "downloadable" ? d : r.state));
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<SetupStage>("loading");
   const [faceSeen, setFaceSeen] = useState(false);
@@ -85,8 +93,16 @@ export default function App() {
       setTuning(t);
       engineRef.current.cfg = t.attention;
     });
-    onDeviceAvailability().then(setDevice);
+    refreshNano();
   }, []);
+
+  // Chrome can finish downloading Nano at any time (or the reader flips the flag and comes back),
+  // so keep checking until it is ready instead of trusting the first answer.
+  useEffect(() => {
+    if (device === "available") return;
+    const id = setInterval(refreshNano, 4000);
+    return () => clearInterval(id);
+  }, [device]);
 
   useEffect(() => savePrefs(prefs), [prefs]);
 
@@ -212,13 +228,16 @@ export default function App() {
 
   const warmDeviceModel = () => {
     // Must run inside the click handler: Chrome only allows the model download on a user gesture.
-    if (!firebaseConfigured || !tuning) return;
+    if (!firebaseConfigured) return;
     if (device !== "downloadable" && device !== "downloading") return;
     setDevice("downloading");
-    readerModel(tuning.cloudModel)
+    readerModel(tuning?.cloudModel ?? "gemini-3.5-flash-lite")
       .initializeDeviceModel((p) => setDownload(p))
-      .then(() => onDeviceAvailability().then(setDevice))
-      .catch(() => setDevice("unavailable"));
+      .then(refreshNano)
+      .catch((e) => {
+        console.warn("Gemini Nano download failed", e);
+        refreshNano();
+      });
   };
 
   const onFrame = (f: Frame) => {
@@ -363,7 +382,7 @@ export default function App() {
       case "downloading":
         return `Downloading Gemini Nano${download ? `, ${Math.round(download * 100)}%` : ""}`;
       case "downloadable":
-        return "Gemini Nano will download when you start";
+        return "Download Gemini Nano (one time)";
       case "checking":
         return "Checking for an on-device model";
       default:
@@ -382,7 +401,11 @@ export default function App() {
         <div className="status">
           {device === "unavailable" && firebaseConfigured ? (
             <button className={`pill device-${device}`} onClick={() => setNanoHelp(true)}>
-              {deviceLabel}. Turn on Nano
+              {deviceLabel}. Why?
+            </button>
+          ) : device === "downloadable" && firebaseConfigured ? (
+            <button className={`pill device-${device}`} onClick={warmDeviceModel}>
+              {deviceLabel}
             </button>
           ) : (
             <span className={`pill device-${device}`}>{deviceLabel}</span>
@@ -469,7 +492,7 @@ export default function App() {
       )}
 
       {pasting && <PasteDialog onCancel={() => setPasting(false)} onRead={(t) => openDoc(docFromText(t))} />}
-      {nanoHelp && <NanoHelp onClose={() => setNanoHelp(false)} />}
+      {nanoHelp && <NanoHelp report={nano} onRecheck={refreshNano} onClose={() => setNanoHelp(false)} />}
 
       <main className="page">
         <article
@@ -585,12 +608,39 @@ function PasteDialog({ onCancel, onRead }: { onCancel: () => void; onRead: (t: s
   );
 }
 
-function NanoHelp({ onClose }: { onClose: () => void }) {
+function NanoHelp({
+  report,
+  onRecheck,
+  onClose,
+}: {
+  report: NanoReport | null;
+  onRecheck: () => void;
+  onClose: () => void;
+}) {
+  const isChromium = !!report && /^Chromium/.test(report.browser);
+  const isChrome = !!report && /Google Chrome/.test(report.browser);
+  const verdict = !report
+    ? "Checking…"
+    : isChromium
+      ? "You're using Chromium. Gemini Nano only ships in Google Chrome, so open this page in Google Chrome."
+      : !isChrome
+        ? "Gemini Nano runs in Google Chrome on a desktop computer. Open this page in Chrome 139 or later."
+        : !report.hasPromptApi
+          ? "Chrome hasn't switched on the Prompt API yet. Follow the steps below, then restart Chrome."
+          : "Chrome has the Prompt API but says the model can't run here. Open chrome://on-device-internals to see why (usually free disk space or graphics memory).";
   return (
     <div className="scrim" role="dialog" aria-label="Turn on Gemini Nano">
       <div className="sheet">
         <h2>Turn on Gemini Nano in Chrome</h2>
         <p>Linger works without it, but with Nano your help is private, instant and works offline.</p>
+        <p className="verdict">{verdict}</p>
+        {report && (
+          <dl className="diag">
+            <div><dt>Browser</dt><dd>{report.browser}</dd></div>
+            <div><dt>Prompt API</dt><dd>{report.hasPromptApi ? "present" : "missing"}</dd></div>
+            <div><dt>Chrome says</dt><dd>{report.raw}</dd></div>
+          </dl>
+        )}
         <ol>
           <li>Use Chrome 139 or later on a desktop computer.</li>
           <li>
@@ -600,10 +650,15 @@ function NanoHelp({ onClose }: { onClose: () => void }) {
           <li>
             Open <code>chrome://settings/ai</code> and make sure on-device AI is on.
           </li>
-          <li>Come back here and press Start. The model downloads once, in the background.</li>
+          <li>
+            Chrome needs about 22 GB of free disk space and a graphics card with more than 4 GB of memory (or 16 GB of RAM).
+            <code>chrome://on-device-internals</code> shows whether this computer qualifies.
+          </li>
+          <li>Come back here. When the top bar offers "Download Gemini Nano", click it once; the download runs in the background.</li>
         </ol>
         <div className="cta">
-          <button className="primary" onClick={onClose}>Done</button>
+          <button className="primary" onClick={onRecheck}>Check again</button>
+          <button className="ghost" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
