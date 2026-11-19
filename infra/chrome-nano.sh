@@ -3,7 +3,7 @@
 #
 #   ./infra/chrome-nano.sh
 #
-# - Sets the three chrome://flags Linger needs (in Chrome's "Local State"), backing it up first:
+# - Sets the two chrome://flags Linger needs (in Chrome's "Local State"), backing it up first:
 #     Prompt API for Gemini Nano with multimodal input = Enabled
 #     Override software rendering list (ignore-gpu-blocklist) = Enabled
 #       (needed when on-device-internals says "GPU blocked", e.g. Intel iGPU on Mesa)
