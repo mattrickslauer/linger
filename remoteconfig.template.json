@@ -6,13 +6,18 @@
       "valueType": "NUMBER"
     },
     "stuck_factor": {
-      "defaultValue": { "value": "1.6" },
+      "defaultValue": { "value": "1.2" },
       "description": "A reader is stuck when they stay longer than expected reading time times this factor.",
       "valueType": "NUMBER"
     },
     "min_stuck_ms": {
-      "defaultValue": { "value": "5000" },
+      "defaultValue": { "value": "6000" },
       "description": "Floor for the stuck timer so short paragraphs do not trigger instantly (ms).",
+      "valueType": "NUMBER"
+    },
+    "max_stuck_ms": {
+      "defaultValue": { "value": "12000" },
+      "description": "Ceiling for the stuck timer: help must arrive while the reader is still stuck (ms).",
       "valueType": "NUMBER"
     },
     "reading_wpm": {

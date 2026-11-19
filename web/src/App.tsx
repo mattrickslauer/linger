@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AttentionEngine, type Target } from "./gaze/attention";
+import { AttentionEngine, type StuckReason, type Target } from "./gaze/attention";
 import { GazeTracker, type Frame } from "./gaze/tracker";
 import { fitRidge, predictRidge, type RidgeModel } from "./gaze/ridge";
 import { OneEuro } from "./gaze/oneEuro";
-import { DEMO_DOC, docFromText, wordCount, type Block, type Doc } from "./content/article";
+import { docFromText, wordCount, type Block, type Doc } from "./content/article";
+import { LIBRARY } from "./content/library";
 import {
   explainFigure,
   explainParagraph,
@@ -14,44 +15,66 @@ import {
 } from "./ai/assist";
 import { firebaseConfigured, loadTuning, readerModel, type Tuning } from "./firebase";
 import { svgToPngBase64 } from "./svgToPng";
-import { MarginNote, type Help } from "./MarginNote";
+import { MarginNote, type Help, type Why } from "./MarginNote";
+import { ReaderSettings, loadPrefs, savePrefs, type Prefs } from "./ReaderSettings";
 
-type Mode = "intro" | "calibrating" | "eyes" | "mouse";
+type Mode = "intro" | "setup" | "calibrating" | "eyes" | "mouse";
 type DeviceState = "checking" | "available" | "downloadable" | "downloading" | "unavailable";
+type SetupStage = "loading" | "camera" | "ready";
 
 const CALIB_POINTS = [0.1, 0.5, 0.9].flatMap((y) => [0.1, 0.5, 0.9].map((x) => ({ x, y })));
+const ROUGH_CALIBRATION_PX = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+interface Shown {
+  id: string;
+  why: Why;
+  /** true when the answer was already waiting (prefetched on-device) at the moment it was shown */
+  early: boolean;
+}
+
 export default function App() {
-  const [doc, setDoc] = useState<Doc>(DEMO_DOC);
+  const [doc, setDoc] = useState<Doc>(LIBRARY[0].doc);
   const [mode, setMode] = useState<Mode>("intro");
   const [tuning, setTuning] = useState<Tuning | null>(null);
   const [device, setDevice] = useState<DeviceState>("checking");
   const [download, setDownload] = useState(0);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [shownId, setShownId] = useState<string | null>(null);
+  const [shown, setShown] = useState<Shown | null>(null);
   const [help, setHelp] = useState<Record<string, Help>>({});
-  const [stats, setStats] = useState<{ device: number[]; cloud: number[] }>({ device: [], cloud: [] });
+  const [stats, setStats] = useState<{ device: number[]; cloud: number[]; early: number }>({ device: [], cloud: [], early: 0 });
   const [calibIndex, setCalibIndex] = useState(-1);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [showDot, setShowDot] = useState(true);
   const [frames, setFrames] = useState(0);
   const [pasting, setPasting] = useState(false);
+  const [nanoHelp, setNanoHelp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<SetupStage>("loading");
+  const [faceSeen, setFaceSeen] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const [opening, setOpening] = useState(false);
 
   const blockEls = useRef(new Map<string, HTMLElement>());
   const pointRef = useRef<{ x: number; y: number } | null>(null);
   const dotRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const engineRef = useRef(new AttentionEngine());
   const trackerRef = useRef<GazeTracker | null>(null);
   const modelRef = useRef<RidgeModel | null>(null);
   const filters = useRef({ x: new OneEuro(0.8, 0.01), y: new OneEuro(0.8, 0.01) });
   const sampling = useRef<{ on: boolean; target: { x: number; y: number } }>({ on: false, target: { x: 0, y: 0 } });
   const samples = useRef<{ f: number[][]; x: number[]; y: number[] }>({ f: [], x: [], y: [] });
+  const lastFaceAt = useRef(0);
   const cache = useRef(new Map<string, Promise<void>>());
+  /** ids whose help was started speculatively on focus (on-device only) */
+  const prefetched = useRef(new Set<string>());
+  const helpRef = useRef(help);
   const tuningRef = useRef<Tuning | null>(null);
   const deviceRef = useRef<DeviceState>("checking");
   const docRef = useRef(doc);
+  helpRef.current = help;
   tuningRef.current = tuning;
   deviceRef.current = device;
   docRef.current = doc;
@@ -63,6 +86,8 @@ export default function App() {
     });
     onDeviceAvailability().then(setDevice);
   }, []);
+
+  useEffect(() => savePrefs(prefs), [prefs]);
 
   // ------------------------------------------------------------------ help requests
 
@@ -97,8 +122,11 @@ export default function App() {
   }, []);
 
   const showHelp = useCallback(
-    (id: string) => {
-      setShownId(id);
+    (id: string, why: Why) => {
+      const early = prefetched.current.has(id) && helpRef.current[id]?.status === "done";
+      prefetched.current.delete(id);
+      if (early) setStats((s) => ({ ...s, early: s.early + 1 }));
+      setShown({ id, why, early });
       requestHelp(id);
     },
     [requestHelp],
@@ -131,9 +159,12 @@ export default function App() {
           const t = tuningRef.current;
           const blk = docRef.current.blocks.find((b) => b.id === ev.id);
           // Speculative help: only when it is free and private, i.e. Nano is ready.
-          if (t?.prefetch && deviceRef.current === "available" && blk?.kind === "p") requestHelp(ev.id);
+          if (t?.prefetch && deviceRef.current === "available" && blk?.kind === "p" && !cache.current.has(ev.id)) {
+            prefetched.current.add(ev.id);
+            requestHelp(ev.id);
+          }
         } else if (ev.type === "stuck") {
-          showHelp(ev.id);
+          showHelp(ev.id, ev.reason as StuckReason);
         } else if (ev.type === "blur") {
           setFocusId((f) => (f === ev.id ? null : f));
         }
@@ -157,10 +188,24 @@ export default function App() {
   }, [mode]);
 
   useEffect(() => {
-    if (mode !== "eyes") return;
-    const id = setInterval(() => setFrames(trackerRef.current?.frames ?? 0), 1000);
+    if (mode !== "eyes" && mode !== "setup") return;
+    const id = setInterval(() => {
+      setFrames(trackerRef.current?.frames ?? 0);
+      setFaceSeen(performance.now() - lastFaceAt.current < 600);
+    }, 250);
     return () => clearInterval(id);
   }, [mode]);
+
+  // Mount the live camera preview while setting up.
+  useEffect(() => {
+    const v = trackerRef.current?.video;
+    const host = previewRef.current;
+    if (mode !== "setup" || !v || !host) return;
+    host.appendChild(v);
+    return () => {
+      if (v.parentElement === host) host.removeChild(v);
+    };
+  }, [mode, stage]);
 
   // ------------------------------------------------------------------ starting
 
@@ -176,6 +221,7 @@ export default function App() {
   };
 
   const onFrame = (f: Frame) => {
+    if (f.features) lastFaceAt.current = f.t;
     if (sampling.current.on) {
       if (f.features) {
         samples.current.f.push(f.features);
@@ -199,27 +245,31 @@ export default function App() {
   const startEyes = async () => {
     warmDeviceModel();
     setError(null);
+    setStage("loading");
+    setFaceSeen(false);
+    setMode("setup");
     try {
       trackerRef.current?.stop();
       const tracker = new GazeTracker(onFrame);
       trackerRef.current = tracker;
-      await tracker.start();
+      await tracker.start(setStage);
     } catch (e) {
+      setMode("intro");
       setError(
         e instanceof DOMException && e.name === "NotAllowedError"
           ? "Camera access was blocked. Allow the camera in the address bar, or read with the mouse instead."
-          : `The eye tracker could not start: ${e instanceof Error ? e.message : String(e)}`,
+          : e instanceof DOMException && e.name === "NotFoundError"
+            ? "No camera was found. Connect a webcam, or read with the mouse instead."
+            : `The eye tracker could not start: ${e instanceof Error ? e.message : String(e)}`,
       );
-      return;
     }
-    await calibrate();
   };
 
   const calibrate = async () => {
     setMode("calibrating");
     samples.current = { f: [], x: [], y: [] };
     modelRef.current = null;
-    const perPoint: { i: number; start: number; end: number }[] = [];
+    const perPoint: { start: number; end: number }[] = [];
     for (let i = 0; i < CALIB_POINTS.length; i++) {
       setCalibIndex(i);
       const target = { x: CALIB_POINTS[i].x * window.innerWidth, y: CALIB_POINTS[i].y * window.innerHeight };
@@ -228,7 +278,7 @@ export default function App() {
       const start = samples.current.f.length;
       await sleep(1300);
       sampling.current.on = false;
-      perPoint.push({ i, start, end: samples.current.f.length });
+      perPoint.push({ start, end: samples.current.f.length });
     }
     setCalibIndex(-1);
     const s = samples.current;
@@ -241,17 +291,20 @@ export default function App() {
     const model = fitRidge(s.f, s.x, s.y, 2);
     // Accuracy: distance between each point's mean prediction and the point itself.
     let err = 0;
+    let counted = 0;
     for (const { start, end } of perPoint) {
       if (end <= start) continue;
-      let px = 0, py = 0;
+      let px = 0;
+      let py = 0;
       for (let k = start; k < end; k++) {
         const p = predictRidge(model, s.f[k]);
         px += p.x / (end - start);
         py += p.y / (end - start);
       }
-      err += Math.hypot(px - s.x[start], py - s.y[start]) / perPoint.length;
+      err += Math.hypot(px - s.x[start], py - s.y[start]);
+      counted++;
     }
-    setAccuracy(Math.round(err));
+    setAccuracy(Math.round(err / Math.max(counted, 1)));
     filters.current.x.reset();
     filters.current.y.reset();
     modelRef.current = model;
@@ -272,16 +325,31 @@ export default function App() {
     setMode("intro");
   };
 
-  const loadText = (raw: string) => {
-    const d = docFromText(raw);
+  const openDoc = (d: Doc) => {
     if (!d.blocks.length) return;
     cache.current.clear();
+    prefetched.current.clear();
     setHelp({});
-    setShownId(null);
+    setShown(null);
     setFocusId(null);
     setDoc(d);
     setPasting(false);
     window.scrollTo({ top: 0 });
+  };
+
+  const openPdf = async (file: File) => {
+    setOpening(true);
+    setError(null);
+    try {
+      const { docFromPdf } = await import("./content/pdf");
+      const d = await docFromPdf(file);
+      if (!d.blocks.length) setError("That PDF has no selectable text. Scanned pages are not supported yet.");
+      else openDoc(d);
+    } catch (e) {
+      setError(`That PDF could not be opened: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setOpening(false);
+    }
   };
 
   // ------------------------------------------------------------------ render
@@ -304,49 +372,91 @@ export default function App() {
 
   const avg = (a: number[]) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
   const reading = mode === "eyes" || mode === "mouse";
+  const rough = mode === "eyes" && accuracy !== null && accuracy > ROUGH_CALIBRATION_PX;
 
   return (
     <div className={`app ${reading && focusId ? "has-focus" : ""}`}>
       <header className="bar">
         <div className="brand">Linger</div>
         <div className="status">
-          <span className={`pill device-${device}`}>{deviceLabel}</span>
+          {device === "unavailable" && firebaseConfigured ? (
+            <button className={`pill device-${device}`} onClick={() => setNanoHelp(true)}>
+              {deviceLabel}. Turn on Nano
+            </button>
+          ) : (
+            <span className={`pill device-${device}`}>{deviceLabel}</span>
+          )}
           {mode === "eyes" && (
-            <span className="pill camera">
+            <span className={`pill camera ${rough ? "rough" : ""}`}>
               Camera on, stays on this device{accuracy !== null ? `. Accuracy about ${accuracy} px` : ""}
             </span>
           )}
           {mode === "mouse" && <span className="pill">Reading with the mouse</span>}
         </div>
         <div className="actions">
-          {reading ? (
+          <ReaderSettings prefs={prefs} onChange={setPrefs} />
+          {mode === "eyes" && (
             <>
-              {mode === "eyes" && (
-                <>
-                  <button className="ghost" onClick={() => setShowDot((v) => !v)}>
-                    {showDot ? "Hide gaze dot" : "Show gaze dot"}
-                  </button>
-                  <button className="ghost" onClick={calibrate}>Recalibrate</button>
-                </>
-              )}
-              <button className="ghost" onClick={stop}>Stop reading</button>
+              <button className="ghost" onClick={() => setShowDot((v) => !v)}>
+                {showDot ? "Hide gaze dot" : "Show gaze dot"}
+              </button>
+              <button className="ghost" onClick={calibrate}>Recalibrate</button>
             </>
-          ) : null}
+          )}
+          {reading && <button className="ghost" onClick={stop}>Stop reading</button>}
         </div>
       </header>
 
-      {!reading && mode !== "calibrating" && (
+      {rough && (
+        <div className="banner" role="status">
+          Tracking is rough right now (about {accuracy} px off). Sit an arm's length away with light on your face, then
+          recalibrate. <button className="ghost" onClick={calibrate}>Recalibrate</button>
+        </div>
+      )}
+
+      {!reading && mode !== "calibrating" && mode !== "setup" && (
         <section className="intro">
           <h1>Help appears where your eyes linger.</h1>
           <p>
-            Look at a paragraph and it comes into the light. Stay on it, or come back to it, and Linger writes a plain-language
-            version in the margin. Your camera and what you struggle with stay on this device: Gemini Nano answers locally,
-            and only charts go to the cloud.
+            Read as you normally would. When you stay on a paragraph, or come back to one, Linger notices and writes a plainer
+            version in the margin before you think to ask. Gemini Nano does this on your device, so your camera and what you
+            find hard stay private.
           </p>
           <div className="cta">
             <button className="primary" onClick={startEyes}>Start eye reading</button>
             <button className="secondary" onClick={startMouse}>Read with the mouse</button>
-            <button className="ghost" onClick={() => setPasting(true)}>Read your own text</button>
+          </div>
+          <div className="library" role="group" aria-label="Choose something to read">
+            {LIBRARY.map((e) => (
+              <button
+                key={e.doc.title}
+                className={`doc-choice ${doc === e.doc ? "chosen" : ""}`}
+                aria-pressed={doc === e.doc}
+                onClick={() => openDoc(e.doc)}
+              >
+                <strong>{e.label}</strong>
+                <span>{e.hint}</span>
+              </button>
+            ))}
+            <button className="doc-choice" onClick={() => fileRef.current?.click()} disabled={opening}>
+              <strong>{opening ? "Opening…" : "Open a PDF"}</strong>
+              <span>Read on this device, never uploaded</span>
+            </button>
+            <button className="doc-choice" onClick={() => setPasting(true)}>
+              <strong>Paste text</strong>
+              <span>A letter, a contract, an article</span>
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) openPdf(f);
+                e.target.value = "";
+              }}
+            />
           </div>
           {error && <p className="error" role="alert">{error}</p>}
           {!firebaseConfigured && (
@@ -357,10 +467,20 @@ export default function App() {
         </section>
       )}
 
-      {pasting && <PasteDialog onCancel={() => setPasting(false)} onRead={loadText} />}
+      {pasting && <PasteDialog onCancel={() => setPasting(false)} onRead={(t) => openDoc(docFromText(t))} />}
+      {nanoHelp && <NanoHelp onClose={() => setNanoHelp(false)} />}
 
       <main className="page">
-        <article className="doc">
+        <article
+          className="doc"
+          style={
+            {
+              "--read-size": `${prefs.size}rem`,
+              "--read-leading": prefs.leading,
+              "--read-font": prefs.font === "atkinson" ? "var(--ui)" : "var(--read)",
+            } as React.CSSProperties
+          }
+        >
           <h2 className="title">{doc.title}</h2>
           {doc.byline && <p className="byline">{doc.byline}</p>}
           {doc.blocks.map((b) => (
@@ -382,10 +502,10 @@ export default function App() {
                 )}
               </div>
               <aside className="margin">
-                {shownId === b.id && help[b.id] ? (
-                  <MarginNote help={help[b.id]} kind={b.kind} onClose={() => setShownId(null)} />
+                {shown?.id === b.id && help[b.id] ? (
+                  <MarginNote help={help[b.id]} kind={b.kind} why={shown.why} early={shown.early} onClose={() => setShown(null)} />
                 ) : (
-                  <button className="ask" onClick={() => showHelp(b.id)}>
+                  <button className="ask" onClick={() => showHelp(b.id, "asked")}>
                     {b.kind === "p" ? "Explain this" : "Explain this chart"}
                   </button>
                 )}
@@ -402,8 +522,33 @@ export default function App() {
         <span>
           {stats.cloud.length} from the cloud{stats.cloud.length ? ` (avg ${avg(stats.cloud)} ms)` : ""}
         </span>
+        {stats.early > 0 && <span>{stats.early} ready before you needed it</span>}
         {mode === "eyes" && <span>{frames.toLocaleString()} camera frames read, none uploaded</span>}
       </footer>
+
+      {mode === "setup" && (
+        <div className="setup" role="dialog" aria-label="Camera setup">
+          <div className="setup-card">
+            <div ref={previewRef} className={`preview ${faceSeen ? "found" : ""}`}>
+              {stage !== "ready" && <span className="preview-wait">{stage === "loading" ? "Starting the camera…" : "Loading the face tracker…"}</span>}
+            </div>
+            <h2>{stage !== "ready" ? "Getting ready" : faceSeen ? "We can see your eyes" : "Move into view"}</h2>
+            <p>
+              {stage !== "ready"
+                ? "The face tracker runs in this tab. Nothing from the camera is uploaded."
+                : faceSeen
+                  ? "Next, look at nine dots in turn so Linger can learn where you are looking. It takes about 20 seconds."
+                  : "Sit about an arm's length away, facing the screen, with light on your face."}
+            </p>
+            <div className="cta">
+              <button className="primary" disabled={stage !== "ready" || !faceSeen} onClick={calibrate}>
+                Begin calibration
+              </button>
+              <button className="ghost" onClick={stop}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {mode === "calibrating" && calibIndex >= 0 && (
         <div className="calibrate" role="dialog" aria-label="Eye calibration">
@@ -426,13 +571,38 @@ export default function App() {
 function PasteDialog({ onCancel, onRead }: { onCancel: () => void; onRead: (t: string) => void }) {
   const [text, setText] = useState("");
   return (
-    <div className="scrim" role="dialog" aria-label="Read your own text">
+    <div className="scrim" role="dialog" aria-label="Paste text">
       <div className="sheet">
         <label htmlFor="paste">Paste an article, a letter or a policy. Blank lines separate paragraphs.</label>
         <textarea id="paste" autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={12} />
         <div className="cta">
           <button className="primary" disabled={!text.trim()} onClick={() => onRead(text)}>Read this text</button>
           <button className="ghost" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NanoHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="scrim" role="dialog" aria-label="Turn on Gemini Nano">
+      <div className="sheet">
+        <h2>Turn on Gemini Nano in Chrome</h2>
+        <p>Linger works without it, but with Nano your help is private, instant and works offline.</p>
+        <ol>
+          <li>Use Chrome 139 or later on a desktop computer.</li>
+          <li>
+            Open <code>chrome://flags/#prompt-api-for-gemini-nano-multimodal-input</code>, set it to Enabled and restart
+            Chrome.
+          </li>
+          <li>
+            Open <code>chrome://settings/ai</code> and make sure on-device AI is on.
+          </li>
+          <li>Come back here and press Start. The model downloads once, in the background.</li>
+        </ol>
+        <div className="cta">
+          <button className="primary" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>

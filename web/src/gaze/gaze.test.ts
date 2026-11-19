@@ -43,6 +43,14 @@ describe("AttentionEngine", () => {
     expect(ev.filter((x) => x.type === "stuck")).toHaveLength(1);
   });
 
+  it("never makes a reader wait longer than the ceiling, and never fires before the floor", () => {
+    const e = new AttentionEngine();
+    const long = { ...targets[0], words: 400 };
+    const short = { ...targets[0], words: 5 };
+    expect(e.stuckAfter(long)).toBe(DEFAULT_ATTENTION.maxStuckMs);
+    expect(e.stuckAfter(short)).toBe(DEFAULT_ATTENTION.minStuckMs);
+  });
+
   it("flags a re-read when the reader goes back to an earlier block", () => {
     const e = new AttentionEngine();
     let t = 0;

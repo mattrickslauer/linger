@@ -25,4 +25,7 @@ Firebase #BuildHybridAI hackathon (Devpost). **Deadline: Mon 30 Nov 2026, 14:00 
 
 ## Commands
 - `cd web && npm run dev` (also syncs MediaPipe assets), `npm test`, `npm run build`
+- `cd web && npm run test:e2e`: 30-check end-to-end suite in real Chromium, no credentials needed. Run before every push; keep it green.
+- First-time Firebase: `./infra/setup-firebase.sh <project-id>` after `firebase login` + `gcloud auth login`.
+- The user's to-do list lives in `submission/YOUR_STEPS.md`; keep it current.
 - Deploy: `cd web && npm run build && cd .. && npx --prefix web firebase deploy --only hosting,remoteconfig`

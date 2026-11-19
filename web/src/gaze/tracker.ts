@@ -25,21 +25,43 @@ export class GazeTracker {
     this.video.muted = true;
   }
 
-  async start() {
+  /**
+   * Camera and model load in parallel: the permission prompt and the ~4 MB model download
+   * overlap instead of queueing. GPU first, CPU if the GPU delegate is unavailable.
+   */
+  async start(onStage?: (stage: "loading" | "camera" | "ready") => void) {
+    onStage?.("loading");
     const base = import.meta.env.BASE_URL + "mediapipe";
-    const fileset = await FilesetResolver.forVisionTasks(`${base}/wasm`);
-    this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: `${base}/face_landmarker.task`, delegate: "GPU" },
-      runningMode: "VIDEO",
-      numFaces: 1,
-      outputFacialTransformationMatrixes: true,
-    });
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480, facingMode: "user" },
-      audio: false,
-    });
-    this.video.srcObject = this.stream;
-    await this.video.play();
+    const camera = navigator.mediaDevices
+      .getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false })
+      .then(async (stream) => {
+        this.stream = stream;
+        this.video.srcObject = stream;
+        await this.video.play();
+        onStage?.("camera");
+      });
+    const model = (async () => {
+      const fileset = await FilesetResolver.forVisionTasks(`${base}/wasm`);
+      const make = (delegate: "GPU" | "CPU") =>
+        FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: `${base}/face_landmarker.task`, delegate },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFacialTransformationMatrixes: true,
+        });
+      try {
+        this.landmarker = await make("GPU");
+      } catch {
+        this.landmarker = await make("CPU");
+      }
+    })();
+    try {
+      await Promise.all([camera, model]);
+    } catch (e) {
+      this.stop();
+      throw e;
+    }
+    onStage?.("ready");
     this.loop();
   }
 

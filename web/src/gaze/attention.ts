@@ -39,6 +39,7 @@ export interface AttentionConfig {
   wpm: number; // assumed comfortable reading speed
   stuckFactor: number; // stuck when dwell > expected reading time × factor
   minStuckMs: number; // floor so short blocks don't trigger instantly
+  maxStuckMs: number; // ceiling: help must arrive while the reader is still stuck, not after they give up
   rereadWindowMs: number; // a return to an earlier block within this window counts as a re-read
   margin: number; // px of slack around blocks
 }
@@ -48,8 +49,9 @@ export const DEFAULT_ATTENTION: AttentionConfig = {
   switchMs: 250,
   lostMs: 1200,
   wpm: 200,
-  stuckFactor: 1.6,
-  minStuckMs: 5000,
+  stuckFactor: 1.2,
+  minStuckMs: 6000,
+  maxStuckMs: 12000,
   rereadWindowMs: 20000,
   margin: 60,
 };
@@ -130,7 +132,7 @@ export class AttentionEngine {
   /** Expected time to read a block, scaled by the stuck factor. */
   stuckAfter(t: Target): number {
     const expected = (t.words / this.cfg.wpm) * 60000;
-    return Math.max(this.cfg.minStuckMs, expected * this.cfg.stuckFactor);
+    return Math.min(this.cfg.maxStuckMs, Math.max(this.cfg.minStuckMs, expected * this.cfg.stuckFactor));
   }
 
   private enter(target: Target, since: number, t: number) {

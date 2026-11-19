@@ -40,13 +40,16 @@ const app = firebaseConfigured
 
 if (app) {
   // Debug token for local dev and for judges' testing builds (accepted by the rules).
-  if (env.VITE_APPCHECK_DEBUG === "true") {
+  const debug = env.VITE_APPCHECK_DEBUG === "true";
+  if (debug) {
     (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
       env.VITE_APPCHECK_DEBUG_TOKEN || true;
   }
-  if (env.VITE_RECAPTCHA_ENTERPRISE_KEY) {
+  // In debug mode the provider is never consulted, but App Check must still be initialised so
+  // every AI Logic request carries a token once enforcement is on.
+  if (env.VITE_RECAPTCHA_ENTERPRISE_KEY || debug) {
     initializeAppCheck(app, {
-      provider: new ReCaptchaEnterpriseProvider(env.VITE_RECAPTCHA_ENTERPRISE_KEY),
+      provider: new ReCaptchaEnterpriseProvider(env.VITE_RECAPTCHA_ENTERPRISE_KEY || "debug-mode"),
       isTokenAutoRefreshEnabled: true,
     });
   }
@@ -76,6 +79,7 @@ export async function loadTuning(): Promise<Tuning> {
       dwell_ms: DEFAULT_ATTENTION.dwellMs,
       stuck_factor: DEFAULT_ATTENTION.stuckFactor,
       min_stuck_ms: DEFAULT_ATTENTION.minStuckMs,
+      max_stuck_ms: DEFAULT_ATTENTION.maxStuckMs,
       reading_wpm: DEFAULT_ATTENTION.wpm,
       cloud_model: DEFAULT_TUNING.cloudModel,
       prefetch_on_device: true,
@@ -87,6 +91,7 @@ export async function loadTuning(): Promise<Tuning> {
         dwellMs: getValue(rc, "dwell_ms").asNumber(),
         stuckFactor: getValue(rc, "stuck_factor").asNumber(),
         minStuckMs: getValue(rc, "min_stuck_ms").asNumber(),
+        maxStuckMs: getValue(rc, "max_stuck_ms").asNumber(),
         wpm: getValue(rc, "reading_wpm").asNumber(),
       },
       cloudModel: getValue(rc, "cloud_model").asString(),

@@ -134,9 +134,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 .block {
-  font-family: var(--read);
-  font-size: 1.1875rem;
-  line-height: 1.75;
+  font-family: var(--read-font, var(--read));
+  font-size: var(--read-size, 1.1875rem);
+  line-height: var(--read-leading, 1.75);
   padding: 0.6rem 1rem;
   margin: 0 -1rem 0.6rem;
   border-radius: 14px;
@@ -291,6 +291,104 @@ figcaption { font-family: var(--ui); font-size: 0.95rem; color: var(--ink-soft);
   border-radius: 10px;
   padding: 0.75rem;
 }
+
+/* ---------------------------------------------------------------- library */
+
+.library {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  margin: 2rem 0 0.5rem;
+  max-width: 50rem;
+}
+.doc-choice {
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: var(--sheet);
+  color: var(--ink);
+  border: 1.5px solid var(--paper-deep);
+}
+.doc-choice span { font-size: 0.875rem; color: var(--ink-soft); }
+.doc-choice:hover { border-color: var(--ink-soft); }
+.doc-choice.chosen { border-color: var(--lamp-edge); background: color-mix(in srgb, var(--lamp) 55%, var(--sheet)); }
+
+/* ---------------------------------------------------------------- settings */
+
+.settings { position: relative; }
+.settings-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 10;
+  width: 19rem;
+  background: var(--sheet);
+  border: 1px solid var(--paper-deep);
+  border-radius: 14px;
+  padding: 0.75rem;
+  box-shadow: 0 16px 40px -20px color-mix(in srgb, var(--ink) 60%, transparent);
+  display: grid;
+  gap: 0.6rem;
+}
+.settings-panel fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.settings-panel legend { font-size: 0.875rem; color: var(--ink-soft); margin-bottom: 0.3rem; padding: 0; }
+.settings-panel button {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--paper-deep);
+  padding: 0.3rem 0.75rem;
+  font-size: 0.9rem;
+}
+.settings-panel button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ---------------------------------------------------------------- notices */
+
+.banner {
+  max-width: calc(var(--measure) + 18rem);
+  margin: 1rem auto 0;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--lamp) 70%, var(--paper));
+  border: 1px solid var(--lamp-edge);
+  font-size: 0.95rem;
+}
+.pill.rough { color: var(--danger); }
+button.pill { border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.note .why { margin: 0 1.5rem 0.4rem 0; font-size: 0.8125rem; color: var(--ink-soft); }
+.sheet h2 { font-family: var(--read); font-weight: 600; margin: 0; font-size: 1.4rem; }
+.sheet p, .sheet ol { margin: 0; }
+.sheet ol { padding-left: 1.25rem; display: grid; gap: 0.4rem; }
+.sheet code { font-size: 0.85em; background: var(--paper); padding: 0.05rem 0.3rem; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- camera setup */
+
+.setup {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--paper);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.setup-card { width: min(30rem, 100%); display: grid; gap: 0.8rem; text-align: center; justify-items: center; }
+.setup-card h2 { font-family: var(--read); font-weight: 600; font-size: 1.6rem; margin: 0.4rem 0 0; }
+.setup-card p { margin: 0; color: var(--ink-soft); max-width: 26rem; }
+.preview {
+  position: relative;
+  width: 16rem;
+  aspect-ratio: 4 / 3;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--paper-deep);
+  box-shadow: 0 0 0 3px var(--paper-deep);
+  transition: box-shadow 300ms;
+}
+.preview.found { box-shadow: 0 0 0 4px var(--device); }
+.preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+.preview-wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-soft); font-size: 0.9rem; }
 
 @media (max-width: 860px) {
   .row { grid-template-columns: minmax(0, 1fr); gap: 0; }

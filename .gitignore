@@ -25,3 +25,8 @@ web/public/mediapipe/
 # Local
 .DS_Store
 .claude/worktrees/
+
+# E2E test output
+web/.e2e-dist/
+web/.e2e-shots/
+.firebaserc

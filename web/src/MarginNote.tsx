@@ -6,21 +6,43 @@ export type Help =
   | { status: "done"; kind: "p"; data: Timed<ParagraphHelp> }
   | { status: "done"; kind: "figure"; data: Timed<string> };
 
-export function RouteBadge({ route, ms }: { route: Route; ms: number }) {
+export type Why = "long-dwell" | "reread" | "asked";
+
+const WHY: Record<Why, string> = {
+  "long-dwell": "You stayed on this a while.",
+  reread: "You came back to this.",
+  asked: "You asked.",
+};
+
+export function RouteBadge({ route, ms, early }: { route: Route; ms: number; early: boolean }) {
   const time = ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
+  const where = route === "on-device" ? "on this device" : "in the cloud";
   return (
     <span className={`route ${route}`}>
-      {route === "on-device" ? `Answered on this device in ${time}` : `Answered in the cloud in ${time}`}
+      {early ? `Prepared ${where} before you needed it` : `Answered ${where} in ${time}`}
     </span>
   );
 }
 
-export function MarginNote({ help, kind, onClose }: { help: Help; kind: "p" | "figure"; onClose: () => void }) {
+export function MarginNote({
+  help,
+  kind,
+  why,
+  early,
+  onClose,
+}: {
+  help: Help;
+  kind: "p" | "figure";
+  why: Why;
+  early: boolean;
+  onClose: () => void;
+}) {
   return (
     <div className="note" role="status" aria-live="polite">
       <button className="close" onClick={onClose} aria-label="Close note">
         ×
       </button>
+      <p className="why">{WHY[why]}</p>
       {help.status === "loading" && (
         <p className="pending">{kind === "p" ? "Writing a plainer version…" : "Reading the chart…"}</p>
       )}
@@ -38,13 +60,13 @@ export function MarginNote({ help, kind, onClose }: { help: Help; kind: "p" | "f
               ))}
             </dl>
           )}
-          <RouteBadge route={help.data.route} ms={help.data.ms} />
+          <RouteBadge route={help.data.route} ms={help.data.ms} early={early} />
         </>
       )}
       {help.status === "done" && help.kind === "figure" && (
         <>
           <p className="plain">{help.data.value}</p>
-          <RouteBadge route={help.data.route} ms={help.data.ms} />
+          <RouteBadge route={help.data.route} ms={help.data.ms} early={early} />
         </>
       )}
     </div>
