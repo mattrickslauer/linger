@@ -1,0 +1,27 @@
+# Internal strategy: analyses of judges and the competitive field. Never commit.
+STRATEGY.md
+docs/winners/
+docs/research/
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*-key.json
+service-account*.json
+
+# Node / build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.firebase/
+firebase-debug.log
+*.log
+
+# MediaPipe runtime and model, fetched by web/scripts/sync-mediapipe.mjs
+web/public/mediapipe/
+
+# Local
+.DS_Store
+.claude/worktrees/
