@@ -504,7 +504,7 @@ export default function App() {
               </div>
               <aside className="margin">
                 {shown?.id === b.id && help[b.id] ? (
-                  <MarginNote help={help[b.id]} kind={b.kind} why={shown.why} early={shown.early} onClose={() => setShown(null)} />
+                  <MarginNote help={help[b.id]} kind={b.kind} why={shown.why} early={shown.early} onClose={() => setShown(null)} onRetry={() => requestHelp(b.id)} />
                 ) : (
                   <button className="ask" onClick={() => showHelp(b.id, "asked")}>
                     {b.kind === "p" ? "Explain this" : "Explain this chart"}

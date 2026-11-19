@@ -30,12 +30,14 @@ export function MarginNote({
   why,
   early,
   onClose,
+  onRetry,
 }: {
   help: Help;
   kind: "p" | "figure";
   why: Why;
   early: boolean;
   onClose: () => void;
+  onRetry: () => void;
 }) {
   return (
     <div className="note" role="status" aria-live="polite">
@@ -46,7 +48,12 @@ export function MarginNote({
       {help.status === "loading" && (
         <p className="pending">{kind === "p" ? "Writing a plainer version…" : "Reading the chart…"}</p>
       )}
-      {help.status === "error" && <p className="error">{help.message}</p>}
+      {help.status === "error" && (
+        <>
+          <p className="error">{help.message}</p>
+          <button className="secondary retry" onClick={onRetry}>Try again</button>
+        </>
+      )}
       {help.status === "done" && help.kind === "p" && (
         <>
           <p className="plain">{help.data.value.plain}</p>
