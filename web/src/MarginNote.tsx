@@ -46,7 +46,7 @@ export function MarginNote({
       {help.status === "loading" && (
         <p className="pending">{kind === "p" ? "Writing a plainer version…" : "Reading the chart…"}</p>
       )}
-      {help.status === "error" && <p className="error">Help is unavailable: {help.message}</p>}
+      {help.status === "error" && <p className="error">{help.message}</p>}
       {help.status === "done" && help.kind === "p" && (
         <>
           <p className="plain">{help.data.value.plain}</p>

@@ -8,6 +8,7 @@ import { LIBRARY } from "./content/library";
 import {
   explainFigure,
   explainParagraph,
+  friendlyError,
   onDeviceAvailability,
   type ParagraphHelp,
   type Route,
@@ -114,7 +115,7 @@ export default function App() {
         }
       } catch (e) {
         cache.current.delete(id);
-        const message = e instanceof Error ? e.message : String(e);
+        const message = friendlyError(e);
         setHelp((h) => ({ ...h, [id]: { status: "error", message } }));
       }
     })();

@@ -71,7 +71,9 @@ const DEFAULT_TUNING: Tuning = {
 
 /** Reading thresholds are tuned live from the console, without shipping a build. */
 export async function loadTuning(): Promise<Tuning> {
-  if (!app) return DEFAULT_TUNING;
+  // Offline there is nothing to fetch, and starting Remote Config would make Installations
+  // throw an uncaught "app-offline" error. The code defaults equal the template.
+  if (!app || !navigator.onLine) return DEFAULT_TUNING;
   try {
     const rc = getRemoteConfig(app);
     rc.settings.minimumFetchIntervalMillis = 10 * 60 * 1000;

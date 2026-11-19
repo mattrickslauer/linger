@@ -1,5 +1,7 @@
 # What only you can do
 
+**Status 19 Nov:** project `linger-reader` created, `web/.env.local` written, hosting live at https://linger-reader.web.app, Remote Config deployed. **Blocking real AI calls:** step 3 (AI Logic "Get started" and App Check registration) is not done yet. The live site currently answers "The help service isn't switched on for this site yet."
+
 Everything else is built and tested (`cd web && npm test && npm run test:e2e`, 30/30 end-to-end checks). These steps need your accounts, your face or your voice. In order, with the time each takes.
 
 ## Today (about 45 minutes)

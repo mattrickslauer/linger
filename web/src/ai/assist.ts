@@ -44,6 +44,20 @@ export async function explainFigure(png: string, caption: string, cloudModel: st
   return { value: res.response.text().trim(), route: routeOf(res.response.inferenceSource), ms: performance.now() - t0 };
 }
 
+/** Turn SDK errors into something a reader can act on. The raw message goes to the console. */
+export function friendlyError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  console.warn("Linger help failed:", raw);
+  if (typeof navigator !== "undefined" && !navigator.onLine)
+    return "You're offline and this browser has no on-device model, so help will come back when you reconnect.";
+  if (/app ?check|appCheck/i.test(raw)) return "Linger couldn't verify this browser. Reload the page and try again.";
+  if (/genai config not found|API_NOT_ENABLED|PERMISSION_DENIED|403/i.test(raw))
+    return "The help service isn't switched on for this site yet.";
+  if (/429|quota|RESOURCE_EXHAUSTED/i.test(raw)) return "Too many requests right now. Try again in a minute.";
+  if (/fetch|network|Failed to fetch|5\d\d/i.test(raw)) return "Couldn't reach the help service. Check your connection and try again.";
+  return "Something went wrong writing this help. Try again.";
+}
+
 export function parseHelp(raw: string): ParagraphHelp {
   const cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
   try {
