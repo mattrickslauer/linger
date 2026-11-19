@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttentionEngine, type StuckReason, type Target } from "./gaze/attention";
 import { GazeTracker, type Frame } from "./gaze/tracker";
-import { fitRidge, predictRidge, type RidgeModel } from "./gaze/ridge";
+import { predictRidge, type RidgeModel } from "./gaze/ridge";
+import { CALIBRATION_POINTS, VALIDATION_POINTS, chooseModel, fit, type Sample } from "./gaze/calibration";
+import { DwellClick, ScrollIntent, type ClickTarget } from "./gaze/intent";
+import { GazeVisual } from "./GazeVisual";
 import { OneEuro } from "./gaze/oneEuro";
 import { docFromText, wordCount, type Block, type Doc } from "./content/article";
 import { LIBRARY } from "./content/library";
@@ -24,8 +27,7 @@ type Mode = "intro" | "setup" | "calibrating" | "eyes" | "mouse";
 type DeviceState = "checking" | "available" | "downloadable" | "downloading" | "unavailable";
 type SetupStage = "loading" | "camera" | "ready";
 
-const CALIB_POINTS = [0.1, 0.5, 0.9].flatMap((y) => [0.1, 0.5, 0.9].map((x) => ({ x, y })));
-const ROUGH_CALIBRATION_PX = 180;
+const ROUGH_CALIBRATION_PX = 200; // held-out error; higher than the old in-sample number by design
 const CALIB_MIN_SAMPLES = 12;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,6 +49,7 @@ export default function App() {
   const [help, setHelp] = useState<Record<string, Help>>({});
   const [stats, setStats] = useState<{ device: number[]; cloud: number[]; early: number }>({ device: [], cloud: [], early: 0 });
   const [calibIndex, setCalibIndex] = useState(-1);
+  const [calibPhase, setCalibPhase] = useState<"calibrate" | "validate">("calibrate");
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [showDot, setShowDot] = useState(true);
   const [frames, setFrames] = useState(0);
@@ -77,15 +80,23 @@ export default function App() {
 
   const blockEls = useRef(new Map<string, HTMLElement>());
   const pointRef = useRef<{ x: number; y: number } | null>(null);
-  const dotRef = useRef<HTMLDivElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
+  const calibTarget = useRef<{ x: number; y: number } | null>(null);
+  const ringRef = useRef<HTMLDivElement>(null);
+  const scrollIntent = useRef(new ScrollIntent());
+  const dwellClick = useRef(new DwellClick());
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
   const fileRef = useRef<HTMLInputElement>(null);
   const engineRef = useRef(new AttentionEngine());
   const trackerRef = useRef<GazeTracker | null>(null);
   const modelRef = useRef<RidgeModel | null>(null);
   const filters = useRef({ x: new OneEuro(0.8, 0.01), y: new OneEuro(0.8, 0.01) });
-  const sampling = useRef<{ on: boolean; target: { x: number; y: number } }>({ on: false, target: { x: 0, y: 0 } });
-  const samples = useRef<{ f: number[][]; x: number[]; y: number[] }>({ f: [], x: [], y: [] });
+  const sampling = useRef<{ on: boolean; target: { x: number; y: number }; point: number }>({
+    on: false,
+    target: { x: 0, y: 0 },
+    point: 0,
+  });
+  const samples = useRef<Sample[]>([]);
   const lastFaceAt = useRef(0);
   const cache = useRef(new Map<string, Promise<void>>());
   /** ids whose help was started speculatively on focus (on-device only) */
@@ -167,21 +178,53 @@ export default function App() {
     let raf = 0;
     const engine = engineRef.current;
     engine.reset();
+    let last = performance.now();
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      const now = performance.now();
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
       const targets: Target[] = [];
       docRef.current.blocks.forEach((b: Block, index) => {
         const el = blockEls.current.get(b.id);
         if (!el) return;
-        const r = el.getBoundingClientRect();
+        // The whole row (paragraph + its margin), so looking at the note or its buttons
+        // doesn't count as leaving the paragraph.
+        const r = (el.parentElement ?? el).getBoundingClientRect();
         targets.push({ id: b.id, index, words: wordCount(b), rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } });
       });
       const p = pointRef.current;
-      if (dotRef.current) {
-        dotRef.current.style.opacity = p ? "1" : "0";
-        if (p) dotRef.current.style.transform = `translate(${p.x}px, ${p.y}px)`;
+
+      if (mode === "eyes") {
+        // Scroll by looking at the top or bottom edge.
+        if (prefsRef.current.eyeScroll) {
+          const v = scrollIntent.current.update(p, now, window.innerHeight);
+          if (v) window.scrollBy(0, v * dt);
+        }
+        // Click by looking at a gaze-clickable control.
+        const ring = ringRef.current;
+        if (prefsRef.current.eyeClick) {
+          const els = Array.from(document.querySelectorAll<HTMLElement>("[data-gaze-click]"));
+          const clickTargets: ClickTarget[] = els.map((el, i) => {
+            const r = el.getBoundingClientRect();
+            return { id: String(i), rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } };
+          });
+          const c = dwellClick.current.update(p, now, clickTargets);
+          const el = c.id !== null ? els[Number(c.id)] : null;
+          if (ring) {
+            if (el && c.progress > 0.08) {
+              const r = el.getBoundingClientRect();
+              ring.style.left = `${r.left + r.width / 2}px`;
+              ring.style.top = `${r.top + r.height / 2}px`;
+              ring.style.setProperty("--p", String(c.progress));
+              ring.style.opacity = "1";
+            } else ring.style.opacity = "0";
+          }
+          if (c.fire !== null) els[Number(c.fire)]?.click();
+        } else if (ring) ring.style.opacity = "0";
       }
-      for (const ev of engine.update(p, performance.now(), targets)) {
+
+      for (const ev of engine.update(p, now, targets)) {
         if (ev.type === "focus") {
           setFocusId(ev.id);
           const t = tuningRef.current;
@@ -224,19 +267,6 @@ export default function App() {
     return () => clearInterval(id);
   }, [mode]);
 
-  // Mount the live camera preview while setting up.
-  useEffect(() => {
-    const v = trackerRef.current?.video;
-    const host = previewRef.current;
-    if (mode !== "setup" || !v || !host) return;
-    host.appendChild(v);
-    return () => {
-      if (v.parentElement === host) host.removeChild(v);
-      // Removing a <video> from the document pauses it; the tracker needs it running.
-      if (v.srcObject) v.play().catch(() => {});
-    };
-  }, [mode, stage]);
-
   // ------------------------------------------------------------------ starting
 
   const warmDeviceModel = () => {
@@ -256,14 +286,15 @@ export default function App() {
 
   const onFrame = (f: Frame) => {
     if (f.features) lastFaceAt.current = f.t;
-    if (sampling.current.on) {
-      if (f.features) {
-        samples.current.f.push(f.features);
-        samples.current.x.push(sampling.current.target.x);
-        samples.current.y.push(sampling.current.target.y);
-      }
-      return;
+    if (sampling.current.on && f.features) {
+      samples.current.push({
+        f: f.features,
+        x: sampling.current.target.x,
+        y: sampling.current.target.y,
+        point: sampling.current.point,
+      });
     }
+    // Keep predicting while validating, so the reader sees the estimate chase the dot.
     const m = modelRef.current;
     if (!m) return;
     if (!f.features) {
@@ -300,58 +331,74 @@ export default function App() {
     }
   };
 
+  /** Show one dot, let the eyes settle, then collect until it has enough eye samples. */
+  const collectDot = async (pt: { x: number; y: number }, point: number) => {
+    const target = { x: pt.x * window.innerWidth, y: pt.y * window.innerHeight };
+    calibTarget.current = target;
+    await sleep(800);
+    const before = samples.current.length;
+    sampling.current = { on: true, target, point };
+    // At least 1.1 s; up to 5 s if blinks or drop-outs left this dot short of samples.
+    const t0 = performance.now();
+    await sleep(1100);
+    while (samples.current.length - before < CALIB_MIN_SAMPLES && performance.now() - t0 < 5000) await sleep(100);
+    sampling.current.on = false;
+    return samples.current.length - before;
+  };
+
   const calibrate = async () => {
     setMode("calibrating");
-    samples.current = { f: [], x: [], y: [] };
+    setError(null);
+    samples.current = [];
     modelRef.current = null;
-    const perPoint: { start: number; end: number }[] = [];
-    for (let i = 0; i < CALIB_POINTS.length; i++) {
+    pointRef.current = null;
+
+    // 1. Sixteen fixation dots.
+    setCalibPhase("calibrate");
+    const counts: number[] = [];
+    for (let i = 0; i < CALIBRATION_POINTS.length; i++) {
       setCalibIndex(i);
-      const target = { x: CALIB_POINTS[i].x * window.innerWidth, y: CALIB_POINTS[i].y * window.innerHeight };
-      await sleep(900);
-      sampling.current = { on: true, target };
-      const start = samples.current.f.length;
-      // Collect for at least 1.3 s, and keep going (up to 5 s) until this dot has enough
-      // eye samples. Blinks and brief tracking drop-outs then cost time, not accuracy.
-      const t0 = performance.now();
-      await sleep(1300);
-      while (samples.current.f.length - start < CALIB_MIN_SAMPLES && performance.now() - t0 < 5000) await sleep(100);
-      sampling.current.on = false;
-      perPoint.push({ start, end: samples.current.f.length });
+      counts.push(await collectDot(CALIBRATION_POINTS[i], i));
     }
+    const train = [...samples.current];
+    if (train.length < 80 || counts.filter((c) => c < 5).length > 3) {
+      console.warn("Calibration samples per dot:", counts);
+      return abortCalibration(train.length);
+    }
+    // A provisional model, so the validation dots can show the live estimate.
+    filters.current.x.reset();
+    filters.current.y.reset();
+    modelRef.current = fit(train, 3);
+
+    // 2. Five held-out dots: the honest accuracy, and the choice of smoothing.
+    setCalibPhase("validate");
+    for (let i = 0; i < VALIDATION_POINTS.length; i++) {
+      setCalibIndex(i);
+      await collectDot(VALIDATION_POINTS[i], 100 + i);
+    }
+    const valid = samples.current.slice(train.length);
     setCalibIndex(-1);
-    const s = samples.current;
-    const thinDots = perPoint.filter((p) => p.end - p.start < 5).length;
-    if (s.f.length < 40 || thinDots > 2) {
-      console.warn("Calibration samples per dot:", perPoint.map((p) => p.end - p.start));
-      setError(
-        `The camera could only see your eyes for ${s.f.length} moments across ${CALIB_POINTS.length} dots. Face the screen with light on your face (not behind you), keep your glasses free of glare, and try again.`,
-      );
-      trackerRef.current?.stop();
-      setMode("intro");
-      return;
-    }
-    const model = fitRidge(s.f, s.x, s.y, 2);
-    // Accuracy: distance between each point's mean prediction and the point itself.
-    let err = 0;
-    let counted = 0;
-    for (const { start, end } of perPoint) {
-      if (end <= start) continue;
-      let px = 0;
-      let py = 0;
-      for (let k = start; k < end; k++) {
-        const p = predictRidge(model, s.f[k]);
-        px += p.x / (end - start);
-        py += p.y / (end - start);
-      }
-      err += Math.hypot(px - s.x[start], py - s.y[start]);
-      counted++;
-    }
-    setAccuracy(Math.round(err / Math.max(counted, 1)));
+    calibTarget.current = null;
+    if (valid.length < 25) return abortCalibration(train.length + valid.length);
+
+    const { model, error, lambda } = chooseModel(train, valid);
+    console.info(`Calibration: ${train.length}+${valid.length} samples, λ=${lambda}, held-out error ${Math.round(error)} px`);
+    setAccuracy(Math.round(error));
     filters.current.x.reset();
     filters.current.y.reset();
     modelRef.current = model;
     setMode("eyes");
+  };
+
+  const abortCalibration = (seen: number) => {
+    setCalibIndex(-1);
+    calibTarget.current = null;
+    modelRef.current = null;
+    setError(
+      `The camera could only see your eyes for ${seen} moments during calibration. Face the screen with light on your face (not behind you), keep your glasses free of glare, and try again.`,
+    );
+    trackerRef.current?.stop();
+    setMode("intro");
   };
 
   const startMouse = () => {
@@ -444,16 +491,16 @@ export default function App() {
           {mode === "mouse" && <span className="pill">Reading with the mouse</span>}
         </div>
         <div className="actions">
-          <ReaderSettings prefs={prefs} onChange={setPrefs} />
+          <ReaderSettings prefs={prefs} onChange={setPrefs} eyes={mode === "eyes"} />
           {mode === "eyes" && (
             <>
-              <button className="ghost" onClick={() => setShowDot((v) => !v)}>
-                {showDot ? "Hide gaze dot" : "Show gaze dot"}
+              <button className="ghost" onClick={() => setShowDot((v) => !v)} data-gaze-click>
+                {showDot ? "Hide tracking" : "Show tracking"}
               </button>
               <button className="ghost" onClick={calibrate}>Recalibrate</button>
             </>
           )}
-          {reading && <button className="ghost" onClick={stop}>Stop reading</button>}
+          {reading && <button className="ghost" onClick={stop} data-gaze-click>Stop reading</button>}
         </div>
       </header>
 
@@ -555,7 +602,11 @@ export default function App() {
                 {shown?.id === b.id && help[b.id] ? (
                   <MarginNote help={help[b.id]} kind={b.kind} why={shown.why} early={shown.early} onClose={() => setShown(null)} onRetry={() => requestHelp(b.id)} />
                 ) : (
-                  <button className="ask" onClick={() => showHelp(b.id, "asked")}>
+                  <button
+                    className="ask"
+                    onClick={() => showHelp(b.id, "asked")}
+                    {...(focusId === b.id ? { "data-gaze-click": "" } : {})}
+                  >
                     {b.kind === "p" ? "Explain this" : "Explain this chart"}
                   </button>
                 )}
@@ -579,15 +630,19 @@ export default function App() {
       {mode === "setup" && (
         <div className="setup" role="dialog" aria-label="Camera setup">
           <div className="setup-card">
-            <div ref={previewRef} className={`preview ${faceSeen ? "found" : ""}`}>
-              {stage !== "ready" && <span className="preview-wait">{stage === "loading" ? "Starting the camera…" : "Loading the face tracker…"}</span>}
+            <div className={`preview ${faceSeen ? "found" : ""}`}>
+              {stage === "ready" ? (
+                <GazeVisual tracker={trackerRef.current} placement="hero" lines={false} />
+              ) : (
+                <span className="preview-wait">{stage === "loading" ? "Starting the camera…" : "Loading the face tracker…"}</span>
+              )}
             </div>
             <h2>{stage !== "ready" ? "Getting ready" : faceSeen ? "We can see your eyes" : "Move into view"}</h2>
             <p>
               {stage !== "ready"
                 ? "The face tracker runs in this tab. Nothing from the camera is uploaded."
                 : faceSeen
-                  ? "Next, look at nine dots in turn so Linger can learn where you are looking. It takes about 20 seconds."
+                  ? `Next, follow ${CALIBRATION_POINTS.length} dots with your eyes, then ${VALIDATION_POINTS.length} more that check the accuracy. Keep your head still. About 45 seconds.`
                   : "Sit about an arm's length away, facing the screen, with light on your face."}
             </p>
             <div className="cta">
@@ -601,22 +656,30 @@ export default function App() {
       )}
 
       {mode === "calibrating" && calibIndex >= 0 && (
-        <div className="calibrate" role="dialog" aria-label="Eye calibration">
+        <div className={`calibrate ${calibPhase}`} role="dialog" aria-label="Eye calibration">
+          <GazeVisual
+            tracker={trackerRef.current}
+            placement="center"
+            target={calibTarget}
+            gaze={calibPhase === "validate" ? pointRef : undefined}
+          />
           <p>
-            Look at the dot until it moves. Point {calibIndex + 1} of {CALIB_POINTS.length}.
+            {calibPhase === "calibrate"
+              ? `Look at the dot until it moves. Dot ${calibIndex + 1} of ${CALIBRATION_POINTS.length}.`
+              : `Checking accuracy: dot ${calibIndex + 1} of ${VALIDATION_POINTS.length}. The green line is where Linger thinks you're looking.`}
             <span className={`eyes-state ${faceSeen ? "ok" : "lost"}`}>
               {faceSeen ? "Eyes found" : "Can't see your eyes. Face the screen."}
             </span>
           </p>
-          <div
-            key={calibIndex}
-            className="target"
-            style={{ left: `${CALIB_POINTS[calibIndex].x * 100}%`, top: `${CALIB_POINTS[calibIndex].y * 100}%` }}
-          />
+          {(() => {
+            const pt = (calibPhase === "calibrate" ? CALIBRATION_POINTS : VALIDATION_POINTS)[calibIndex];
+            return <div key={`${calibPhase}${calibIndex}`} className="target" style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }} />;
+          })()}
         </div>
       )}
 
-      {mode === "eyes" && <div ref={dotRef} className={`gaze ${showDot ? "" : "hidden"}`} aria-hidden />}
+      {mode === "eyes" && showDot && <GazeVisual tracker={trackerRef.current} placement="corner" gaze={pointRef} />}
+      {mode === "eyes" && <div ref={ringRef} className="dwell-ring" aria-hidden />}
     </div>
   );
 }

@@ -234,9 +234,10 @@ figcaption { font-family: var(--ui); font-size: 0.95rem; color: var(--ink-soft);
 }
 .calibrate p {
   position: absolute;
-  top: 50%;
+  top: calc(50% + 6.6rem); /* below the centred camera panel */
   left: 50%;
-  transform: translate(-50%, 3rem);
+  width: min(28rem, 80vw);
+  transform: translateX(-50%);
   margin: 0;
   color: var(--ink-soft);
 }
@@ -250,6 +251,56 @@ figcaption { font-family: var(--ui); font-size: 0.95rem; color: var(--ink-soft);
   box-shadow: 0 0 0 10px color-mix(in srgb, var(--lamp-edge) 60%, transparent);
   animation: shrink 900ms ease-in forwards;
 }
+/* ---------------------------------------------------------------- gaze visual */
+
+.gv { display: block; background: #000; border-radius: 16px; }
+.gv-hero { width: 100%; height: 100%; border-radius: 0; }
+.gv-center {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 15rem;
+  aspect-ratio: 4 / 3;
+  transform: translate(-50%, -50%);
+  z-index: 21;
+  box-shadow: 0 0 0 3px var(--paper-deep);
+}
+.gv-corner {
+  position: fixed;
+  left: 1rem;
+  bottom: 3.2rem;
+  width: 10rem;
+  aspect-ratio: 4 / 3;
+  z-index: 16;
+  opacity: 0.92;
+  box-shadow: 0 6px 24px -10px color-mix(in srgb, var(--ink) 60%, transparent);
+}
+.gv-lines {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 22;
+}
+.gv-lines .to-target { stroke: var(--lamp-edge); stroke-width: 1.5; stroke-dasharray: 6 6; }
+.gv-lines .to-gaze { stroke: var(--device); stroke-width: 2; opacity: 0.85; }
+.gv-lines .gaze-mark { fill: color-mix(in srgb, var(--device) 25%, transparent); stroke: var(--device); stroke-width: 2; }
+
+.dwell-ring {
+  position: fixed;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  pointer-events: none;
+  z-index: 23;
+  border-radius: 50%;
+  background: conic-gradient(var(--device) calc(var(--p, 0) * 360deg), transparent 0);
+  mask: radial-gradient(circle, transparent 15px, #000 16px);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
 .calibrate p { text-align: center; }
 .eyes-state { display: block; margin-top: 0.4rem; font-size: 0.9rem; font-weight: 700; }
 .eyes-state.ok { color: var(--device); }
@@ -389,7 +440,7 @@ button.pill { border: 0; cursor: pointer; text-decoration: underline; text-under
 .setup-card p { margin: 0; color: var(--ink-soft); max-width: 26rem; }
 .preview {
   position: relative;
-  width: 16rem;
+  width: min(24rem, 100%);
   aspect-ratio: 4 / 3;
   border-radius: 20px;
   overflow: hidden;

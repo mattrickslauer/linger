@@ -41,7 +41,7 @@ export function MarginNote({
 }) {
   return (
     <div className="note" role="status" aria-live="polite">
-      <button className="close" onClick={onClose} aria-label="Close note">
+      <button className="close" onClick={onClose} aria-label="Close note" data-gaze-click>
         ×
       </button>
       <p className="why">{WHY[why]}</p>
@@ -51,7 +51,7 @@ export function MarginNote({
       {help.status === "error" && (
         <>
           <p className="error">{help.message}</p>
-          <button className="secondary retry" onClick={onRetry}>Try again</button>
+          <button className="secondary retry" onClick={onRetry} data-gaze-click>Try again</button>
         </>
       )}
       {help.status === "done" && help.kind === "p" && (

@@ -18,6 +18,8 @@ export class GazeTracker {
   private lastVideoTime = -1;
   readonly video: HTMLVideoElement;
   frames = 0;
+  /** Latest face landmarks (normalised image coords), for drawing. Null when no face. */
+  latest: { x: number; y: number }[] | null = null;
 
   constructor(private onFrame: (f: Frame) => void) {
     this.video = document.createElement("video");
@@ -85,6 +87,7 @@ export class GazeTracker {
     const r = lm.detectForVideo(this.video, t);
     this.frames++;
     const face = r.faceLandmarks[0];
+    this.latest = face ?? null;
     const mat = r.facialTransformationMatrixes?.[0]?.data;
     this.onFrame({ t, features: face ? gazeFeatures(face, mat) : null });
   };

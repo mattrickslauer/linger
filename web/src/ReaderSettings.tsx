@@ -4,9 +4,11 @@ export interface Prefs {
   size: number; // rem
   leading: number;
   font: "literata" | "atkinson";
+  eyeScroll: boolean; // look at the top/bottom edge to scroll
+  eyeClick: boolean; // look at a button for a second to press it
 }
 
-const DEFAULT_PREFS: Prefs = { size: 1.1875, leading: 1.75, font: "literata" };
+const DEFAULT_PREFS: Prefs = { size: 1.1875, leading: 1.75, font: "literata", eyeScroll: true, eyeClick: true };
 const SIZES = [
   { label: "Smaller", value: 1.0625 },
   { label: "Normal", value: 1.1875 },
@@ -32,7 +34,7 @@ export function savePrefs(p: Prefs) {
   }
 }
 
-export function ReaderSettings({ prefs, onChange }: { prefs: Prefs; onChange: (p: Prefs) => void }) {
+export function ReaderSettings({ prefs, onChange, eyes }: { prefs: Prefs; onChange: (p: Prefs) => void; eyes?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -101,6 +103,25 @@ export function ReaderSettings({ prefs, onChange }: { prefs: Prefs; onChange: (p
               Hyperlegible
             </button>
           </fieldset>
+          {eyes && (
+            <fieldset>
+              <legend>With your eyes</legend>
+              <button
+                className={prefs.eyeScroll ? "on" : ""}
+                aria-pressed={prefs.eyeScroll}
+                onClick={() => onChange({ ...prefs, eyeScroll: !prefs.eyeScroll })}
+              >
+                Scroll at the edges
+              </button>
+              <button
+                className={prefs.eyeClick ? "on" : ""}
+                aria-pressed={prefs.eyeClick}
+                onClick={() => onChange({ ...prefs, eyeClick: !prefs.eyeClick })}
+              >
+                Look to press
+              </button>
+            </fieldset>
+          )}
         </div>
       )}
     </div>

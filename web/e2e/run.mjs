@@ -227,17 +227,26 @@ try {
     const ready = await until(page.getByRole("heading", { name: /Move into view|We can see your eyes/ }), 60000);
     check("A10 face tracker and camera ready", ready, `${((Date.now() - t2) / 1000).toFixed(1)} s`);
     check("A10 calibration waits for a face", await page.getByRole("button", { name: "Begin calibration" }).isDisabled());
-    // Regression: calibration unmounts the preview, and browsers pause a <video> removed from
-    // the document. A paused camera means zero calibration samples ("could not see your eyes").
-    const keepsPlaying = await page.evaluate(async () => {
-      const v = document.querySelector(".preview video");
-      if (!v) return "no preview video";
-      const t = v.currentTime;
-      v.remove();
-      await new Promise((r) => setTimeout(r, 800));
-      return !v.paused && v.currentTime > t ? true : `paused=${v.paused} advanced=${v.currentTime > t}`;
+    // The camera view is drawn onto a canvas (the <video> never enters the page, because a video
+    // removed from the page pauses, which once froze calibration). It must show live frames.
+    const live = await page.evaluate(async () => {
+      const c = document.querySelector(".preview canvas");
+      if (!c) return "no camera canvas";
+      const snap = () => {
+        const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+        let sum = 0;
+        for (let i = 0; i < d.length; i += 97) sum += d[i];
+        return sum;
+      };
+      const a = snap();
+      await new Promise((r) => setTimeout(r, 1200));
+      const b = snap();
+      return a > 0 && a !== b ? true : `blank=${a === 0} changed=${a !== b}`;
     });
-    check("A10 camera keeps running when the preview is removed", keepsPlaying === true, String(keepsPlaying));
+    check("A10 camera view shows live frames", live === true, String(live));
+    await page.screenshot({ path: join(shots, "a10-setup.png") });
+    // Calibration takes the same tracker; a paused video must resume on its own.
+    check("A10 no <video> element is mounted in the page", (await page.locator("video").count()) === 0);
     await page.screenshot({ path: join(shots, "a10-setup.png") });
     await page.getByRole("button", { name: "Cancel" }).click();
 
