@@ -37,6 +37,7 @@ webcam ──► MediaPipe Face Landmarker (WASM/GPU, local)
 - **Calibration is 16 fixation dots + 5 held-out validation dots** (`gaze/calibration.ts`). The ridge penalty is chosen on the held-out dots, and the accuracy shown is the held-out error, not the (optimistic) training error. The final model is refit on all samples. Each dot collects until it has 12 eye samples (≤ 5 s).
 - **The reader sees what the tracker sees** (`GazeVisual.tsx`): the camera frame is drawn on a canvas with eye outlines and irises, plus lines from each eye to the calibration dot (dashed) and to the live estimate (solid). The `<video>` never enters the document: browsers pause a video removed from the page, which once froze calibration.
 - **Gaze intent** (`gaze/intent.ts`, eye mode only, toggles in Text settings): scroll when the gaze holds in the top/bottom 14 % of the viewport, faster the deeper it looks; press controls marked `data-gaze-click` after a 1 s dwell with a visible ring, a 50 px magnetic radius, 200 ms blink grace and a 1.5 s cooldown. Attention targets are whole rows (paragraph + margin) so looking at a note's buttons doesn't drop the paragraph.
+- **The mouse corrects drift** (`gaze/adapt.ts`, "Learn from my mouse", on by default). In eye mode, while the pointer is being moved (not idle, not flicked) each eye frame is labelled with the pointer position 80 ms earlier, and a click labels the previous 300 ms of frames with the click point (weighted ×4). A running offset (EMA of cursor − estimate) cancels drift within about a second; every 2 s the ridge model is refit on calibration + the last 400 mouse samples (weighted ×2) and the offset is re-centred. The accuracy pill then shows the live median error. Clicks made by gaze dwell are synthetic and don't feed back.
 - **"Prepared before you needed it" is only claimed for real prefetches.** Ids requested speculatively on focus are tracked separately from ones the reader asked for.
 - **Offline.** `public/sw.js` caches the shell, hashed assets, MediaPipe WASM/model and fonts (never Firebase/Gemini). With no network, `PREFER_IN_CLOUD` chart help falls back to Nano (verified in e2e B6).
 - **PDFs never leave the device.** pdf.js (lazy-loaded) extracts text; lines are grouped by baseline and paragraphs by vertical gaps. Returning to an earlier, already-read block within 20 s is a re-read and triggers immediately.
@@ -56,6 +57,7 @@ webcam ──► MediaPipe Face Landmarker (WASM/GPU, local)
 | `web/src/gaze/attention.ts` | Attention engine (pure, clock-injected, unit-tested) |
 | `web/src/gaze/calibration.ts` | 16+5 dot plan, held-out error, ridge-penalty selection |
 | `web/src/gaze/intent.ts` | Eye scrolling and dwell-to-press (pure, unit-tested) |
+| `web/src/gaze/adapt.ts` | Mouse-as-ground-truth drift correction and online refit (pure, unit-tested) |
 | `web/src/GazeVisual.tsx` | Camera canvas with eye overlay and eye-to-target lines |
 | `web/src/firebase.ts` | App, App Check, Remote Config, the two hybrid models |
 | `web/src/ai/assist.ts` | `explainParagraph`, `explainFigure`, inference source + latency |

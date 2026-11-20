@@ -4,6 +4,7 @@ import { GazeTracker, type Frame } from "./gaze/tracker";
 import { predictRidge, type RidgeModel } from "./gaze/ridge";
 import { CALIBRATION_POINTS, VALIDATION_POINTS, chooseModel, fit, type Sample } from "./gaze/calibration";
 import { DwellClick, ScrollIntent, type ClickTarget } from "./gaze/intent";
+import { DEFAULT_ADAPT, GazeAdapter, PointerTrail } from "./gaze/adapt";
 import { GazeVisual } from "./GazeVisual";
 import { OneEuro } from "./gaze/oneEuro";
 import { docFromText, wordCount, type Block, type Doc } from "./content/article";
@@ -81,6 +82,12 @@ export default function App() {
   const blockEls = useRef(new Map<string, HTMLElement>());
   const pointRef = useRef<{ x: number; y: number } | null>(null);
   const calibTarget = useRef<{ x: number; y: number } | null>(null);
+  const adapterRef = useRef<GazeAdapter | null>(null);
+  const pointerTrail = useRef(new PointerTrail());
+  const recentFrames = useRef<{ t: number; f: number[] }[]>([]);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPointerMove = useRef(0);
+  const [learning, setLearning] = useState<{ n: number; error: number | null }>({ n: 0, error: null });
   const ringRef = useRef<HTMLDivElement>(null);
   const scrollIntent = useRef(new ScrollIntent());
   const dwellClick = useRef(new DwellClick());
@@ -263,8 +270,37 @@ export default function App() {
     const id = setInterval(() => {
       setFrames(trackerRef.current?.frames ?? 0);
       setFaceSeen(performance.now() - lastFaceAt.current < 600);
+      const a = adapterRef.current;
+      if (a) setLearning({ n: a.learned, error: a.liveError });
+      // Only draw the eyes-to-cursor line while the mouse is actually being moved.
+      if (performance.now() - lastPointerMove.current > 400) cursorRef.current = null;
     }, 250);
     return () => clearInterval(id);
+  }, [mode]);
+
+  // In eye mode the mouse is ground truth: moving it while watching it, or clicking, teaches
+  // the gaze model and cancels drift.
+  useEffect(() => {
+    if (mode !== "eyes") return;
+    const move = (e: PointerEvent) => {
+      const t = performance.now();
+      pointerTrail.current.push(t, e.clientX, e.clientY);
+      lastPointerMove.current = t;
+      if (prefsRef.current.learnFromMouse) cursorRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const down = (e: PointerEvent) => {
+      const a = adapterRef.current;
+      if (!a || !prefsRef.current.learnFromMouse) return;
+      // People look where they click: label the last ~300 ms of eye frames with the click point.
+      const t = performance.now();
+      for (const fr of recentFrames.current) if (t - fr.t < 300) a.observe(fr.f, { x: e.clientX, y: e.clientY }, fr.t, "click");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerdown", down, true);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerdown", down, true);
+    };
   }, [mode]);
 
   // ------------------------------------------------------------------ starting
@@ -301,7 +337,18 @@ export default function App() {
       pointRef.current = null;
       return;
     }
-    const raw = predictRidge(m, f.features);
+    const adapter = adapterRef.current;
+    if (adapter) {
+      recentFrames.current.push({ t: f.t, f: f.features });
+      while (recentFrames.current.length && f.t - recentFrames.current[0].t > 500) recentFrames.current.shift();
+      // The reader is moving the mouse and watching it: that's a free calibration sample.
+      // Eyes trail a moving cursor slightly, so label with where it was ~80 ms ago.
+      if (prefsRef.current.learnFromMouse) {
+        const target = pointerTrail.current.at(f.t - 80);
+        if (target) adapter.observe(f.features, target, f.t);
+      }
+    }
+    const raw = adapter ? adapter.predict(f.features) : predictRidge(m, f.features);
     const x = Math.min(Math.max(filters.current.x.filter(raw.x, f.t), 0), window.innerWidth);
     const y = Math.min(Math.max(filters.current.y.filter(raw.y, f.t), 0), window.innerHeight);
     pointRef.current = { x, y };
@@ -351,6 +398,7 @@ export default function App() {
     setError(null);
     samples.current = [];
     modelRef.current = null;
+    adapterRef.current = null;
     pointRef.current = null;
 
     // 1. Sixteen fixation dots.
@@ -387,6 +435,10 @@ export default function App() {
     filters.current.x.reset();
     filters.current.y.reset();
     modelRef.current = model;
+    // From here on, the mouse keeps teaching the model (see gaze/adapt.ts).
+    adapterRef.current = new GazeAdapter([...train, ...valid], model, { ...DEFAULT_ADAPT, lambda });
+    recentFrames.current = [];
+    setLearning({ n: 0, error: null });
     setMode("eyes");
   };
 
@@ -465,7 +517,8 @@ export default function App() {
 
   const avg = (a: number[]) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
   const reading = mode === "eyes" || mode === "mouse";
-  const rough = mode === "eyes" && accuracy !== null && accuracy > ROUGH_CALIBRATION_PX;
+  const currentError = learning.error ?? accuracy;
+  const rough = mode === "eyes" && currentError !== null && currentError > ROUGH_CALIBRATION_PX;
 
   return (
     <div className={`app ${reading && focusId ? "has-focus" : ""}`}>
@@ -485,7 +538,12 @@ export default function App() {
           )}
           {mode === "eyes" && (
             <span className={`pill camera ${rough ? "rough" : ""}`}>
-              Camera on, stays on this device{accuracy !== null ? `. Accuracy about ${accuracy} px` : ""}
+              Camera on, stays on this device
+              {learning.error !== null
+                ? `. Accuracy about ${Math.round(learning.error)} px, learning from your mouse (${learning.n})`
+                : accuracy !== null
+                  ? `. Accuracy about ${accuracy} px`
+                  : ""}
             </span>
           )}
           {mode === "mouse" && <span className="pill">Reading with the mouse</span>}
@@ -506,8 +564,9 @@ export default function App() {
 
       {rough && (
         <div className="banner" role="status">
-          Tracking is rough right now (about {accuracy} px off). Sit an arm's length away with light on your face, then
-          recalibrate. <button className="ghost" onClick={calibrate}>Recalibrate</button>
+          Tracking is rough right now (about {Math.round(currentError ?? 0)} px off). Move the mouse slowly around the page
+          and watch it: Linger learns from it and corrects itself. Or{" "}
+          <button className="ghost" onClick={calibrate}>recalibrate</button>
         </div>
       )}
 
@@ -678,7 +737,9 @@ export default function App() {
         </div>
       )}
 
-      {mode === "eyes" && showDot && <GazeVisual tracker={trackerRef.current} placement="corner" gaze={pointRef} />}
+      {mode === "eyes" && showDot && (
+        <GazeVisual tracker={trackerRef.current} placement="corner" gaze={pointRef} target={cursorRef} />
+      )}
       {mode === "eyes" && <div ref={ringRef} className="dwell-ring" aria-hidden />}
     </div>
   );

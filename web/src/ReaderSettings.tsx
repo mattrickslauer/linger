@@ -6,9 +6,17 @@ export interface Prefs {
   font: "literata" | "atkinson";
   eyeScroll: boolean; // look at the top/bottom edge to scroll
   eyeClick: boolean; // look at a button for a second to press it
+  learnFromMouse: boolean; // moving or clicking the mouse corrects gaze drift
 }
 
-const DEFAULT_PREFS: Prefs = { size: 1.1875, leading: 1.75, font: "literata", eyeScroll: true, eyeClick: true };
+const DEFAULT_PREFS: Prefs = {
+  size: 1.1875,
+  leading: 1.75,
+  font: "literata",
+  eyeScroll: true,
+  eyeClick: true,
+  learnFromMouse: true,
+};
 const SIZES = [
   { label: "Smaller", value: 1.0625 },
   { label: "Normal", value: 1.1875 },
@@ -119,6 +127,13 @@ export function ReaderSettings({ prefs, onChange, eyes }: { prefs: Prefs; onChan
                 onClick={() => onChange({ ...prefs, eyeClick: !prefs.eyeClick })}
               >
                 Look to press
+              </button>
+              <button
+                className={prefs.learnFromMouse ? "on" : ""}
+                aria-pressed={prefs.learnFromMouse}
+                onClick={() => onChange({ ...prefs, learnFromMouse: !prefs.learnFromMouse })}
+              >
+                Learn from my mouse
               </button>
             </fieldset>
           )}
