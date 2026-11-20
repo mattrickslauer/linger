@@ -301,6 +301,8 @@ figcaption { font-family: var(--ui); font-size: 0.95rem; color: var(--ink-soft);
   transition: opacity 120ms;
 }
 
+.calibrate .target { z-index: 23; }
+.target.pursuit { animation: none; left: 50%; top: 50%; box-shadow: 0 0 0 8px color-mix(in srgb, var(--lamp-edge) 60%, transparent); }
 .calibrate p { text-align: center; }
 .eyes-state { display: block; margin-top: 0.4rem; font-size: 0.9rem; font-weight: 700; }
 .eyes-state.ok { color: var(--device); }

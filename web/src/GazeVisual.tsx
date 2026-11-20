@@ -20,7 +20,10 @@ export function GazeVisual({
   target,
   gaze,
   lines = true,
+  zoom = true,
 }: {
+  /** crop to the eyes instead of showing the whole face */
+  zoom?: boolean;
   tracker: GazeTracker | null;
   placement: "hero" | "center" | "corner";
   /** where the eyes should be looking (calibration dot), screen px */
@@ -31,6 +34,7 @@ export function GazeVisual({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const crop = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
   useEffect(() => {
     let raf = 0;
@@ -44,21 +48,41 @@ export function GazeVisual({
       const w = (canvas.width = canvas.clientWidth * devicePixelRatio);
       const h = (canvas.height = canvas.clientHeight * devicePixelRatio);
 
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      const lm = tracker?.latest;
+
+      // Source rectangle in video px: the whole frame, or (zoomed) the band around both eyes.
+      let want = { x: 0, y: 0, w: vw, h: vh };
+      if (zoom && lm && lm.length >= 478) {
+        const xs = [33, 133, 362, 263].map((i) => lm[i].x * vw);
+        const ys = [159, 145, 386, 374, 33, 263].map((i) => lm[i].y * vh);
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const bw = Math.max(80, (Math.max(...xs) - Math.min(...xs)) * 1.45);
+        const bh = bw * (h / w); // keep the canvas aspect
+        want = { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+      } else {
+        // Cover-fit the whole frame into the canvas aspect.
+        const ch = vw * (h / w);
+        want = ch <= vh ? { x: 0, y: (vh - ch) / 2, w: vw, h: ch } : { x: (vw - vh * (w / h)) / 2, y: 0, w: vh * (w / h), h: vh };
+      }
+      // Glide the crop instead of jumping with every landmark jitter.
+      const c = (crop.current ??= want);
+      const k = 0.15;
+      crop.current = { x: c.x + (want.x - c.x) * k, y: c.y + (want.y - c.y) * k, w: c.w + (want.w - c.w) * k, h: c.h + (want.h - c.h) * k };
+      const src = crop.current;
+
       // Mirror, so it behaves like a mirror for the reader.
       ctx.save();
       ctx.translate(w, 0);
       ctx.scale(-1, 1);
-      // Cover-fit the 4:3 camera into the canvas.
-      const s = Math.max(w / v.videoWidth, h / v.videoHeight);
-      const dw = v.videoWidth * s;
-      const dh = v.videoHeight * s;
-      const ox = (w - dw) / 2;
-      const oy = (h - dh) / 2;
-      ctx.drawImage(v, ox, oy, dw, dh);
+      ctx.drawImage(v, src.x, src.y, src.w, src.h, 0, 0, w, h);
       ctx.restore();
 
-      const lm = tracker?.latest;
-      const toCanvas = (p: Pt) => ({ x: w - (ox + p.x * dw), y: oy + p.y * dh });
+      // Video px → canvas px (mirrored).
+      const fromVideo = (p: Pt) => ({ x: w - ((p.x - src.x) / src.w) * w, y: ((p.y - src.y) / src.h) * h });
+      const toCanvas = (p: Pt) => fromVideo({ x: p.x * vw, y: p.y * vh });
       const eyesOnScreen: Pt[] = [];
       if (lm && lm.length >= 478) {
         ctx.lineWidth = 1.5 * devicePixelRatio;
@@ -85,6 +109,21 @@ export function GazeVisual({
           ctx.strokeStyle = "#5fc2a8";
           ctx.stroke();
           eyesOnScreen.push({ x: rect.left + c.x / devicePixelRatio, y: rect.top + c.y / devicePixelRatio });
+        }
+        // The pupil found directly in the zoomed eye image: a small cross.
+        const found = tracker?.pupils.last;
+        for (const e of [found?.right, found?.left]) {
+          if (!e?.pupil) continue;
+          const p = fromVideo(e.pupil);
+          const s = 5 * devicePixelRatio;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.5 * devicePixelRatio;
+          ctx.beginPath();
+          ctx.moveTo(p.x - s, p.y);
+          ctx.lineTo(p.x + s, p.y);
+          ctx.moveTo(p.x, p.y - s);
+          ctx.lineTo(p.x, p.y + s);
+          ctx.stroke();
         }
       }
 
@@ -117,7 +156,7 @@ export function GazeVisual({
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [tracker, target, gaze, lines]);
+  }, [tracker, target, gaze, lines, zoom]);
 
   return (
     <>

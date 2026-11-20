@@ -5,6 +5,7 @@
 
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { gazeFeatures } from "./features";
+import { PupilFinder } from "./pupil";
 
 export interface Frame {
   t: number;
@@ -20,6 +21,8 @@ export class GazeTracker {
   frames = 0;
   /** Latest face landmarks (normalised image coords), for drawing. Null when no face. */
   latest: { x: number; y: number }[] | null = null;
+  /** Zoomed eye crops and the pupils found in them (video px), for drawing. */
+  readonly pupils = new PupilFinder();
 
   constructor(private onFrame: (f: Frame) => void) {
     this.video = document.createElement("video");
@@ -35,7 +38,11 @@ export class GazeTracker {
     onStage?.("loading");
     const base = import.meta.env.BASE_URL + "mediapipe";
     const camera = navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false })
+      // HD where the camera allows it: at 640×480 an eye is only ~30 px wide.
+      .getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: "user" },
+        audio: false,
+      })
       .then(async (stream) => {
         this.stream = stream;
         this.video.srcObject = stream;
@@ -89,6 +96,12 @@ export class GazeTracker {
     const face = r.faceLandmarks[0];
     this.latest = face ?? null;
     const mat = r.facialTransformationMatrixes?.[0]?.data;
-    this.onFrame({ t, features: face ? gazeFeatures(face, mat) : null });
+    if (!face) {
+      this.onFrame({ t, features: null });
+      return;
+    }
+    const size = { w: this.video.videoWidth, h: this.video.videoHeight };
+    const pupils = this.pupils.find(this.video, face);
+    this.onFrame({ t, features: gazeFeatures(face, mat, size, pupils) });
   };
 }

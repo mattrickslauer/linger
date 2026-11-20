@@ -30,6 +30,7 @@ type SetupStage = "loading" | "camera" | "ready";
 
 const ROUGH_CALIBRATION_PX = 200; // held-out error; higher than the old in-sample number by design
 const CALIB_MIN_SAMPLES = 12;
+const PURSUIT_SECONDS = 15;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Shown {
@@ -50,7 +51,8 @@ export default function App() {
   const [help, setHelp] = useState<Record<string, Help>>({});
   const [stats, setStats] = useState<{ device: number[]; cloud: number[]; early: number }>({ device: [], cloud: [], early: 0 });
   const [calibIndex, setCalibIndex] = useState(-1);
-  const [calibPhase, setCalibPhase] = useState<"calibrate" | "validate">("calibrate");
+  const [calibPhase, setCalibPhase] = useState<"calibrate" | "pursuit" | "validate">("calibrate");
+  const pursuitDot = useRef<HTMLDivElement>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [showDot, setShowDot] = useState(true);
   const [frames, setFrames] = useState(0);
@@ -97,7 +99,8 @@ export default function App() {
   const engineRef = useRef(new AttentionEngine());
   const trackerRef = useRef<GazeTracker | null>(null);
   const modelRef = useRef<RidgeModel | null>(null);
-  const filters = useRef({ x: new OneEuro(0.8, 0.01), y: new OneEuro(0.8, 0.01) });
+  // Steady on fixations, quick on saccades: a higher beta lets fine, fast movements through.
+  const filters = useRef({ x: new OneEuro(0.9, 0.03), y: new OneEuro(0.9, 0.03) });
   const sampling = useRef<{ on: boolean; target: { x: number; y: number }; point: number }>({
     on: false,
     target: { x: 0, y: 0 },
@@ -393,6 +396,41 @@ export default function App() {
     return samples.current.length - before;
   };
 
+  /**
+   * Smooth pursuit: a dot glides along a slow Lissajous path and every eye frame is labelled with
+   * where the dot was ~100 ms earlier (eyes trail a moving target). Peak speed ≈ 400 px/s, slow
+   * enough for the eyes to follow without catch-up saccades.
+   */
+  const pursue = () =>
+    new Promise<void>((resolve) => {
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const at = (s: number) => ({
+        x: W * (0.5 + 0.42 * Math.sin((2 * Math.PI * s) / 9)),
+        y: H * (0.5 + 0.4 * Math.sin((2 * Math.PI * s) / 7 + Math.PI / 4)),
+      });
+      const t0 = performance.now();
+      const run = () => {
+        const s = (performance.now() - t0) / 1000;
+        const dot = pursuitDot.current;
+        const p = at(s);
+        if (dot) {
+          dot.style.left = `${p.x}px`;
+          dot.style.top = `${p.y}px`;
+        }
+        calibTarget.current = p;
+        // Settle for the first second (the eyes find the dot), then sample.
+        if (s > 1 && s < PURSUIT_SECONDS) sampling.current = { on: true, target: at(s - 0.1), point: 200 + Math.floor(s * 2) };
+        if (s >= PURSUIT_SECONDS) {
+          sampling.current.on = false;
+          resolve();
+          return;
+        }
+        requestAnimationFrame(run);
+      };
+      requestAnimationFrame(run);
+    });
+
   const calibrate = async () => {
     setMode("calibrating");
     setError(null);
@@ -408,17 +446,22 @@ export default function App() {
       setCalibIndex(i);
       counts.push(await collectDot(CALIBRATION_POINTS[i], i));
     }
-    const train = [...samples.current];
-    if (train.length < 80 || counts.filter((c) => c < 5).length > 3) {
+    if (samples.current.length < 80 || counts.filter((c) => c < 5).length > 3) {
       console.warn("Calibration samples per dot:", counts);
-      return abortCalibration(train.length);
+      return abortCalibration(samples.current.length);
     }
+
+    // 2. Smooth pursuit: follow a gliding dot. Hundreds of samples between and beyond the grid.
+    setCalibPhase("pursuit");
+    setCalibIndex(0);
+    await pursue();
+    const train = [...samples.current];
     // A provisional model, so the validation dots can show the live estimate.
     filters.current.x.reset();
     filters.current.y.reset();
     modelRef.current = fit(train, 3);
 
-    // 2. Five held-out dots: the honest accuracy, and the choice of smoothing.
+    // 3. Five held-out dots: the honest accuracy, and the choice of smoothing.
     setCalibPhase("validate");
     for (let i = 0; i < VALIDATION_POINTS.length; i++) {
       setCalibIndex(i);
@@ -701,7 +744,7 @@ export default function App() {
               {stage !== "ready"
                 ? "The face tracker runs in this tab. Nothing from the camera is uploaded."
                 : faceSeen
-                  ? `Next, follow ${CALIBRATION_POINTS.length} dots with your eyes, then ${VALIDATION_POINTS.length} more that check the accuracy. Keep your head still. About 45 seconds.`
+                  ? `Next, look at ${CALIBRATION_POINTS.length} dots, follow one gliding dot, then ${VALIDATION_POINTS.length} more that check the accuracy. Keep your head still. About a minute.`
                   : "Sit about an arm's length away, facing the screen, with light on your face."}
             </p>
             <div className="cta">
@@ -725,15 +768,21 @@ export default function App() {
           <p>
             {calibPhase === "calibrate"
               ? `Look at the dot until it moves. Dot ${calibIndex + 1} of ${CALIBRATION_POINTS.length}.`
-              : `Checking accuracy: dot ${calibIndex + 1} of ${VALIDATION_POINTS.length}. The green line is where Linger thinks you're looking.`}
+              : calibPhase === "pursuit"
+                ? "Follow the moving dot with your eyes. Keep your head still."
+                : `Checking accuracy: dot ${calibIndex + 1} of ${VALIDATION_POINTS.length}. The green line is where Linger thinks you're looking.`}
             <span className={`eyes-state ${faceSeen ? "ok" : "lost"}`}>
               {faceSeen ? "Eyes found" : "Can't see your eyes. Face the screen."}
             </span>
           </p>
-          {(() => {
-            const pt = (calibPhase === "calibrate" ? CALIBRATION_POINTS : VALIDATION_POINTS)[calibIndex];
-            return <div key={`${calibPhase}${calibIndex}`} className="target" style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }} />;
-          })()}
+          {calibPhase === "pursuit" ? (
+            <div ref={pursuitDot} className="target pursuit" />
+          ) : (
+            (() => {
+              const pt = (calibPhase === "calibrate" ? CALIBRATION_POINTS : VALIDATION_POINTS)[calibIndex];
+              return <div key={`${calibPhase}${calibIndex}`} className="target" style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }} />;
+            })()
+          )}
         </div>
       )}
 
