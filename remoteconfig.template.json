@@ -1,0 +1,39 @@
+{
+  "parameters": {
+    "dwell_ms": {
+      "defaultValue": { "value": "600" },
+      "description": "How long gaze must settle on a block before it is lit (ms).",
+      "valueType": "NUMBER"
+    },
+    "stuck_factor": {
+      "defaultValue": { "value": "1.2" },
+      "description": "A reader is stuck when they stay longer than expected reading time times this factor.",
+      "valueType": "NUMBER"
+    },
+    "min_stuck_ms": {
+      "defaultValue": { "value": "6000" },
+      "description": "Floor for the stuck timer so short paragraphs do not trigger instantly (ms).",
+      "valueType": "NUMBER"
+    },
+    "max_stuck_ms": {
+      "defaultValue": { "value": "12000" },
+      "description": "Ceiling for the stuck timer: help must arrive while the reader is still stuck (ms).",
+      "valueType": "NUMBER"
+    },
+    "reading_wpm": {
+      "defaultValue": { "value": "200" },
+      "description": "Assumed comfortable reading speed, words per minute.",
+      "valueType": "NUMBER"
+    },
+    "cloud_model": {
+      "defaultValue": { "value": "gemini-3.5-flash-lite" },
+      "description": "Cloud model used when Gemini Nano is unavailable and for chart explanations.",
+      "valueType": "STRING"
+    },
+    "prefetch_on_device": {
+      "defaultValue": { "value": "true" },
+      "description": "Speculatively prepare paragraph help on-device when a reader settles (only when Nano is ready).",
+      "valueType": "BOOLEAN"
+    }
+  }
+}
