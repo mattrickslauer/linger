@@ -1,4 +1,3 @@
-import GoogleSignIn
 import SwiftUI
 
 @main
@@ -14,7 +13,6 @@ struct VerifiedApp: App {
     WindowGroup {
       RootView()
         .environment(app)
-        .onOpenURL { url in _ = GIDSignIn.sharedInstance.handle(url) }
     }
   }
 }

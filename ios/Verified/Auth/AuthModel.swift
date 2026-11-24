@@ -1,7 +1,6 @@
 @preconcurrency import FirebaseAuth
 import FirebaseCore
 @preconcurrency import FirebaseFirestore
-@preconcurrency import GoogleSignIn
 import Observation
 import UIKit
 
@@ -32,31 +31,30 @@ final class AuthModel {
     }
   }
 
-  /// Google sign-in -> Firebase Auth credential.
-  func signInWithGoogle() async {
+  /// accounts.mattrickslauer.com login (see AccountsSignIn) -> Firebase custom token.
+  func signIn() async {
     error = nil
-    guard let clientID = FirebaseApp.app()?.options.clientID else {
-      error = "Google sign-in is not enabled yet. Enable it in the Firebase console and re-download GoogleService-Info.plist."
-      return
-    }
-    guard let root = Self.rootViewController() else { return }
+    guard let anchor = Self.keyWindow() else { return }
     busy = true
     defer { busy = false }
     do {
-      GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-      let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: root)
-      guard let idToken = result.user.idToken?.tokenString else {
-        error = "Google did not return an ID token."
-        return
+      let tokens = try await AccountsSignIn.run(anchor: anchor)
+      let result = try await Auth.auth().signIn(withCustomToken: tokens.firebaseToken)
+      let fbUser = result.user
+      if (fbUser.displayName ?? "").isEmpty {
+        let local = (tokens.email ?? "").split(separator: "@").first.map(String.init) ?? ""
+        let name = local.replacingOccurrences(of: ".", with: " ").capitalized
+        let change = fbUser.createProfileChangeRequest()
+        change.displayName = name.isEmpty ? "Verified user" : name
+        try await change.commitChanges()
+        user = SignedInUser(uid: fbUser.uid, name: change.displayName ?? "Verified user",
+                            photoURL: fbUser.photoURL?.absoluteString)
       }
-      let credential = GoogleAuthProvider.credential(
-        withIDToken: idToken, accessToken: result.user.accessToken.tokenString)
-      let authResult = try await Auth.auth().signIn(with: credential)
-      writeUserDoc(authResult.user)
+      writeUserDoc(fbUser)
+    } catch AccountsSignIn.Failure.cancelled {
+      // closed the sheet: not an error
     } catch {
-      if (error as NSError).code != GIDSignInError.Code.canceled.rawValue {
-        self.error = error.localizedDescription
-      }
+      self.error = error.localizedDescription
     }
   }
 
@@ -85,7 +83,6 @@ final class AuthModel {
   }
 
   func signOut() {
-    GIDSignIn.sharedInstance.signOut()
     try? Auth.auth().signOut()
   }
 
@@ -97,10 +94,7 @@ final class AuthModel {
     ], merge: true) { _ in }
   }
 
-  private static func rootViewController() -> UIViewController? {
-    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-    var vc = scene?.keyWindow?.rootViewController
-    while let presented = vc?.presentedViewController { vc = presented }
-    return vc
+  private static func keyWindow() -> UIWindow? {
+    UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.keyWindow
   }
 }

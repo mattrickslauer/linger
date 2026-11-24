@@ -65,12 +65,7 @@ ssh -o BatchMode=yes "$host" "mkdir -p $remote"
 rsync -az --delete --exclude .build --exclude '*.xcodeproj' "$ios" "$repo/shared" "$host:$remote/"
 rsync -az "$plist" "$host:$remote/ios/Verified/GoogleService-Info.plist"
 
-# Google sign-in URL scheme comes from the plist (absent until Google sign-in has an iOS OAuth client).
-reversed_client_id="$(python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb")).get("REVERSED_CLIENT_ID",""))' "$plist")"
-[[ -n "$reversed_client_id" ]] || echo "note: $plist has no REVERSED_CLIENT_ID, so Google sign-in will not work in this build"
-gid="${reversed_client_id:+GOOGLE_REVERSED_CLIENT_ID=$reversed_client_id}"
-
-common="$gid -project Verified.xcodeproj -scheme Verified -configuration Release -destination 'generic/platform=iOS' \
+common="-project Verified.xcodeproj -scheme Verified -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath ~/$remote/DerivedData -clonedSourcePackagesDirPath ~/$remote/SourcePackages"
 
 set +e

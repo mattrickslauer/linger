@@ -18,9 +18,9 @@ struct SignInView: View {
       }
       Spacer()
       Button {
-        Task { await app.auth.signInWithGoogle() }
+        Task { await app.auth.signIn() }
       } label: {
-        Label("Sign in with Google", systemImage: "person.badge.key.fill")
+        Label("Sign in", systemImage: "person.badge.key.fill")
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
