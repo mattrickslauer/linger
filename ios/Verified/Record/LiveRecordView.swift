@@ -1,3 +1,4 @@
+import AVFoundation
 import Charts
 import MapKit
 import SwiftUI
@@ -8,6 +9,8 @@ import VerifiedCore
 struct LiveRecordView: View {
   @Environment(AppModel.self) private var app
   @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+  @State private var front = false
+  @State private var flash: AVCaptureDevice.FlashMode = .off
 
   var body: some View {
     let rec = app.recorder
@@ -17,6 +20,7 @@ struct LiveRecordView: View {
         cameraView(rec)
         if let coach = rec.coach { CoachBanner(coach: coach).padding(10) }
       }
+      .overlay(alignment: .topTrailing) { cameraButtons(rec).padding(10) }
       .frame(maxHeight: .infinity)
       .clipShape(RoundedRectangle(cornerRadius: 20))
 
@@ -67,6 +71,45 @@ struct LiveRecordView: View {
     #else
       CameraPreview(session: rec.camera.session)
     #endif
+  }
+
+  /// Flash (Off → Auto → On, only when the lens has one) and front/back flip.
+  @ViewBuilder private func cameraButtons(_ rec: RecorderModel) -> some View {
+    let position: AVCaptureDevice.Position = front ? .front : .back
+    VStack(spacing: 10) {
+      if CameraController.hasFlash(position) {
+        Button {
+          flash = switch flash { case .off: .auto; case .auto: .on; default: .off }
+          rec.camera.setFlash(flash)
+        } label: { roundIcon(flashUI.icon) }
+          .accessibilityLabel(flashUI.label)
+      }
+      if CameraController.canFlip {
+        Button {
+          front.toggle()
+          rec.camera.setPosition(front ? .front : .back)
+          rec.camera.setFlash(CameraController.hasFlash(front ? .front : .back) ? flash : .off)
+        } label: { roundIcon("arrow.triangle.2.circlepath.camera.fill") }
+          .accessibilityLabel(front ? "Switch to back camera" : "Switch to front camera")
+          .disabled(rec.shooting)
+      }
+    }
+  }
+
+  private var flashUI: (icon: String, label: String) {
+    switch flash {
+    case .on: ("bolt.fill", "Flash on")
+    case .auto: ("bolt.badge.automatic.fill", "Flash auto")
+    default: ("bolt.slash.fill", "Flash off")
+    }
+  }
+
+  private func roundIcon(_ name: String) -> some View {
+    Image(systemName: name)
+      .font(.system(size: 17, weight: .semibold))
+      .foregroundStyle(.white)
+      .frame(width: 44, height: 44)
+      .background(.black.opacity(0.55), in: Circle())
   }
 
   private func stats(_ rec: RecorderModel) -> some View {

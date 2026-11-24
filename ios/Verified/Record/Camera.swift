@@ -11,15 +11,50 @@ enum CameraError: LocalizedError {
   }
 }
 
-/// Back camera, photo output only. All session work happens on a private serial queue.
+/// Back (or front) camera, photo output only. All session work happens on a private serial queue.
 nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
   let session = AVCaptureSession()
   private let output = AVCapturePhotoOutput()
   private let queue = DispatchQueue(label: "verified.camera")
   private var configured = false
+  private var input: AVCaptureDeviceInput?
+  private var flashMode: AVCaptureDevice.FlashMode = .off
   private var pending: [Int64: CheckedContinuation<Data, Error>] = [:]
 
   static var hasCamera: Bool { AVCaptureDevice.default(for: .video) != nil }
+
+  static func device(_ position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+    AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+  }
+
+  /// Both a front and a back camera exist.
+  static var canFlip: Bool { device(.back) != nil && device(.front) != nil }
+
+  /// The camera at `position` has a flash (front cameras use the screen and report none here).
+  static func hasFlash(_ position: AVCaptureDevice.Position) -> Bool { device(position)?.hasFlash ?? false }
+
+  /// Swaps the session's input to the camera at `position`; keeps the current one if that fails.
+  func setPosition(_ position: AVCaptureDevice.Position) {
+    queue.async {
+      guard self.configured, self.input?.device.position != position,
+            let device = Self.device(position),
+            let next = try? AVCaptureDeviceInput(device: device)
+      else { return }
+      self.session.beginConfiguration()
+      if let old = self.input { self.session.removeInput(old) }
+      if self.session.canAddInput(next) {
+        self.session.addInput(next)
+        self.input = next
+      } else if let old = self.input {
+        self.session.addInput(old)
+      }
+      self.session.commitConfiguration()
+    }
+  }
+
+  func setFlash(_ mode: AVCaptureDevice.FlashMode) {
+    queue.async { self.flashMode = mode }
+  }
 
   static func requestAccess() async -> Bool {
     switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -42,12 +77,15 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
 
   private func configureIfNeeded() {
     guard !configured,
-          let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+          let device = Self.device(.back) ?? Self.device(.front),
           let input = try? AVCaptureDeviceInput(device: device)
     else { return }
     session.beginConfiguration()
     session.sessionPreset = .photo
-    if session.canAddInput(input) { session.addInput(input) }
+    if session.canAddInput(input) {
+      session.addInput(input)
+      self.input = input
+    }
     if session.canAddOutput(output) { session.addOutput(output) }
     output.maxPhotoQualityPrioritization = .speed
     session.commitConfiguration()
@@ -64,6 +102,7 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
         }
         let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         settings.photoQualityPrioritization = .speed
+        if self.output.supportedFlashModes.contains(self.flashMode) { settings.flashMode = self.flashMode }
         if let conn = self.output.connection(with: .video), conn.isVideoRotationAngleSupported(90) {
           conn.videoRotationAngle = 90
         }

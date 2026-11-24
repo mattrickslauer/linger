@@ -64,6 +64,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.FlashAuto
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -199,6 +203,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, Modifier.align(Alignment.BottomCenter).padding(12.dp).zIndex(4f)) {
                 mode = it
             }
+            if (!mapBig) CameraButtons(cam, mode, flipEnabled = !recording && !ui.checking && !shooting, Modifier.align(Alignment.BottomEnd).padding(12.dp).zIndex(4f))
         }
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -269,6 +274,35 @@ private fun ModeToggle(mode: Prefs.CaptureMode, enabled: Boolean, modifier: Modi
     }
 }
 
+/** Flash (only when the lens has one) and front/back flip, as round buttons over the camera. */
+@Composable
+private fun CameraButtons(cam: CaptureController, mode: Prefs.CaptureMode, flipEnabled: Boolean, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (cam.hasFlash) {
+            val (icon, label) = when {
+                cam.flash == Flash.On -> Icons.Filled.FlashOn to "Flash on"
+                cam.flash == Flash.Auto && mode == Prefs.CaptureMode.Photo -> Icons.Filled.FlashAuto to "Flash auto"
+                else -> Icons.Filled.FlashOff to "Flash off"
+            }
+            RoundIconButton(icon, label, enabled = true, onClick = cam::cycleFlash)
+        }
+        if (cam.canFlip) {
+            RoundIconButton(Icons.Filled.Cameraswitch, if (cam.front) "Switch to back camera" else "Switch to front camera", enabled = flipEnabled) {
+                cam.front = !cam.front
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoundIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(Color(0x99000000))
+            .clickable(enabled = enabled, onClick = onClick, role = Role.Button, onClickLabel = label),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = Color.White.copy(alpha = if (enabled) 1f else 0.5f)) }
+}
+
 /** Big round shutter: green camera disc for photo, red disc for video, red rounded square while recording. */
 @Composable
 private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, onClick: () -> Unit) {
@@ -317,9 +351,54 @@ private fun CoachBanner(ui: RecUi, modifier: Modifier) {
     }
 }
 
-/** CameraX use cases for the live view: Preview + (ImageCapture | VideoCapture), rebound when the mode changes. */
+/** Flash: photo cycles Off → Auto → On (ImageCapture flash); video uses the torch (Auto acts as Off). */
+private enum class Flash { Off, Auto, On }
+
+/** CameraX use cases for the live view: Preview + (ImageCapture | VideoCapture), rebound when the mode or lens changes. */
 private class CaptureController {
     val image: ImageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
+    var front by mutableStateOf(false)
+    var flash by mutableStateOf(Flash.Off)
+    /** Whether the bound lens has a flash unit (front cameras usually don't). */
+    var hasFlash by mutableStateOf(false)
+        private set
+    /** Whether the device has both a front and a back camera. */
+    var canFlip by mutableStateOf(false)
+        private set
+    private var camera: androidx.camera.core.Camera? = null
+    private var mode = Prefs.CaptureMode.Photo
+
+    fun bind(provider: ProcessCameraProvider, lifecycle: androidx.lifecycle.LifecycleOwner, preview: Preview, mode: Prefs.CaptureMode) {
+        canFlip = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) && provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+        if (!canFlip) front = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && !provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+        val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        val capture: UseCase = if (mode == Prefs.CaptureMode.Video) video else image
+        provider.unbindAll()
+        this.mode = mode
+        camera = provider.bindToLifecycle(lifecycle, selector, preview, capture)
+        hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
+        applyFlash()
+    }
+
+    fun cycleFlash() {
+        flash = when (mode) {
+            Prefs.CaptureMode.Video -> if (flash == Flash.On) Flash.Off else Flash.On
+            else -> Flash.entries[(flash.ordinal + 1) % Flash.entries.size]
+        }
+        applyFlash()
+    }
+
+    private fun applyFlash() {
+        val on = hasFlash && flash == Flash.On
+        image.flashMode = when {
+            !hasFlash -> ImageCapture.FLASH_MODE_OFF
+            flash == Flash.On -> ImageCapture.FLASH_MODE_ON
+            flash == Flash.Auto -> ImageCapture.FLASH_MODE_AUTO
+            else -> ImageCapture.FLASH_MODE_OFF
+        }
+        // Torch is a continuous light: only in video mode, so photo flash isn't fighting it.
+        camera?.cameraControl?.enableTorch(mode == Prefs.CaptureMode.Video && on)
+    }
     val video: VideoCapture<Recorder> = VideoCapture.withOutput(
         Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))).build(),
     )
@@ -372,15 +451,12 @@ private fun CameraPreview(cam: CaptureController, mode: Prefs.CaptureMode, modif
     val pv = remember { PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     AndroidView(modifier = modifier, factory = { pv })
     // Bind Preview + one capture use case; rebinding per mode works on every hardware level (3 use cases may not).
-    LaunchedEffect(mode) {
+    LaunchedEffect(mode, cam.front) {
         val future = ProcessCameraProvider.getInstance(ctx)
         future.addListener({
             runCatching {
-                val provider = future.get()
                 val preview = Preview.Builder().build().also { it.surfaceProvider = pv.surfaceProvider }
-                val capture: UseCase = if (mode == Prefs.CaptureMode.Video) cam.video else cam.image
-                provider.unbindAll()
-                provider.bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                cam.bind(future.get(), lifecycle, preview, mode)
             }.onFailure { Log.e("VerifiedCam", "bind failed", it) }
         }, ContextCompat.getMainExecutor(ctx))
     }
