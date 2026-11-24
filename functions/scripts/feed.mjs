@@ -21,3 +21,7 @@ for (const d of s.docs) {
 }
 if (s.empty) console.log("(feed is empty)");
 else console.log("feed keys:", Object.keys(s.docs[0].data()).sort().join(","));
+const all = await getFirestore().collection("moments").get();
+const by = {};
+for (const d of all.docs) by[d.get("status")] = (by[d.get("status")] ?? 0) + 1;
+console.log(`counts: moments ${all.size} ${JSON.stringify(by)} · feed ${s.size} (sealed ${s.docs.filter((d) => d.get("status") === "sealed").length}, rejected ${s.docs.filter((d) => d.get("status") === "rejected").length})`);

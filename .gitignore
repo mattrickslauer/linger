@@ -4,3 +4,9 @@ node_modules/
 *.log
 .env*
 !.env.example
+functions/lib/
+dist/
+.emulator-data/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*

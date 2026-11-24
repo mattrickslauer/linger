@@ -45,12 +45,18 @@ Requirements: Node 22, a JDK **21+** (firebase-tools 15 refuses Java 17; `infra/
 
 ```bash
 npm run setup          # installs functions/ deps
-npm test               # seal unit tests (shared/test-vectors.json) + security-rules tests on the emulator
-npm run test:e2e       # boots firestore+functions emulators, seeds 4 Moments, waits for the seal, asserts outcomes
+npm test               # unit + rules + e2e (all below)
+npm run test:unit      # seal unit tests against shared/test-vectors.json
+npm run test:rules     # 17 security-rules tests on a throwaway firestore emulator
+npm run test:e2e       # boots firestore+functions emulators, seeds 4 Moments, waits for the seal, prints the feed
+                       # last line: counts: moments 4 {"sealed":3,"rejected":1} · feed 4 (sealed 3, rejected 1)
 npm run emulators      # auth 9099 · firestore 8080 · functions 5001 · hosting 5000 · UI http://127.0.0.1:4000
 npm run seed           # (in another terminal, emulators running) writes the 4 demo Moments; function seals them
-node functions/scripts/feed.mjs   # print the public feed from the emulator
+npm run feed           # print the public feed + counts from the emulator
 ```
+
+Hosting emulator serves `web/dist`: run `npm --prefix web run build` first to see the app on :5000
+(or use the Vite dev server pointed at the emulators).
 
 Emulator mode for clients: connect Auth to `127.0.0.1:9099`, Firestore to `127.0.0.1:8080`
 (Android emulator: `10.0.2.2`), project id `linger-reader`. Google sign-in against the Auth emulator shows the
@@ -62,4 +68,7 @@ emulator's fake account picker.
 - `functions/src/index.ts` — `onMomentWritten` (moments/{id}) and `onChunkWritten` (moments/{id}/chunks/{seq})
   both call the idempotent `trySeal(id)`: it no-ops unless `status == "submitted" && judge && skeptic && !seal`
   and every chunk has arrived, then in one transaction writes `seal`, `status` and `feed/{id}`.
+- `feed/{id}.track` is an array of `{lat, lng}` maps (≤200 points). Firestore cannot store nested arrays, so the
+  contract's `[[lat,lng], ...]` is not representable; clients read `p.lat` / `p.lng`.
+  `feed/{id}` also carries `skepticReasons: string[]` (additive).
 - `firestore.rules` — contract in `docs/ARCHITECTURE.md`; tests in `functions/test/rules.test.ts`.
