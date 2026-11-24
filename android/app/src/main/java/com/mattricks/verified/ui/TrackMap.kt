@@ -9,6 +9,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mapbox.geojson.Geometry
 import com.mapbox.geojson.LineString
 import com.mapbox.geojson.Point
 import com.mapbox.maps.EdgeInsets
@@ -48,7 +49,8 @@ fun TrackMap(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolean =
     } else {
         LaunchedEffect(pts.size) {
             if (pts.isEmpty()) return@LaunchedEffect
-            val geom = if (pts.size == 1) pts[0] else LineString.fromLngLats(pts)
+            // Explicit public type: the inferred common supertype is package-private in geojson → IllegalAccessError at runtime.
+            val geom: Geometry = if (pts.size == 1) pts[0] else LineString.fromLngLats(pts)
             viewport.transitionToOverviewState(
                 OverviewViewportStateOptions.Builder().geometry(geom).padding(EdgeInsets(48.0, 48.0, 48.0, 48.0)).maxZoom(17.0).build(),
             )
