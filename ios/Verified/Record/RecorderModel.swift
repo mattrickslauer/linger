@@ -109,10 +109,16 @@ final class RecorderModel {
     error = nil
     lastSubmitted = nil
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
+    do {
+      try MomentStore.create(id: id, owner: owner, intention: intention.trimmingCharacters(in: .whitespacesAndNewlines),
+                             category: category, startedAt: t)
+    } catch {
+      // Raw vault: without a local copy we don't record at all.
+      self.error = "Could not save this Moment on the phone: \(error.localizedDescription)"
+      momentId = nil
+      return
+    }
     phase = .recording
-
-    MomentStore.create(id: id, owner: owner, intention: intention.trimmingCharacters(in: .whitespacesAndNewlines),
-                       category: category, startedAt: t)
     sync.watch(momentId: id)
     location.start { [weak self] s in self?.addGPS(s) }
     motion.start { [weak self] s in self?.addMotion(s) }
@@ -154,18 +160,29 @@ final class RecorderModel {
   // MARK: - Chunks
 
   /// Seals the current buffer into the chain and writes it. `frame` goes beside the payload, not in it.
-  private func closeChunk(frame: ProofFrame? = nil) {
-    guard momentId != nil else { return }
+  /// Returns false (and surfaces the error) when the raw-vault journal write failed.
+  @discardableResult
+  private func closeChunk(frame: ProofFrame? = nil) -> Bool {
+    guard momentId != nil else { return true }
     let t1 = max(nowMs(), chunkT0)
     let payload = buffer.string
     let chunk = chain.append(t0: chunkT0, t1: t1, payload: payload)
     chunks.append(chunk)
     chunkCount = chunks.count
-    MomentStore.writeChunk(
-      momentId: chain.momentId, chunk: chunk,
-      frame: frame.map { MomentStore.Frame(jpegB64: $0.jpegB64, w: $0.w, h: $0.h, t: $0.t) })
     buffer = Payload()
     chunkT0 = t1
+    do {
+      try MomentStore.writeChunk(
+        momentId: chain.momentId, chunk: chunk,
+        frame: frame.map { MomentStore.Frame(jpegB64: $0.jpegB64, w: $0.w, h: $0.h, t: $0.t) })
+      return true
+    } catch {
+      let msg = "Could not save chunk \(chunk.seq) on the phone: \(error.localizedDescription)"
+      print("[Verified]", msg)
+      self.error = msg
+      coach = Coach(kind: .retake, text: msg)
+      return false
+    }
   }
 
   // MARK: - Proof shot + live coach
@@ -215,7 +232,7 @@ final class RecorderModel {
       extras: [("ok", .bool(check.ok)), ("mode", .string(check.mode.rawValue))]))
     buffer.frameSha = frame.frameSha
     buffer.check = check
-    closeChunk(frame: frame)  // one frame max per chunk: close right away
+    guard closeChunk(frame: frame) else { return }  // one frame max per chunk: close right away
 
     let prefix = switch check.mode {
     case .onDevice: "On-device"
@@ -244,9 +261,23 @@ final class RecorderModel {
     closeChunk()
     let endedAt = max(stopT, chunks.last?.t1 ?? stopT)
     let summary = MomentSummary.compute(startedAt: startedAt, endedAt: endedAt, chunks: chunks)
-    MomentStore.submit(
-      momentId: id, endedAt: endedAt, chunkCount: chunks.count, headHash: chain.lastHash,
-      summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes))
+    do {
+      try MomentStore.submit(
+        momentId: id, endedAt: endedAt, chunkCount: chunks.count, headHash: chain.lastHash,
+        summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes))
+    } catch {
+      // Raw vault: not journaled means not submitted; the Moment stays `recording` on the server.
+      self.error = "Could not save this Moment on the phone, so it was not submitted: \(error.localizedDescription)"
+      coach = nil
+      phase = .idle
+      momentId = nil
+      return
+    }
+    // Give the queued writes a head start, then check the server has every chunk.
+    Task {
+      try? await Task.sleep(for: .seconds(5))
+      await Vault.shared.verifyAll()
+    }
 
     lastSubmitted = Submitted(id: id, intention: intention)
     intention = ""

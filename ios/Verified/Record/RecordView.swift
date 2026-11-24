@@ -23,6 +23,7 @@ struct RecordView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
           if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
+          if let err = rec.error { Text(err).font(.footnote).foregroundStyle(Theme.bad) }
 
           VStack(alignment: .leading, spacing: 8) {
             Text("What are you about to do?").font(.headline)

@@ -154,7 +154,7 @@ keeps its **own raw copy** of each Moment and deletes it **only after the server
 5. Re-check on start, on sign-in, and every ~30 s while the app runs. Show the state on the Me screen
    ("kept on this phone until the server confirms every chunk" / "all safely stored on the server").
 
-Android: `android/.../data/Vault.kt` (pure comparison `VaultCheck`, unit-tested). Web and iOS: TODO, same rules.
+Android: `android/.../data/Vault.kt` (pure comparison `VaultCheck`, unit-tested). iOS: done, `ios/Verified/Sync/Vault.swift` (pure `VaultCheck` in VerifiedCore, `swift test`). Web: TODO, same rules.
 
 Product direction (not built): **pay to store a Moment forever.** The verified raw archive (full time series, frames,
 hash chain) is the paid asset: free Moments keep the sealed summary and feed entry, raw data expires after a retention

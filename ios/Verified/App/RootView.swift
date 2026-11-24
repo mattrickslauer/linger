@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.scenePhase) private var scenePhase
   @State private var tab = AppTab.feed
 
   enum AppTab: Hashable { case feed, record, me }
@@ -22,5 +23,13 @@ struct RootView: View {
     }
     .tint(Theme.accent)
     .task(id: app.auth.user?.uid) { app.userChanged() }
+    // Raw vault: re-check on launch / becoming active, then every 30 s while the app is active.
+    .task(id: scenePhase == .active) {
+      guard scenePhase == .active else { return }
+      while !Task.isCancelled {
+        await app.vault.verifyAll()
+        try? await Task.sleep(for: .seconds(30))
+      }
+    }
   }
 }
