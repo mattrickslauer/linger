@@ -131,7 +131,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
         }
 
         Section("Track")
-        TrackCanvas(d.track, Modifier.fillMaxWidth().height(220.dp))
+        TrackMap(d.track, Modifier.fillMaxWidth().height(260.dp))
         Text("${d.track.size} GPS fixes", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 
         if (d.motion.isNotEmpty()) {

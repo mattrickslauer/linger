@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Mapbox Maps SDK (public; no download token needed for v11)
+        maven { url = uri("https://api.mapbox.com/downloads/v2/releases/maven") }
     }
 }
 rootProject.name = "Verified"

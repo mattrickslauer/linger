@@ -26,6 +26,7 @@ import com.mattricks.verified.chain.Payload
 import com.mattricks.verified.data.LatLng
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Summary
+import com.mattricks.verified.devices.Devices
 import com.mattricks.verified.judge.Judging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +57,8 @@ data class RecUi(
     val coach: Check? = null,
     val chunksTotal: Int = 0,
     val chunksPending: Int = 0,
+    val heartRate: Int? = null,
+    val videoCount: Int = 0,
 ) {
     enum class Phase { Idle, Recording, Finished }
 }
@@ -121,6 +124,8 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         startSensors()
         jobs += viewModelScope.launch { sampleMotion() }
         jobs += viewModelScope.launch { chunkTicker() }
+        jobs += viewModelScope.launch { sampleHeartRate() }
+        Devices.reconnect()
         jobs += viewModelScope.launch {
             Store.chunkSync(momentId).collect { (total, pending) -> _ui.update { it.copy(chunksTotal = total, chunksPending = pending) } }
         }
@@ -138,6 +143,16 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             lock.withLock { motionBuf += row; motionCount++ }
             val mag = Math.sqrt((a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).toDouble()).toFloat()
             _ui.update { it.copy(sparkline = (it.sparkline + mag).takeLast(80), elapsedMs = t - it.startedAt) }
+        }
+    }
+
+    /** 1 Hz BPM from a connected Bluetooth device (Settings → Devices) → `hr` events. */
+    private suspend fun sampleHeartRate() {
+        while (viewModelScope.isActive) {
+            delay(1_000)
+            val bpm = Devices.state.value.bpm
+            if (bpm != null) lock.withLock { events += Event(System.currentTimeMillis(), "hr", mapOf("bpm" to bpm)) }
+            if (bpm != _ui.value.heartRate) _ui.update { it.copy(heartRate = bpm) }
         }
     }
 
@@ -159,8 +174,8 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Proof shot: closes the running chunk, coaches on the frame, then closes the frame's own chunk. */
-    fun proofShot(bitmap: Bitmap, jpegB64: String) {
-        if (_ui.value.phase != RecUi.Phase.Recording || _ui.value.checking) return
+    fun proofShot(bitmap: Bitmap, jpegB64: String, extra: Map<String, Any?>? = null): Boolean {
+        if (_ui.value.phase != RecUi.Phase.Recording || _ui.value.checking) return false
         val t = System.currentTimeMillis()
         _ui.update { it.copy(checking = true) }
         viewModelScope.launch {
@@ -168,6 +183,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 closeChunk(t, null, null, null) // one frame max per chunk; frame chunk starts at the shot
                 holdForFrame = true
                 events += Event(t, "frame")
+                if (extra != null) events += Event(t, "video", extra)
             }
             val check = Ai.liveCheck(bitmap, _ui.value.intention)
             val now = System.currentTimeMillis()
@@ -180,6 +196,28 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             }
             _ui.update { it.copy(checking = false, coach = check, frameCount = it.frameCount + 1) }
         }
+        return true
+    }
+
+    fun videoStarted() {
+        if (_ui.value.phase != RecUi.Phase.Recording) return
+        val t = System.currentTimeMillis()
+        viewModelScope.launch { lock.withLock { events += Event(t, "video_start") } }
+    }
+
+    /**
+     * A finished video clip. The clip stays on the phone (Movies/Verified); the chain commits to its SHA-256, and its
+     * middle frame goes through the normal proof-frame path (coach + judge) as the poster.
+     */
+    fun videoClip(clip: VideoClip, poster: Bitmap?, posterB64: String?) {
+        if (_ui.value.phase != RecUi.Phase.Recording) return
+        val extra = mapOf("sha256" to clip.sha256, "bytes" to clip.bytes, "durationMs" to clip.durationMs, "startedAt" to clip.startedAt, "name" to clip.name)
+        val asFrame = poster != null && posterB64 != null && proofShot(poster, posterB64, extra)
+        if (!asFrame) {
+            val t = System.currentTimeMillis()
+            viewModelScope.launch { lock.withLock { events += Event(t, "video", extra) } }
+        }
+        _ui.update { it.copy(videoCount = it.videoCount + 1) }
     }
 
     fun finish() {
@@ -276,3 +314,5 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() { stopSensors(); _recording.compareAndSet(momentId, null); super.onCleared() }
 }
+
+data class VideoClip(val name: String, val sha256: String, val bytes: Long, val durationMs: Long, val startedAt: Long)

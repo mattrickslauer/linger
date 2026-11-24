@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -31,6 +32,7 @@ import com.mattricks.verified.ui.DetailScreen
 import com.mattricks.verified.ui.FeedScreen
 import com.mattricks.verified.ui.MeScreen
 import com.mattricks.verified.ui.RecordScreen
+import com.mattricks.verified.ui.SettingsScreen
 import com.mattricks.verified.ui.VerifiedTheme
 
 class MainActivity : ComponentActivity() {
@@ -61,6 +63,7 @@ class MainActivity : ComponentActivity() {
                             Triple("Feed", Icons.Filled.ViewAgenda, 0),
                             Triple("Record", Icons.Filled.FiberManualRecord, 1),
                             Triple("Me", Icons.Filled.Person, 2),
+                            Triple("Settings", Icons.Filled.Settings, 3),
                         ).forEach { (label, icon, i) ->
                             NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, label) }, label = { Text(label) })
                         }
@@ -70,7 +73,8 @@ class MainActivity : ComponentActivity() {
                         when (tab) {
                             0 -> FeedScreen { open = it; openFromMe = false }
                             1 -> RecordScreen(user) { open = it; openFromMe = false }
-                            else -> MeScreen(user) { open = it; openFromMe = true }
+                            2 -> MeScreen(user) { open = it; openFromMe = true }
+                            else -> SettingsScreen()
                         }
                     }
                 }

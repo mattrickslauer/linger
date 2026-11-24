@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,6 +9,15 @@ plugins {
 
 val useEmulator = (findProperty("verified.emulator") as String? ?: "false").toBoolean()
 val emulatorHost = findProperty("verified.emulatorHost") as String? ?: "10.0.2.2"
+
+// Mapbox public token (pk.…): -PMAPBOX_ACCESS_TOKEN, ~/.gradle/gradle.properties, env, or android/local.properties.
+// Never committed. Without it the app falls back to the offline track sketch.
+val mapboxToken: String = (findProperty("MAPBOX_ACCESS_TOKEN") as String?)
+    ?: System.getenv("MAPBOX_ACCESS_TOKEN")
+    ?: rootProject.file("local.properties").takeIf { it.exists() }?.let { f ->
+        Properties().apply { f.inputStream().use { load(it) } }.getProperty("MAPBOX_ACCESS_TOKEN")
+    }
+    ?: ""
 
 // shared/prompts.json is the single source of truth for prompts: copy it into assets at build time.
 val copySharedAssets by tasks.registering(Copy::class) {
@@ -30,6 +41,7 @@ android {
         // Sign-in: accounts.mattrickslauer.com (OIDC + PKCE via AppAuth), then a Firebase custom token.
         buildConfigField("String", "ACCOUNTS_ISSUER", "\"https://accounts.mattrickslauer.com/t/mattricks\"")
         buildConfigField("String", "ACCOUNTS_CLIENT_ID", "\"verified-app\"")
+        buildConfigField("String", "MAPBOX_TOKEN", "\"$mapboxToken\"")
     }
 
     buildTypes {
@@ -96,6 +108,12 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
+
+    // Maps
+    val mapbox = "11.24.0"
+    implementation("com.mapbox.maps:android-ndk27:$mapbox")
+    implementation("com.mapbox.extension:maps-compose-ndk27:$mapbox")
     implementation("com.google.guava:guava:33.4.8-android") // ListenableFuture for CameraX provider
 
     testImplementation("junit:junit:4.13.2")
