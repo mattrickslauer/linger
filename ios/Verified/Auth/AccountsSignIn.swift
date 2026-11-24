@@ -113,7 +113,7 @@ enum AccountsSignIn {
   }
 }
 
-private final class AnchorProvider: NSObject, @preconcurrency ASWebAuthenticationPresentationContextProviding {
+private final class AnchorProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
   let anchor: ASPresentationAnchor
   init(_ anchor: ASPresentationAnchor) { self.anchor = anchor }
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { anchor }
