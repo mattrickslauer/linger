@@ -19,6 +19,7 @@ struct MeView: View {
               }
             }
             .padding(.vertical, 4)
+            Text(rawData).font(.footnote).foregroundStyle(app.vault.held.isEmpty ? Theme.accent : Theme.warn)
           }
         }
 
@@ -78,6 +79,15 @@ struct MeView: View {
     let items = app.mine.items
     let sealed = items.filter { $0.status == "sealed" }.count
     return "\(items.count) \(items.count == 1 ? "Moment" : "Moments") · \(sealed) verified"
+  }
+
+  /// Raw vault state (same wording as Android).
+  private var rawData: String {
+    let held = app.vault.held
+    let conflicts = held.values.filter { $0 == .conflict }.count
+    if held.isEmpty { return "Raw data: all safely stored on the server ✓" }
+    if conflicts > 0 { return "Raw data: \(conflicts) Moment(s) differ from the server — kept on this phone" }
+    return "Raw data: \(held.count) Moment(s) kept on this phone until the server confirms every chunk"
   }
 }
 
