@@ -1615,3 +1615,59 @@ path.lf-cursor {
   font-weight: 600;
   color: var(--ink-3);
 }
+
+/* ---------------------------------------------------------------- delete Moment (owner only) + confirm dialog */
+
+.btn-danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--sheet);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--bad) 85%, var(--ink));
+  border-color: color-mix(in srgb, var(--bad) 85%, var(--ink));
+}
+.btn-danger-quiet {
+  border-color: transparent;
+  color: var(--bad);
+}
+.btn-danger-quiet:hover {
+  background: var(--bad-soft);
+}
+.detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: -16px;
+}
+.detail-bar .back {
+  margin-bottom: 0;
+}
+.confirm {
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--r);
+  background: var(--sheet);
+  color: var(--ink);
+  width: min(440px, calc(100vw - 32px));
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.25);
+}
+.confirm::backdrop {
+  background: color-mix(in srgb, var(--paper) 40%, rgb(0 0 0 / 0.55));
+}
+.confirm-box {
+  padding: 22px 22px 18px;
+}
+.confirm h2 {
+  margin: 0 0 18px;
+  font-size: 1.08rem;
+  line-height: 1.4;
+  font-weight: 650;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}

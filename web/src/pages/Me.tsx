@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import { signInWithGoogle, signOutUser } from "../auth";
 import { getChunks, subscribeMyMoments } from "../data";
-import { configured } from "../firebase";
+import { canDeleteMoment } from "../canDelete";
+import DeleteMoment from "../components/DeleteMoment";
+import { configured, FIXTURES } from "../firebase";
 import { decodeChunks, fmtDistance, fmtDuration } from "../geo";
-import { runCloudReview } from "../recorder";
+import { recordingMomentId, runCloudReview } from "../recorder";
 import type { Moment } from "../types";
 import { useVaultHeld } from "../vault";
 import { ago, Link, Stamp } from "../ui";
@@ -16,15 +18,16 @@ const STATUS: Record<Moment["status"], string> = {
   rejected: "Not verified",
 };
 
-function Row({ m }: { m: Moment }) {
+function Row({ m, uid }: { m: Moment; uid: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const needsReview = m.status === "submitted" && !m.judge && !m.pending;
   const done = m.status === "sealed" || m.status === "rejected";
+  const deletable = canDeleteMoment({ fixtures: FIXTURES, uid, ownerUid: m.ownerUid, fromMe: true, id: m.id, recordingId: recordingMomentId() });
   return (
     <li className="me-row">
       <div>
-        <h3>{done ? <Link to={`/m/${m.id}`}>{m.intention.text}</Link> : m.intention.text}</h3>
+        <h3>{done ? <Link to={`/m/${m.id}?from=me`}>{m.intention.text}</Link> : m.intention.text}</h3>
         <p className="muted small">
           {ago(m.startedAt)}
           {m.summary ? `, ${fmtDuration(m.summary.durationMs)}, ${fmtDistance(m.summary.distanceM)}, ${m.summary.frameCount} frames` : ""}
@@ -54,6 +57,7 @@ function Row({ m }: { m: Moment }) {
             {busy ? "Reviewing…" : "Run cloud review"}
           </button>
         )}
+        {deletable && <DeleteMoment id={m.id} label={m.intention.text} />}
       </div>
     </li>
   );
@@ -122,7 +126,7 @@ export default function Me({ user, ready }: { user: User | null; ready: boolean 
       {moments && moments.length > 0 && (
         <ul className="me-list">
           {moments.map((m) => (
-            <Row key={m.id} m={m} />
+            <Row key={m.id} m={m} uid={user.uid} />
           ))}
         </ul>
       )}

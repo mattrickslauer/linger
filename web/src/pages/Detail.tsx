@@ -1,8 +1,13 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useUser } from "../auth";
+import { cameFromMe, canDeleteMoment } from "../canDelete";
 import ChainViewer from "../components/ChainViewer";
+import DeleteMoment from "../components/DeleteMoment";
 import MotionChart from "../components/MotionChart";
 import { getChunks, getMomentBundle, type MomentBundle } from "../data";
+import { FIXTURES } from "../firebase";
 import { decodeChunks, downsample, fmtDistance, fmtDuration } from "../geo";
+import { recordingMomentId } from "../recorder";
 import type { AiOpinion, Chunk, SealChecks } from "../types";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
 
@@ -66,6 +71,8 @@ export default function Detail({ id }: { id: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [t, setT] = useState(0);
   const [pickedSeq, setPickedSeq] = useState<number | null>(null);
+  const { user } = useUser();
+  const fromMe = cameFromMe(location.search);
 
   useEffect(() => {
     let live = true;
@@ -140,12 +147,17 @@ export default function Detail({ id }: { id: string }) {
   const sealed = moment?.seal ? moment.seal.sealed : feed?.status === "sealed";
   const pending = !moment?.seal && !feed;
   const sealReason = moment?.seal?.reason ?? feed?.sealReason ?? "Waiting for the seal.";
+  // Only the owner, only when opened from their own Moments: never from the public feed.
+  const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
 
   return (
     <article className="page detail">
-      <Link to="/" className="back">
-        ← Feed
-      </Link>
+      <div className="detail-bar">
+        <Link to={fromMe ? "/me" : "/"} className="back">
+          {fromMe ? "← My Moments" : "← Feed"}
+        </Link>
+        {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet" />}
+      </div>
       <header className="detail-head">
         <div>
           <p className="cat">{intention.category}</p>

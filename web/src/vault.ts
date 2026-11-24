@@ -8,6 +8,8 @@
 // verifyAll() reads each submitted Moment back FROM THE SERVER (never the cache), re-uploads anything missing (the
 // whole Moment if the server lost it), and deletes the local copy only when compareVault() finds no problem.
 // Offline, an error, or any mismatch: the local copy stays.
+// Deleted Moments (docs/ARCHITECTURE.md "Deleting a Moment"): forgetMoment() drops the journal before the Firestore
+// delete, and a Moment missing on the server is re-created only when it has no deleted/{id} tombstone.
 
 import { useSyncExternalStore } from "react";
 import {
@@ -153,6 +155,25 @@ const forget = (id: string) =>
     t.objectStore("chunks").delete(chunkRange(id));
   });
 
+// Moments the owner deleted in this tab. A vault pass that already read the journal before the delete must not
+// re-create or upload them (the server's deleted/{id} tombstone may not exist yet).
+const deletedHere = new Set<string>();
+
+/**
+ * The owner is deleting this Moment: drop this browser's raw copy (IndexedDB moment + chunks) and its held state,
+ * so the vault can never re-upload it. Called BEFORE the Firestore delete; throws if the journal can't be cleared.
+ */
+export async function forgetMoment(id: string): Promise<void> {
+  deletedHere.add(id);
+  if (enabled()) await forget(id);
+  unmark(id);
+}
+
+class Deleted extends Error {}
+const stopIfDeleted = (id: string) => {
+  if (deletedHere.has(id)) throw new Deleted(id);
+};
+
 // ---------------------------------------------------------------- verification
 
 let running: Promise<void> | null = null;
@@ -182,7 +203,7 @@ async function pass() {
   const moments = await allMoments();
   // Reflect the journal in the held state (e.g. on first run after a reload), keeping known states.
   const next: Record<string, VaultState> = {};
-  for (const m of moments) next[m.id] = held[m.id] ?? "waiting";
+  for (const m of moments) if (!deletedHere.has(m.id)) next[m.id] = held[m.id] ?? "waiting";
   setHeld(next);
 
   const uid = auth?.currentUser?.uid;
@@ -191,10 +212,12 @@ async function pass() {
   await withTimeout(waitForPendingWrites(db!), 15_000);
 
   for (const m of moments) {
+    if (deletedHere.has(m.id)) continue;
     let ok = false;
     try {
       ok = await verify(m, uid);
     } catch (e) {
+      if (e instanceof Deleted) continue; // deleted by the owner mid-pass: forgetMoment() already dropped it
       console.warn(`vault: verify ${m.id}`, e); // offline or any error: keep
     }
     if (ok) {
@@ -229,11 +252,20 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
   const chunksCol = collection(ref, "chunks");
   let server = await getDocFromServer(ref);
   if (!server.exists()) {
+    // Deleted by the owner (maybe on another device)? onMomentDeleted leaves deleted/{id}: drop, never re-create.
+    const tomb = await getDocFromServer(doc(db!, "deleted", id));
+    stopIfDeleted(id);
+    if (tomb.exists()) {
+      console.info(`vault: ${id}: deleted by its owner, dropping the local copy`);
+      await forgetMoment(id);
+      throw new Deleted(id);
+    }
     mark(id, "repairing");
     console.warn(`vault: ${id}: missing on server, re-creating from the journal`);
     const { id: _id, ...create } = local as Fields;
     for (const k of SUBMIT_FIELDS) delete create[k];
     Object.assign(create, { status: "recording", seal: null, judge: null, skeptic: null, createdAtServer: serverTimestamp() });
+    stopIfDeleted(id);
     await setDoc(ref, create);
     server = await getDocFromServer(ref);
   }
@@ -245,11 +277,15 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     console.warn(`vault: ${id}: uploading ${missing.length} missing chunk(s)`);
     // Chunks may be added while recording, or after submit when seq < chunkCount (firestore.rules).
     // Only missing ones: chunks are append-only, an existing one is never overwritten.
-    for (const { momentId: _m, ...c } of missing) await setDoc(doc(chunksCol, pad6(c.seq)), c);
+    for (const { momentId: _m, ...c } of missing) {
+      stopIfDeleted(id);
+      await setDoc(doc(chunksCol, pad6(c.seq)), c);
+    }
   }
   if (server.get("status") === "recording") {
     const submit: Fields = {};
     for (const k of SUBMIT_FIELDS) submit[k] = k === "submittedAtServer" ? serverTimestamp() : (local[k] ?? null);
+    stopIfDeleted(id);
     await updateDoc(ref, submit);
   }
 
@@ -265,6 +301,7 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     localChunks.map(toVaultChunk),
     back.docs.map((d) => toVaultChunk(d.data() as Partial<Chunk>)),
   );
+  stopIfDeleted(id);
   if (problems.length) {
     console.error(`vault: ${id}: server copy differs from the journal, keeping local copy:`, problems.slice(0, 5));
     mark(id, "conflict");

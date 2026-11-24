@@ -1,5 +1,5 @@
-// Small shared pieces: stamp, chips, links, track sketch, relative time.
-import type { ReactNode } from "react";
+// Small shared pieces: stamp, chips, links, track sketch, relative time, confirm dialog.
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { linkClick } from "./router";
 import type { CheckMode, Platform } from "./types";
 
@@ -73,5 +73,62 @@ export function TrackSketch({ track, w = 96, h = 72, className }: { track: [numb
       {start && <circle cx={start[0]} cy={start[1]} r="2.6" fill="currentColor" />}
       {end && <circle cx={end[0]} cy={end[1]} r="3.6" className="sketch-end" />}
     </svg>
+  );
+}
+
+/** Modal confirm on the native <dialog>: focus trap, Escape to cancel and inert background come from the browser. */
+export function ConfirmDialog({
+  open,
+  title,
+  confirm,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  confirm: string;
+  busy?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      className="confirm"
+      role="alertdialog"
+      aria-labelledby={id}
+      onCancel={(e) => {
+        e.preventDefault(); // Escape: let React state close it
+        if (!busy) onCancel();
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !busy) onCancel(); // backdrop click
+      }}
+    >
+      {/* Padding lives on this inner box, so a click on the dialog element itself is a backdrop click. */}
+      <div className="confirm-box">
+        <h2 id={id}>{title}</h2>
+        {error && <p className="notice notice-bad small">{error}</p>}
+        <div className="confirm-actions">
+          <button className="btn btn-small" onClick={onCancel} disabled={busy} autoFocus>
+            Cancel
+          </button>
+          <button className="btn btn-small btn-danger" onClick={onConfirm} disabled={busy}>
+            {busy ? "Deleting…" : confirm}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
