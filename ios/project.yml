@@ -69,6 +69,11 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: google
             CFBundleURLSchemes: ["$(GOOGLE_REVERSED_CLIENT_ID)"]
+    entitlements:
+      path: Verified/Verified.entitlements
+      properties:
+        # App Attest for Firebase App Check (release builds; see App/FirebaseSetup.swift).
+        com.apple.developer.devicecheck.appattest-environment: production
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mattrickslauer.verified
