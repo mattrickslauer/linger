@@ -34,7 +34,7 @@ to 13.x unless you port `LiveCoach.hybrid` to that API.
    cp /path/to/config/GoogleService-Info.plist ios/Verified/GoogleService-Info.plist
    ```
    Take the plist from `.claude/worktrees/verified-core/config/` on the dev box, or download it from Firebase
-   console → Project settings → iOS app `com.mattricks.verified`.
+   console → Project settings → iOS app `com.mattrickslauer.verified`.
 4. **Google sign-in URL scheme.** After you enable Google sign-in (Firebase console → Authentication →
    Sign-in method → Google), download the plist again so that it contains `CLIENT_ID` and `REVERSED_CLIENT_ID`.
    Then set `GOOGLE_REVERSED_CLIENT_ID` in `ios/project.yml` to the `REVERSED_CLIENT_ID` value
@@ -46,8 +46,8 @@ to 13.x unless you port `LiveCoach.hybrid` to that API.
    The first open resolves Swift packages (Firebase, GoogleSignIn, and the local `VerifiedCore`), which takes a
    few minutes.
 6. **Signing.** Select target Verified → Signing & Capabilities → Team, and pick your Apple ID. Signing is
-   automatic. Bundle id: `com.mattricks.verified`. If that id is taken under your team, change it in both places
-   and register the new id in Firebase. To avoid re-picking the team after each `xcodegen`, set
+   automatic. Bundle id: `com.mattrickslauer.verified` (the App Store Connect record; it cannot change). If you
+   change it, change it in `project.yml` and register the new id in Firebase. To avoid re-picking the team after each `xcodegen`, set
    `DEVELOPMENT_TEAM` in `project.yml`.
 7. **Run on an iPhone 17 Pro:**
    - Connect the phone with a cable and trust the Mac.

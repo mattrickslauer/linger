@@ -33,7 +33,8 @@ Hero story for the video: a verified fishing catch (DerbyFish derbies pay prizes
 | — | Backend | `functions/`, `firestore.rules` | Cloud Functions v2 (Node 22, TS), Firestore | — |
 
 Firebase project: `verified-99e74` (switched from `linger-reader` on 2026-11-24). App ids: web `1:726678528605:web:f550d3f11e8ccf787263b4`,
-iOS `1:726678528605:ios:7a98231181871ed67263b4` (bundle `com.mattricks.verified`),
+iOS `1:726678528605:ios:7c2fc9c82d1ac7a37263b4` (bundle `com.mattrickslauer.verified`, the App Store Connect record;
+the older iOS app `1:726678528605:ios:7a98231181871ed67263b4` is for the unused `com.mattricks.verified`),
 Android `1:726678528605:android:dab78f52952073fc7263b4` (package `com.mattrickslauer.verified`, the Play listing id;
 the Kotlin namespace stays `com.mattricks.verified`). The older Firebase app for `com.mattricks.verified`
 (`…:android:569f9ce4ec35c6c87263b4`) is unused.
