@@ -1,6 +1,6 @@
 # Verified — setup (human console steps + commands)
 
-Firebase project: **linger-reader** (`.firebaserc`). Everything below the line "Local" works with no console
+Firebase project: **verified-99e74** (`.firebaserc`). Everything below the line "Local" works with no console
 steps at all, against the Emulator Suite.
 
 ## Console steps (one-time, needs the project owner)
@@ -10,7 +10,7 @@ steps at all, against the Emulator Suite.
    (our `firestore.rules` get deployed over it).
 2. **Google sign-in** — Console → Build → Authentication → *Get started* → Sign-in method → **Google** → Enable,
    set the support email. Then Settings → *Authorized domains*: keep `localhost`, add
-   `linger-reader.web.app` and `linger-reader.firebaseapp.com` (added automatically on first hosting deploy).
+   `verified-99e74.web.app` and `verified-99e74.firebaseapp.com` (added automatically on first hosting deploy).
    - Android: add the debug + release **SHA-1/SHA-256** of the signing keys to the Android app
      (Project settings → Your apps → `com.mattricks.verified`), then re-download `google-services.json`.
      `cd android && ./gradlew signingReport` prints them.
@@ -59,7 +59,7 @@ Hosting emulator serves `web/dist`: run `npm --prefix web run build` first to se
 (or use the Vite dev server pointed at the emulators).
 
 Emulator mode for clients: connect Auth to `127.0.0.1:9099`, Firestore to `127.0.0.1:8080`
-(Android emulator: `10.0.2.2`), project id `linger-reader`. Google sign-in against the Auth emulator shows the
+(Android emulator: `10.0.2.2`), project id `verified-99e74`. Google sign-in against the Auth emulator shows the
 emulator's fake account picker.
 
 ## What the backend does

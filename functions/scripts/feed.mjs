@@ -6,7 +6,7 @@ const PROD = process.argv.includes("--prod");
 if (!PROD) process.env.FIRESTORE_EMULATOR_HOST ||= "127.0.0.1:8080";
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
-initializeApp({ projectId: process.env.GCLOUD_PROJECT || "linger-reader" });
+initializeApp({ projectId: process.env.GCLOUD_PROJECT || "verified-99e74" });
 
 const s = await getFirestore().collection("feed").orderBy("sealedAtServer", "desc").get();
 for (const d of s.docs) {

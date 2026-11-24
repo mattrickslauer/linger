@@ -6,7 +6,7 @@ import { mkdirSync } from "node:fs";
 
 const BASE = process.env.BASE || "http://localhost:5173";
 const CHROME = process.env.CHROME || "/usr/bin/google-chrome";
-const PROJECT = process.env.PROJECT || "linger-reader";
+const PROJECT = process.env.PROJECT || "verified-99e74";
 const OUT = process.env.OUT || "shots";
 mkdirSync(OUT, { recursive: true });
 

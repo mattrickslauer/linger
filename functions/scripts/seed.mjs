@@ -3,7 +3,7 @@
 //   create moment (recording) -> hashed chunks (+frames) -> submit -> judge + skeptic -> [function seals]
 // Usage (from repo root):
 //   npm run seed                       # emulator (127.0.0.1:8080), waits for the seal
-//   npm run seed -- --prod             # real project linger-reader via Application Default Credentials
+//   npm run seed -- --prod             # real project verified-99e74 via Application Default Credentials
 //   npm run seed -- --no-wait          # don't wait for the function
 // Specs: shared/sample-moments/moments.json. Frames: shared/sample-moments/frames/*.jpg.
 import { readFileSync } from "node:fs";
@@ -23,7 +23,7 @@ const opt = (n, d) => {
 
 const PROD = flag("--prod");
 const WAIT = !flag("--no-wait");
-const PROJECT = opt("--project", process.env.GCLOUD_PROJECT || "linger-reader");
+const PROJECT = opt("--project", process.env.GCLOUD_PROJECT || "verified-99e74");
 if (!PROD) process.env.FIRESTORE_EMULATOR_HOST ||= "127.0.0.1:8080";
 
 const { initializeApp } = require("firebase-admin/app");

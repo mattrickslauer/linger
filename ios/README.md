@@ -38,7 +38,7 @@ to 13.x unless you port `LiveCoach.hybrid` to that API.
 4. **Google sign-in URL scheme.** After you enable Google sign-in (Firebase console → Authentication →
    Sign-in method → Google), download the plist again so that it contains `CLIENT_ID` and `REVERSED_CLIENT_ID`.
    Then set `GOOGLE_REVERSED_CLIENT_ID` in `ios/project.yml` to the `REVERSED_CLIENT_ID` value
-   (`com.googleusercontent.apps.802156319542-…`). Until you do, use the emulator sign-in described below.
+   (`com.googleusercontent.apps.726678528605-…`). Until you do, use the emulator sign-in described below.
 5. **Generate the project and open it:**
    ```bash
    cd ios && xcodegen && open Verified.xcodeproj
@@ -85,7 +85,7 @@ switch the app over in one of these ways:
   the Auth emulator, so no Google account or `CLIENT_ID` is needed.
 
 Firebase AI Logic has no emulator, so the coach's cloud fallback and the judge/skeptic always call production
-Gemini through the `linger-reader` project. AI Logic must be enabled there (see `infra/setup.md`).
+Gemini through the `verified-99e74` project. AI Logic must be enabled there (see `infra/setup.md`).
 
 ## What happens on a recording
 
