@@ -30,7 +30,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.mattricks.verified"
+        applicationId = "com.mattrickslauer.verified"  // Play listing id; Kotlin namespace stays com.mattricks.verified
         minSdk = 29
         targetSdk = 36
         versionCode = 1
@@ -95,6 +95,7 @@ dependencies {
     // On-device SDK is not in the BoM yet (Firebase docs, hybrid/android/get-started)
     implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta08")
     implementation("com.google.firebase:firebase-appcheck-debug")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     // Sign-in through accounts.mattrickslauer.com (Custom Tab, OIDC code + PKCE, loopback redirect)

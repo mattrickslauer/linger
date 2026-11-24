@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.appcheck.appCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.firestoreSettings
@@ -32,6 +33,9 @@ class VerifiedApp : Application() {
         if (BuildConfig.DEBUG) {
             // Debug token is logged by DebugAppCheckProvider; register it in the console (App Check > Apps).
             Firebase.appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+        } else {
+            // Release (Play installs): Play Integrity. Needs the Play app-signing SHA-256 in Firebase App Check.
+            Firebase.appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
         }
 
         val db = Firebase.firestore
