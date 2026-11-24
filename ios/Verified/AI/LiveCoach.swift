@@ -48,8 +48,12 @@ enum LiveCoach {
       Answer with one JSON object only: {"ok": true|false, "reason": "...", "label": "2-4 words"}
       """
     let response = try await session.respond(to: prompt)
+    // `rawResponse.modelVersion` names the model that answered (docs: hybrid/ios/configuration-options).
+    // Gemini reports "gemini-…"; anything else means Apple Foundation Models answered on-device.
     let modelVersion: String? = response.rawResponse.modelVersion
-    let onDevice = (modelVersion ?? "").contains("apple")
+    let mv = (modelVersion ?? "").lowercased()
+    let onDevice = mv.contains("gemini") ? false
+      : (mv.contains("apple") || mv.contains("foundation") || mv.contains("system") || onDeviceAvailable)
     let parsed = LiveJSON.parse(response.content)
     return FrameCheck(
       ok: parsed?.ok ?? true,

@@ -3,12 +3,12 @@ import VerifiedCore
 
 /// Field helpers for Firestore `[String: Any]` maps (numbers arrive as NSNumber).
 extension Dictionary where Key == String, Value == Any {
-  func str(_ k: String) -> String? { self[k] as? String }
-  func dbl(_ k: String) -> Double? { (self[k] as? NSNumber)?.doubleValue }
-  func i64(_ k: String) -> Int64? { (self[k] as? NSNumber)?.int64Value }
-  func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue }
-  func bool(_ k: String) -> Bool? { self[k] as? Bool }
-  func obj(_ k: String) -> [String: Any]? { self[k] as? [String: Any] }
+  nonisolated func str(_ k: String) -> String? { self[k] as? String }
+  nonisolated func dbl(_ k: String) -> Double? { (self[k] as? NSNumber)?.doubleValue }
+  nonisolated func i64(_ k: String) -> Int64? { (self[k] as? NSNumber)?.int64Value }
+  nonisolated func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue }
+  nonisolated func bool(_ k: String) -> Bool? { self[k] as? Bool }
+  nonisolated func obj(_ k: String) -> [String: Any]? { self[k] as? [String: Any] }
 }
 
 enum Category: String, CaseIterable, Identifiable, Sendable {
@@ -99,8 +99,12 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   static func fromFeed(id: String, _ d: [String: Any]) -> MomentCardData {
     let owner = d.obj("owner") ?? [:]
     let intention = d.obj("intention") ?? [:]
-    let track = (d["track"] as? [[NSNumber]] ?? []).compactMap { p in
-      p.count >= 2 ? LatLng(lat: p[0].doubleValue, lng: p[1].doubleValue) : nil
+    // Firestore cannot store nested arrays, so the seal function writes `track` as [{lat,lng}];
+    // the contract's [[lat,lng]] form is accepted too.
+    let track: [LatLng] = (d["track"] as? [Any] ?? []).compactMap { p in
+      if let m = p as? [String: Any], let lat = m.dbl("lat"), let lng = m.dbl("lng") { return LatLng(lat: lat, lng: lng) }
+      if let a = p as? [NSNumber], a.count >= 2 { return LatLng(lat: a[0].doubleValue, lng: a[1].doubleValue) }
+      return nil
     }
     return MomentCardData(
       id: d.str("momentId") ?? id, ownerName: owner.str("name") ?? "Someone",
