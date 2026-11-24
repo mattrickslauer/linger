@@ -103,9 +103,11 @@ SHA-256 helpers must hash UTF-8 bytes and output lowercase hex. Test vector in `
 ### `feed/{momentId}`  (public read; written ONLY by the Cloud Function)
 ```
 momentId, owner, intention, platform, summary, onDeviceMode,
-status: "sealed"|"rejected", sealReason, checks, judgeReasons: string[],
-heroJpegB64: string|null, track: [[lat,lng], ...] (≤200 pts, downsampled), sealedAtServer
+status: "sealed"|"rejected", sealReason, checks, judgeReasons: string[], skepticReasons: string[],
+heroJpegB64: string|null, track: [{lat,lng}, ...] (≤200 pts, downsampled), sealedAtServer
 ```
+`track` is a list of `{lat, lng}` maps, not `[[lat,lng]]`: Firestore cannot store nested arrays.
+Clients read `p.lat` / `p.lng`.
 
 ## Flow and responsibilities
 
