@@ -1,0 +1,93 @@
+# XcodeGen spec. On a Mac: `brew install xcodegen && cd ios && xcodegen && open Verified.xcodeproj`
+name: Verified
+options:
+  bundleIdPrefix: com.mattricks
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Xcode 26+ "approachable concurrency": app code is MainActor by default.
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Set your team here or in Xcode > Signing & Capabilities.
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    # Google sign-in URL scheme: copy REVERSED_CLIENT_ID from GoogleService-Info.plist
+    # (it appears after Google sign-in is enabled in the Firebase console and the plist is re-downloaded).
+    GOOGLE_REVERSED_CLIENT_ID: com.googleusercontent.apps.REPLACE_ME
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "13.2.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "10.1.0"  # 10.1+ needed for AppCheckCore 12 (Firebase 13)
+  VerifiedCore:
+    path: VerifiedCore
+
+targets:
+  Verified:
+    type: application
+    platform: iOS
+    sources:
+      - path: Verified
+        excludes:
+          - "**/GoogleService-Info.plist"
+          - "Info.plist"
+      - path: Verified/GoogleService-Info.plist
+        optional: true
+        buildPhase: resources
+      - path: ../shared/prompts.json
+        buildPhase: resources
+    info:
+      path: Verified/Info.plist
+      properties:
+        CFBundleDisplayName: Verified
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSCameraUsageDescription: Verified takes proof shots of your Moment.
+        NSLocationWhenInUseUsageDescription: Verified records your GPS track while a Moment is recording.
+        NSMotionUsageDescription: Verified records motion while a Moment is recording, as evidence it was real.
+        NSLocalNetworkUsageDescription: Used only in developer mode to reach the Firebase Emulator Suite on your Mac.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleURLTypes:
+          - CFBundleURLName: google
+            CFBundleURLSchemes: ["$(GOOGLE_REVERSED_CLIENT_ID)"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mattricks.verified
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        OTHER_LDFLAGS: [-ObjC]
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseAILogic
+      - package: Firebase
+        product: FirebaseAppCheck
+      - package: Firebase
+        product: FirebaseRemoteConfig
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: VerifiedCore
+    scheme:
+      environmentVariables:
+        # Set to 1 to use the local Firebase Emulator Suite (see README).
+        USE_EMULATOR: "0"
+        EMULATOR_HOST: "127.0.0.1"

@@ -1,0 +1,133 @@
+import Foundation
+import VerifiedCore
+
+/// Field helpers for Firestore `[String: Any]` maps (numbers arrive as NSNumber).
+extension Dictionary where Key == String, Value == Any {
+  func str(_ k: String) -> String? { self[k] as? String }
+  func dbl(_ k: String) -> Double? { (self[k] as? NSNumber)?.doubleValue }
+  func i64(_ k: String) -> Int64? { (self[k] as? NSNumber)?.int64Value }
+  func int(_ k: String) -> Int? { (self[k] as? NSNumber)?.intValue }
+  func bool(_ k: String) -> Bool? { self[k] as? Bool }
+  func obj(_ k: String) -> [String: Any]? { self[k] as? [String: Any] }
+}
+
+enum Category: String, CaseIterable, Identifiable, Sendable {
+  case fishing, fitness, outdoors, making, other
+  var id: String { rawValue }
+  var label: String { rawValue.capitalized }
+  var icon: String {
+    switch self {
+    case .fishing: "fish"
+    case .fitness: "figure.run"
+    case .outdoors: "mountain.2"
+    case .making: "hammer"
+    case .other: "sparkles"
+    }
+  }
+}
+
+struct AiOpinion: Sendable, Equatable {
+  var verdict: String  // consistent | inconsistent | uncertain
+  var confidence: Double
+  var reasons: [String]
+  var model: String
+  var ranAt: Int64
+
+  init(verdict: String, confidence: Double, reasons: [String], model: String, ranAt: Int64) {
+    self.verdict = verdict; self.confidence = confidence; self.reasons = reasons
+    self.model = model; self.ranAt = ranAt
+  }
+
+  init?(_ d: [String: Any]?) {
+    guard let d, let v = d.str("verdict") else { return nil }
+    verdict = v
+    confidence = d.dbl("confidence") ?? 0
+    reasons = d["reasons"] as? [String] ?? []
+    model = d.str("model") ?? ""
+    ranAt = d.i64("ranAt") ?? 0
+  }
+
+  var firestoreData: [String: Any] {
+    ["verdict": verdict, "confidence": confidence, "reasons": reasons, "model": model, "ranAt": ranAt]
+  }
+}
+
+struct SummaryInfo: Sendable, Equatable {
+  var durationMs: Int64 = 0
+  var distanceM: Double = 0
+  var frameCount = 0
+  var heroFrameSeq: Int?
+
+  init(durationMs: Int64 = 0, distanceM: Double = 0, frameCount: Int = 0, heroFrameSeq: Int? = nil) {
+    self.durationMs = durationMs; self.distanceM = distanceM
+    self.frameCount = frameCount; self.heroFrameSeq = heroFrameSeq
+  }
+
+  init?(_ d: [String: Any]?) {
+    guard let d else { return nil }
+    durationMs = d.i64("durationMs") ?? 0
+    distanceM = d.dbl("distanceM") ?? 0
+    frameCount = d.int("frameCount") ?? 0
+    heroFrameSeq = d.int("heroFrameSeq")
+  }
+}
+
+/// What a Moment card needs; built from either `feed/{id}` or `moments/{id}`.
+struct MomentCardData: Identifiable, Sendable, Equatable {
+  var id: String
+  var ownerName: String
+  var ownerPhotoURL: String?
+  var intention: String
+  var category: String
+  var platform: String
+  var status: String  // recording | submitted | sealed | rejected
+  var startedAt: Int64
+  var summary: SummaryInfo?
+  var onDeviceMode: String
+  var heroJpegB64: String?
+  var track: [LatLng] = []
+  var sealReason: String?
+  var checks: [String: Bool] = [:]
+  var judgeReasons: [String] = []
+  var judge: AiOpinion?
+  var skeptic: AiOpinion?
+  var hasPendingWrites = false
+
+  var isVerified: Bool { status == "sealed" }
+
+  /// `feed/{momentId}` (public, written by the Cloud Function).
+  static func fromFeed(id: String, _ d: [String: Any]) -> MomentCardData {
+    let owner = d.obj("owner") ?? [:]
+    let intention = d.obj("intention") ?? [:]
+    let track = (d["track"] as? [[NSNumber]] ?? []).compactMap { p in
+      p.count >= 2 ? LatLng(lat: p[0].doubleValue, lng: p[1].doubleValue) : nil
+    }
+    return MomentCardData(
+      id: d.str("momentId") ?? id, ownerName: owner.str("name") ?? "Someone",
+      ownerPhotoURL: owner.str("photoURL"), intention: intention.str("text") ?? "",
+      category: intention.str("category") ?? "other", platform: d.str("platform") ?? "",
+      status: d.str("status") ?? "sealed", startedAt: 0, summary: SummaryInfo(d.obj("summary")),
+      onDeviceMode: d.str("onDeviceMode") ?? "none", heroJpegB64: d.str("heroJpegB64"),
+      track: track, sealReason: d.str("sealReason"),
+      checks: d["checks"] as? [String: Bool] ?? [:], judgeReasons: d["judgeReasons"] as? [String] ?? [])
+  }
+
+  /// `moments/{momentId}` (owner view, any status).
+  static func fromMoment(id: String, _ d: [String: Any], pending: Bool) -> MomentCardData {
+    let owner = d.obj("owner") ?? [:]
+    let intention = d.obj("intention") ?? [:]
+    let seal = d.obj("seal")
+    let judge = AiOpinion(d.obj("judge"))
+    return MomentCardData(
+      id: id, ownerName: owner.str("name") ?? "Me", ownerPhotoURL: owner.str("photoURL"),
+      intention: intention.str("text") ?? "", category: intention.str("category") ?? "other",
+      platform: d.str("platform") ?? "ios", status: d.str("status") ?? "recording",
+      startedAt: d.i64("startedAt") ?? 0, summary: SummaryInfo(d.obj("summary")),
+      onDeviceMode: d.obj("onDevice")?.str("mode") ?? "none", heroJpegB64: nil,
+      sealReason: seal?.str("reason"), checks: seal?["checks"] as? [String: Bool] ?? [:],
+      judgeReasons: judge?.reasons ?? [], judge: judge, skeptic: AiOpinion(d.obj("skeptic")),
+      hasPendingWrites: pending)
+  }
+}
+
+func nowMs() -> Int64 { Int64((Date().timeIntervalSince1970 * 1000).rounded()) }
