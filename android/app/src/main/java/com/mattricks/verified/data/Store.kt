@@ -180,7 +180,13 @@ object Store {
             }
         }
         if (track.isEmpty() && feedDoc != null) {
-            (feedDoc.get("track") as? List<Any?>)?.forEach { pt -> (pt as? List<Any?>)?.let { if (it.size >= 2) track += LatLng(num(it[0]), num(it[1])) } }
+            // Backend writes [{lat,lng}] (Firestore rejects nested arrays); also accept [[lat,lng]].
+            (feedDoc.get("track") as? List<Any?>)?.forEach { pt ->
+                when (pt) {
+                    is Map<*, *> -> if (pt["lat"] != null && pt["lng"] != null) track += LatLng(num(pt["lat"]), num(pt["lng"]))
+                    is List<*> -> if (pt.size >= 2) track += LatLng(num(pt[0]), num(pt[1]))
+                }
+            }
         }
         if (frames.isEmpty()) feedDoc?.getString("heroJpegB64")?.let { frames += Frame(0, 0, it, null) }
 

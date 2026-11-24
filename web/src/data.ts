@@ -19,6 +19,21 @@ import type { Chunk, FeedEntry, Moment } from "./types";
 const millis = (v: unknown): number | null =>
   v && typeof (v as Timestamp).toMillis === "function" ? (v as Timestamp).toMillis() : typeof v === "number" ? v : null;
 
+/** Firestore can't store nested arrays, so the backend writes feed.track as [{lat,lng}]; the UI uses [lat,lng]. */
+export function normalizeTrack(raw: unknown): [number, number][] {
+  if (!Array.isArray(raw)) return [];
+  const out: [number, number][] = [];
+  for (const p of raw) {
+    const lat = Array.isArray(p) ? p[0] : (p as { lat?: unknown })?.lat;
+    const lng = Array.isArray(p) ? p[1] : (p as { lng?: unknown })?.lng;
+    if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+  }
+  return out;
+}
+
+const toFeedEntry = (id: string, data: Record<string, unknown>, sealedAt: unknown): FeedEntry =>
+  ({ ...(data as unknown as FeedEntry), momentId: id, sealedAtServer: millis(sealedAt), track: normalizeTrack(data.track) }) as FeedEntry;
+
 let fixturePromise: Promise<import("./fixtures").FixtureSet> | null = null;
 const fixtures = () => (fixturePromise ??= import("./fixtures").then((m) => m.buildFixtures()));
 
@@ -37,7 +52,7 @@ export function subscribeFeed(cb: (entries: FeedEntry[]) => void, onError: (e: E
   const q = query(collection(db, "feed"), orderBy("sealedAtServer", "desc"), limit(60));
   return onSnapshot(
     q,
-    (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as FeedEntry), momentId: d.id, sealedAtServer: millis(d.get("sealedAtServer")) }))),
+    (snap) => cb(snap.docs.map((d) => toFeedEntry(d.id, d.data(), d.get("sealedAtServer")))),
     onError,
   );
 }
@@ -58,7 +73,7 @@ export async function getMomentBundle(id: string): Promise<MomentBundle> {
     getDoc(doc(db, "moments", id)).catch(() => null), // unreadable until sealed unless you own it
   ]);
   const feed = feedSnap?.exists()
-    ? ({ ...(feedSnap.data() as FeedEntry), momentId: id, sealedAtServer: millis(feedSnap.get("sealedAtServer")) } as FeedEntry)
+    ? toFeedEntry(id, feedSnap.data(), feedSnap.get("sealedAtServer"))
     : null;
   const moment = momentSnap?.exists() ? ({ ...(momentSnap.data() as Moment), id } as Moment) : null;
   return { feed, moment };
