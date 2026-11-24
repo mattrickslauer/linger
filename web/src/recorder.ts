@@ -3,7 +3,7 @@
 // replays them in order when the network returns. Order matters for the security rules: the last
 // chunk is queued before the moment flips to "submitted".
 
-import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { judgeAndSkeptic, liveCheck } from "./ai";
 import { makeChunk } from "./chain";
@@ -54,7 +54,7 @@ export class Session {
   private watchId: number | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastMotionT = 0;
-  private unsubSync: (() => void) | null = null;
+  private pending = new Set<number>();
   private heroSeq: number | null = null;
   state: LiveState;
   onChange: (s: LiveState) => void = () => {};
@@ -110,10 +110,8 @@ export class Session {
       submittedAtServer: null,
     }).catch((e) => console.error("moment create failed", e));
 
-    // Sync badge: chunks still in the local queue have hasPendingWrites.
-    this.unsubSync = onSnapshot(collection(ref, "chunks"), { includeMetadataChanges: true }, (snap) => {
-      this.emit({ queued: snap.docs.filter((d) => d.metadata.hasPendingWrites).length });
-    });
+    // Sync badge: a write's promise resolves only once the server acknowledges it, so chunks
+    // written but not yet acknowledged are the ones still queued on this device.
 
     if ("geolocation" in navigator) {
       this.watchId = navigator.geolocation.watchPosition(
@@ -174,7 +172,15 @@ export class Session {
       const c = await makeChunk(this.id, seq, t0, t1, this.prevHash, payload, extra.frame ?? null);
       this.prevHash = c.hash;
       this.chunks.push(c);
-      setDoc(doc(db!, "moments", this.id, "chunks", pad6(seq)), c).catch((e) => console.error("chunk write failed", seq, e));
+      this.pending.add(seq);
+      setDoc(doc(db!, "moments", this.id, "chunks", pad6(seq)), c).then(
+        () => {
+          this.pending.delete(seq);
+          this.emit({ queued: this.pending.size });
+        },
+        (e) => console.error("chunk write failed", seq, e),
+      );
+      this.state = { ...this.state, queued: this.pending.size };
       this.emit({ chunks: this.chunks.length });
     });
     this.queue = job;
@@ -217,7 +223,6 @@ export class Session {
 
   dispose() {
     this.stopSensors();
-    this.unsubSync?.();
   }
 
   /** Stop, write the final chunk, then submit. Resolves once queued locally (works offline). */

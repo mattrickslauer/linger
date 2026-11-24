@@ -121,7 +121,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           {camErr && <p className="cam-err">Camera unavailable: {camErr}</p>}
           {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
           {coach && (
-            <p className={`coach-banner ${coach.pending ? "pending" : coach.ok ? "ok" : "bad"}`} role="status">
+            <p className={`coach-banner ${coach.pending ? "pending" : coach.mode === "none" ? "none" : coach.ok ? "ok" : "bad"}`} role="status">
               {coach.pending
                 ? "Checking on-device…"
                 : coach.mode === "none"
