@@ -25,10 +25,14 @@ settings:
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
-    from: "13.2.0"
+    # Pinned: 12.13–12.19 ship the Firebase AI Logic *hybrid* API used for the live coach
+    # (FirebaseAI.SystemLanguageModel, generativeModelSession, .hybridModel(primary:secondary:)).
+    # 13.0.0 removed it ("remove legacy Foundation Models integration") in favour of an iOS 27-only API.
+    # Needs Xcode 26.2+ (Swift 6.2.3).
+    exactVersion: "12.19.3"
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
-    from: "10.1.0"  # 10.1+ needed for AppCheckCore 12 (Firebase 13)
+    from: "10.1.0"  # accepts AppCheckCore 11 (Firebase 12) and 12
   VerifiedCore:
     path: VerifiedCore
 

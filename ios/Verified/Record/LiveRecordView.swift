@@ -1,6 +1,7 @@
 import Charts
 import MapKit
 import SwiftUI
+import VerifiedCore
 
 /// The live Moment screen: camera, coach banner, timer, distance, GPS dot, motion sparkline,
 /// sync badge, Proof shot and Finish.
@@ -27,7 +28,6 @@ struct LiveRecordView: View {
             MapPolyline(coordinates: rec.track).stroke(Theme.accent, lineWidth: 4)
           }
         }
-        .mapControlVisibility(.hidden)
         .frame(height: 96)
         .clipShape(RoundedRectangle(cornerRadius: 14))
 

@@ -36,13 +36,13 @@ enum LiveCoach {
     let ai = FirebaseAI.firebaseAI(backend: .googleAI())
     let systemModel = FirebaseAI.SystemLanguageModel.default
     let cloudModel = ai.geminiModel(name: FirebaseSetup.cloudModel)
-    let session = ai.generativeModelSession(
-      model: .hybridModel(primary: systemModel, secondary: cloudModel)
-    )
     let p = Prompts.shared.liveCheck
+    // PREFER_ON_DEVICE: Apple Foundation Models first, Gemini in the cloud as the fallback.
+    let session = ai.generativeModelSession(
+      model: .hybridModel(primary: systemModel, secondary: cloudModel),
+      instructions: p.system
+    )
     let prompt = """
-      \(p.system)
-
       \(p.fill(["intention": intention, "frame": labels.description]))
 
       Answer with one JSON object only: {"ok": true|false, "reason": "...", "label": "2-4 words"}

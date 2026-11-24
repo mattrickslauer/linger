@@ -70,9 +70,10 @@ struct RecordView: View {
         Button {
           focused = false
           guard let user = app.auth.user else { return }
+          let recorder = app.recorder
           Task {
             _ = await CameraController.requestAccess()
-            rec.start(owner: user)
+            recorder.start(owner: user)
           }
         } label: {
           Label("Start Moment", systemImage: "record.circle.fill")

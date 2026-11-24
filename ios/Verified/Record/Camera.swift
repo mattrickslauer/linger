@@ -12,7 +12,7 @@ enum CameraError: LocalizedError {
 }
 
 /// Back camera, photo output only. All session work happens on a private serial queue.
-nonisolated final class CameraController: NSObject, @unchecked Sendable {
+nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
   let session = AVCaptureSession()
   private let output = AVCapturePhotoOutput()
   private let queue = DispatchQueue(label: "verified.camera")
@@ -72,9 +72,9 @@ nonisolated final class CameraController: NSObject, @unchecked Sendable {
       }
     }
   }
-}
 
-extension CameraController: AVCapturePhotoCaptureDelegate {
+  // MARK: AVCapturePhotoCaptureDelegate
+
   func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
     let id = photo.resolvedSettings.uniqueID
     let data = photo.fileDataRepresentation()
@@ -84,8 +84,9 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
       if let data {
         cont.resume(returning: data)
       } else {
-        cont.resume(throwing: err.map { NSError(domain: "Camera", code: 1, userInfo: [NSLocalizedDescriptionKey: $0]) }
-          ?? CameraError.noData)
+        let failure: Error = err.map { NSError(domain: "Camera", code: 1, userInfo: [NSLocalizedDescriptionKey: $0]) }
+          ?? CameraError.noData
+        cont.resume(throwing: failure)
       }
     }
   }

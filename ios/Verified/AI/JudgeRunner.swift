@@ -122,7 +122,7 @@ final class JudgeRunner {
       modelName: name,
       generationConfig: GenerationConfig(
         temperature: 0.2, responseMIMEType: "application/json", responseSchema: opinionSchema),
-      systemInstruction: ModelContent(role: "system", parts: [TextPart(p.system)])
+      systemInstruction: ModelContent(role: "system", parts: p.system)
     )
     var parts: [any Part] = [TextPart(p.fill(values))]
     parts += images.map { InlineDataPart(data: $0, mimeType: "image/jpeg") }

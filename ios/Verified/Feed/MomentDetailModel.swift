@@ -42,24 +42,27 @@ final class MomentDetailModel {
   func start() {
     guard listener == nil else { return }
     listener = MomentStore.moment(card.id).addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, err in
-      guard let self else { return }
-      if let err { self.error = err.localizedDescription }
-      guard let snap, let d = snap.data() else {
-        // Moment doc unreadable or missing (e.g. seed data): still try the chunks once.
-        if self.loadedStatus == nil {
-          self.loadedStatus = self.card.status
-          Task { await self.loadChunks() }
-        }
-        return
-      }
-      var next = MomentCardData.fromMoment(id: snap.documentID, d, pending: snap.metadata.hasPendingWrites)
-      next.heroJpegB64 = self.card.heroJpegB64
-      if next.track.isEmpty { next.track = self.card.track }
-      self.card = next
-      if self.loadedStatus != next.status {
-        self.loadedStatus = next.status
+      MainActor.assumeIsolated { self?.apply(snap, err) }
+    }
+  }
+
+  private func apply(_ snap: DocumentSnapshot?, _ err: Error?) {
+    if let err { self.error = err.localizedDescription }
+    guard let snap, let d = snap.data() else {
+      // Moment doc unreadable or missing (e.g. seed data): still try the chunks once.
+      if self.loadedStatus == nil {
+        self.loadedStatus = self.card.status
         Task { await self.loadChunks() }
       }
+      return
+    }
+    var next = MomentCardData.fromMoment(id: snap.documentID, d, pending: snap.metadata.hasPendingWrites)
+    next.heroJpegB64 = self.card.heroJpegB64
+    if next.track.isEmpty { next.track = self.card.track }
+    self.card = next
+    if self.loadedStatus != next.status {
+      self.loadedStatus = next.status
+      Task { await self.loadChunks() }
     }
   }
 

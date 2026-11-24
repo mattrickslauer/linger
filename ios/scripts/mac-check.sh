@@ -38,6 +38,9 @@ EOF
 for f in Record/ProofFrame.swift AI/VisionLabeler.swift AI/CoachHeuristic.swift; do
   sed -E 's/^nonisolated (struct|enum|final class)/\1/' "$ios/Verified/$f" > "$work/Sources/Harness/$(basename "$f")"
 done
+# Camera controller (AVFoundation) compiles on macOS too; the UIKit preview view is cut off.
+sed -E 's/^nonisolated (struct|enum|final class)/\1/' "$ios/Verified/Record/Camera.swift" \
+  | sed '/^\/\/\/ Live camera preview layer./,$d' | sed 's/^import SwiftUI$//' > "$work/Sources/Harness/Camera.swift"
 cp "$here/mac-check/main.swift" "$work/Sources/Harness/main.swift"
 (cd "$work" && swift build -c release 2>&1 | grep -E "error|warning: .*(Sendable|isolat)|Compiling|Build complete" | grep -v "^\[" | tail -20)
 "$work/.build/release/Harness" "$repo/shared/sample-moments/frames"
