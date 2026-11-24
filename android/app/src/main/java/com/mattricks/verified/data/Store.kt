@@ -61,6 +61,7 @@ object Store {
             "seal" to null,
             "createdAtServer" to FieldValue.serverTimestamp(),
         )
+        Vault.saveMoment(id, doc) // raw copy on the phone first, kept until the server provably has it
         db.collection("moments").document(id).set(doc).addOnFailureListener(logFail("create moment"))
     }
 
@@ -72,17 +73,18 @@ object Store {
             "payload" to link.payload, "hash" to link.hash,
             "frame" to frame?.let { mapOf("jpegB64" to it.jpegB64, "w" to it.w, "h" to it.h, "t" to it.t) },
         )
+        Vault.saveChunk(momentId, doc)
         db.collection("moments").document(momentId).collection("chunks").document(chunkId(link.seq))
             .set(doc).addOnFailureListener(logFail("chunk ${link.seq}"))
     }
 
     fun submit(momentId: String, endedAt: Long, chunkCount: Int, headHash: String, summary: Summary, onDevice: Map<String, Any>) {
-        db.collection("moments").document(momentId).update(
-            mapOf(
-                "status" to "submitted", "endedAt" to endedAt, "chunkCount" to chunkCount, "headHash" to headHash,
-                "summary" to summary.toMap(), "onDevice" to onDevice, "submittedAtServer" to FieldValue.serverTimestamp(),
-            )
-        ).addOnFailureListener(logFail("submit"))
+        val fields = mapOf(
+            "status" to "submitted", "endedAt" to endedAt, "chunkCount" to chunkCount, "headHash" to headHash,
+            "summary" to summary.toMap(), "onDevice" to onDevice, "submittedAtServer" to FieldValue.serverTimestamp(),
+        )
+        Vault.updateMoment(momentId, fields)
+        db.collection("moments").document(momentId).update(fields).addOnFailureListener(logFail("submit"))
     }
 
     suspend fun writeOpinions(momentId: String, judge: Map<String, Any?>, skeptic: Map<String, Any?>) {

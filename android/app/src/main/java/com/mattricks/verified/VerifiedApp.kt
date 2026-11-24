@@ -13,7 +13,13 @@ import com.google.firebase.initialize
 import com.google.firebase.remoteconfig.remoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
 import com.mattricks.verified.ai.Ai
+import com.mattricks.verified.data.Vault
 import com.mattricks.verified.judge.Judging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class VerifiedApp : Application() {
     override fun onCreate() {
@@ -47,8 +53,18 @@ class VerifiedApp : Application() {
 
         Ai.warmUp(this)
         Judging.init(this)
-        Firebase.auth.addAuthStateListener { if (it.currentUser != null) Judging.kick() }
+        Vault.init(this)
+        Firebase.auth.addAuthStateListener { if (it.currentUser != null) { Judging.kick(); vaultScope.launch { Vault.verifyAll() } } }
+        // Raw data leaves the phone only once the server provably has all of it; re-check while the app runs.
+        vaultScope.launch {
+            while (true) {
+                delay(30_000)
+                runCatching { Vault.verifyAll() }.onFailure { Log.w(TAG, "vault", it) }
+            }
+        }
     }
+
+    private val vaultScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object { const val TAG = "Verified" }
 }

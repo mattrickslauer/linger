@@ -76,6 +76,17 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
                 )
                 if (BuildConfig.USE_EMULATOR) Text("Emulator mode · ${BuildConfig.EMULATOR_HOST}", style = MaterialTheme.typography.bodySmall, color = Amber)
                 judging?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
+                val held by com.mattricks.verified.data.Vault.held.collectAsState()
+                val conflicts = held.count { it.value == com.mattricks.verified.data.Vault.State.Conflict }
+                Text(
+                    when {
+                        held.isEmpty() -> "Raw data: all safely stored on the server ✓"
+                        conflicts > 0 -> "Raw data: $conflicts Moment(s) differ from the server — kept on this phone"
+                        else -> "Raw data: ${held.size} Moment(s) kept on this phone until the server confirms every chunk"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (held.isEmpty()) Green else Amber,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { Auth.signOut() }) { Text("Sign out") }
             }

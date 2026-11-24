@@ -136,6 +136,30 @@ The seal's AI check is honest about its limits: the client calls the cloud model
 through Firebase AI Logic), so the hackathon trust model is "tamper-evident data + two independent AI opinions
 + deterministic gates". Post-hackathon: move judge calls server-side.
 
+## Raw vault: never lose a Moment (all platforms)
+
+The Firestore cache is not a backup: if the server loses a document, the cache records the deletion. So every client
+keeps its **own raw copy** of each Moment and deletes it **only after the server provably holds all of it**:
+
+1. **Journal first.** Before each Firestore write, write the same data to app-private storage, atomically (temp file +
+   fsync + rename): the moment fields (as created, then as submitted) and every chunk exactly as stored
+   (`seq, t0, t1, prevHash, payload, hash, frame`). A failed journal write is an error, never skipped.
+2. **Verify from the server, not the cache** (Android `Source.SERVER`, iOS `.server`, web `getDocFromServer`/
+   `getDocsFromServer`), only for Moments with `status == submitted`, owned by the signed-in user.
+3. **Repair.** Moment missing on the server → re-create it from the journal as `recording` (rules allow), upload every
+   chunk, then the submit fields. Chunks missing → upload them (rules allow `seq < chunkCount` after submit).
+   Chunks are append-only: a server chunk that *differs* is a conflict; keep the local copy and surface it.
+4. **Delete only on a full match:** server status in `submitted|sealed|rejected`, same `chunkCount` and `headHash`, and
+   for every seq the same `hash`, `payload` and `frame.jpegB64`. Offline, any error or any mismatch → keep.
+5. Re-check on start, on sign-in, and every ~30 s while the app runs. Show the state on the Me screen
+   ("kept on this phone until the server confirms every chunk" / "all safely stored on the server").
+
+Android: `android/.../data/Vault.kt` (pure comparison `VaultCheck`, unit-tested). Web and iOS: TODO, same rules.
+
+Product direction (not built): **pay to store a Moment forever.** The verified raw archive (full time series, frames,
+hash chain) is the paid asset: free Moments keep the sealed summary and feed entry, raw data expires after a retention
+window; paid Moments keep the raw archive permanently plus an exportable, independently re-verifiable proof bundle.
+
 ## Security rules (summary — `firestore.rules` is authoritative)
 
 - `feed/*`: read public; write never (Function uses Admin SDK).
