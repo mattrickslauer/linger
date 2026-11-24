@@ -275,13 +275,14 @@ a {
 }
 .foot {
   border-top: 1px solid var(--rule);
-  padding: 24px var(--gutter) 32px;
+  padding: 24px 0 32px;
   color: var(--ink-3);
   font-size: 0.85rem;
 }
 .foot p {
   max-width: var(--maxw);
   margin: 0 auto;
+  padding: 0 var(--gutter);
 }
 .page {
   max-width: var(--maxw);
@@ -463,7 +464,9 @@ a {
 .hero-art {
   width: 100%;
   height: auto;
-  overflow: visible;
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(ellipse 70% 66% at 55% 48%, #000 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 66% at 55% 48%, #000 60%, transparent 100%);
 }
 .contours path {
   fill: none;
@@ -1593,4 +1596,9 @@ path.lf-cursor {
     animation-delay: 0s !important;
     transition: none !important;
   }
+}
+.dd-sub {
+  font-size: 0.6em;
+  font-weight: 600;
+  color: var(--ink-3);
 }

@@ -186,7 +186,7 @@ export default function Detail({ id }: { id: string }) {
               <dt>live checks</dt>
               <dd>
                 {moment.onDevice.checks}
-                {moment.onDevice.retakes ? `, ${moment.onDevice.retakes} retake${moment.onDevice.retakes > 1 ? "s" : ""}` : ""}
+                {moment.onDevice.retakes ? <span className="dd-sub"> ({moment.onDevice.retakes} retake{moment.onDevice.retakes > 1 ? "s" : ""})</span> : null}
               </dd>
             </div>
           )}

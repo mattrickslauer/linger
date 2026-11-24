@@ -3,31 +3,14 @@
 import { InferenceSource, type InlineDataPart } from "firebase/ai";
 import { cloudModel, judgeModel, liveCheckModel, prompts, skepticModel } from "./firebase";
 import { fmtDistance, fmtDuration } from "./geo";
+import { fill, parseJson, pickFrames } from "./ai-util";
 import type { AiOpinion, CheckMode, LiveCheck, Moment, Summary, Verdict } from "./types";
 
-const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const t = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error(`timeout after ${ms} ms`)), ms)));
   return Promise.race([p, t]).finally(() => clearTimeout(timer));
-}
-
-export function parseJson<T>(raw: string): Partial<T> {
-  const cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-  try {
-    return JSON.parse(cleaned) as Partial<T>;
-  } catch {
-    const m = cleaned.match(/\{[\s\S]*\}/);
-    if (m) {
-      try {
-        return JSON.parse(m[0]) as Partial<T>;
-      } catch {
-        /* fall through */
-      }
-    }
-    return {};
-  }
 }
 
 const jpegPart = (b64: string): InlineDataPart => ({ type: "inlineData", inlineData: { data: b64, mimeType: "image/jpeg" } });
@@ -86,16 +69,6 @@ async function opinion(which: "judge" | "skeptic", m: Moment, frames: { t: numbe
     model: cloudModel(),
     ranAt: Date.now(),
   };
-}
-
-/** Hero frame first, then up to 3 others spread across the session (contract: hero + up to 3). */
-export function pickFrames<T extends { seq: number; t: number }>(frames: T[], heroSeq: number | null): T[] {
-  const sorted = [...frames].sort((a, b) => a.t - b.t);
-  const hero = sorted.find((f) => f.seq === heroSeq) ?? sorted[sorted.length - 1];
-  const rest = sorted.filter((f) => f !== hero);
-  const picks: T[] = [];
-  for (let i = 0; i < Math.min(3, rest.length); i++) picks.push(rest[Math.round((i * (rest.length - 1)) / Math.max(1, Math.min(3, rest.length) - 1))]);
-  return [hero, ...new Set(picks)].filter(Boolean).sort((a, b) => a.t - b.t);
 }
 
 export async function judgeAndSkeptic(m: Moment, frames: { seq: number; t: number; jpegB64: string }[]) {
