@@ -1,0 +1,8 @@
+.build/
+VerifiedCore/Package.resolved
+GoogleService-Info.plist
+*.xcodeproj/
+build/
+xcuserdata/
+DerivedData/
+.DS_Store
