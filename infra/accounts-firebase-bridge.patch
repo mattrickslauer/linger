@@ -1,6 +1,37 @@
-diff -ruN a/lambda/api.mjs b/lambda/api.mjs
---- a/lambda/api.mjs	2026-11-19 10:59:03.385915015 -0800
-+++ b/lambda/api.mjs	2026-11-24 07:52:22.198546433 -0800
+diff --git a/README.md b/README.md
+index 4d13af2..4ba41ed 100644
+--- a/README.md
++++ b/README.md
+@@ -89,5 +89,25 @@ Social sign-in needs the tenant's own upstream app, with redirect URI `https://l
+ Or reuse the shared Mattricks apps (their consent screens say Mattricks): register the same redirect URIs in
+ their consoles, then `bin/accounts tenant shared-social puq on`.
+ 
++## Firebase apps
++
++An app that keeps Firebase Auth underneath (security rules, App Check) signs in here, then swaps its
++access token for a Firebase custom token and calls `signInWithCustomToken`. The Firebase uid is the accounts `sub`.
++
++```
++POST /t/{tenant}/v1/firebase/{projectId}/token   Authorization: Bearer <access token>
++→ { token, uid, email, expires_in: 3600 }
++```
++
++Enable a project for a tenant by storing its service-account JSON (Firebase console → Project settings →
++Service accounts → Generate new private key):
++
++```
++aws ssm put-parameter --name /accounts/firebase/<tenant>/<projectId> --type SecureString --value file://key.json
++```
++
++No parameter means 404. Mobile apps register their own redirect scheme (`com.example.app:/oauth2redirect`);
++such clients are served as OIDC `native` clients.
++
+ - **Design:** `docs/superpowers/specs/2026-11-19-accounts-platform-design.md`
+ - **P1 plan:** `docs/superpowers/plans/2026-11-19-accounts-p1.md`
+diff --git a/lambda/api.mjs b/lambda/api.mjs
+index 3f47b18..c60900f 100644
+--- a/lambda/api.mjs
++++ b/lambda/api.mjs
 @@ -3,6 +3,7 @@
  //   link from new-device email:  GET /not-me?t=
  //   tenant admin (Bearer acc_sk_ key): GET /v1/users?email= · POST /v1/users/{sub}/disable
@@ -9,7 +40,7 @@ diff -ruN a/lambda/api.mjs b/lambda/api.mjs
  import { createHash } from 'node:crypto'
  import { jwtVerify, createLocalJWKSet } from 'jose'
  import { HttpError } from './errors.mjs'
-@@ -14,6 +15,7 @@
+@@ -14,6 +15,7 @@ import { audit } from './audit.mjs'
  import { messagePage, renderPage, esc } from './pages.mjs'
  import { ConditionalCheckFailed } from './store.mjs'
  import { deviceCookieName, issuerFor } from './provider.mjs'
@@ -17,7 +48,7 @@ diff -ruN a/lambda/api.mjs b/lambda/api.mjs
  
  const sha = s => createHash('sha256').update(s).digest('hex')
  
-@@ -142,6 +144,16 @@
+@@ -159,6 +161,16 @@ export function apiRoutes ({ store, config, track = () => {}, now = () => Date.n
        return true
      }
  
@@ -34,9 +65,11 @@ diff -ruN a/lambda/api.mjs b/lambda/api.mjs
      if (path.startsWith('/users') || path.startsWith('/clients')) await admin(ctx, tenant)
      if (path === '/users' && ctx.method === 'GET') {
        const email = normalizeEmail(ctx.query.email)
-diff -ruN a/lambda/firebase.mjs b/lambda/firebase.mjs
---- a/lambda/firebase.mjs	1969-12-31 16:00:00.000000000 -0800
-+++ b/lambda/firebase.mjs	2026-11-24 07:52:15.998342428 -0800
+diff --git a/lambda/firebase.mjs b/lambda/firebase.mjs
+new file mode 100644
+index 0000000..d9c05c0
+--- /dev/null
++++ b/lambda/firebase.mjs
 @@ -0,0 +1,51 @@
 +// Firebase bridge: swap an accounts access token for a Firebase custom token, so an app keeps Firebase
 +// Auth underneath (security rules, App Check, AI Logic) while accounts stays the one sign-in.
@@ -89,20 +122,21 @@ diff -ruN a/lambda/firebase.mjs b/lambda/firebase.mjs
 +    return sa
 +  }
 +}
-diff -ruN a/lambda/handler.mjs b/lambda/handler.mjs
---- a/lambda/handler.mjs	2026-11-19 10:47:26.564989418 -0800
-+++ b/lambda/handler.mjs	2026-11-24 07:52:28.110740960 -0800
-@@ -6,7 +6,8 @@
- import { loadConfig } from './config.mjs'
+diff --git a/lambda/handler.mjs b/lambda/handler.mjs
+index 58113ba..22ac37a 100644
+--- a/lambda/handler.mjs
++++ b/lambda/handler.mjs
+@@ -7,7 +7,8 @@ import { loadConfig } from './config.mjs'
  import { sendEmail } from './mail.mjs'
  import { makeTracker } from './tally.mjs'
+ import { makeNotifier } from './notify.mjs'
 -import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm'
 +import { SSMClient, GetParameterCommand, GetParametersCommand } from '@aws-sdk/client-ssm'
 +import { makeFirebaseKeyLoader } from './firebase.mjs'
  
  export function makeHandler (deps) {
    let ready = null
-@@ -26,6 +27,7 @@
+@@ -27,6 +28,7 @@ export const handler = makeHandler(async () => {
    config.loadTenantKey = async id => {
      try { return JSON.parse((await ssm.send(new GetParameterCommand({ Name: `/accounts/jwks/${id}`, WithDecryption: true }))).Parameter.Value) } catch { return null }
    }
@@ -110,10 +144,11 @@ diff -ruN a/lambda/handler.mjs b/lambda/handler.mjs
    return {
      config,
      store: makeStore({ ddb: new DynamoDBClient({}), table: process.env.TABLE }),
-diff -ruN a/lambda/tenants.mjs b/lambda/tenants.mjs
---- a/lambda/tenants.mjs	2026-11-19 10:30:58.737144465 -0800
-+++ b/lambda/tenants.mjs	2026-11-24 07:52:56.470674082 -0800
-@@ -38,5 +38,6 @@
+diff --git a/lambda/tenants.mjs b/lambda/tenants.mjs
+index 5f1f32b..9a97365 100644
+--- a/lambda/tenants.mjs
++++ b/lambda/tenants.mjs
+@@ -69,5 +69,6 @@ export const toOidcMetadata = c => ({
    token_endpoint_auth_method: 'none',
    grant_types: ['authorization_code', 'refresh_token'],
    response_types: ['code'],
@@ -121,38 +156,11 @@ diff -ruN a/lambda/tenants.mjs b/lambda/tenants.mjs
 +  // Mobile apps redirect to their own scheme (com.example.app:/cb), which only native clients may use.
 +  application_type: (c.redirect_uris ?? []).every(u => /^https?:/.test(u)) ? 'web' : 'native'
  })
-diff -ruN a/README.md b/README.md
---- a/README.md	2026-11-22 15:23:38.576864491 -0800
-+++ b/README.md	2026-11-24 07:53:02.142860713 -0800
-@@ -69,5 +69,25 @@
- provider's own id wins even if the email changes. Apple relay addresses become their own user.
- After adding a parameter, re-run `./infra/deploy.sh` (or wait for a cold start) so Lambda picks it up.
- 
-+### Firebase apps
-+
-+An app that keeps Firebase Auth underneath (security rules, App Check) signs in here, then swaps its
-+access token for a Firebase custom token and calls `signInWithCustomToken`. The Firebase uid is the accounts `sub`.
-+
-+```
-+POST /t/{tenant}/v1/firebase/{projectId}/token   Authorization: Bearer <access token>
-+→ { token, uid, email, expires_in: 3600 }
-+```
-+
-+Enable a project for a tenant by storing its service-account JSON (Firebase console → Project settings →
-+Service accounts → Generate new private key):
-+
-+```
-+aws ssm put-parameter --name /accounts/firebase/<tenant>/<projectId> --type SecureString --value file://key.json
-+```
-+
-+No parameter means 404. Mobile apps register their own redirect scheme (`com.example.app:/oauth2redirect`);
-+such clients are served as OIDC `native` clients.
-+
- - **Design:** `docs/superpowers/specs/2026-11-19-accounts-platform-design.md`
- - **P1 plan:** `docs/superpowers/plans/2026-11-19-accounts-p1.md`
-diff -ruN a/test/firebase.test.mjs b/test/firebase.test.mjs
---- a/test/firebase.test.mjs	1969-12-31 16:00:00.000000000 -0800
-+++ b/test/firebase.test.mjs	2026-11-24 07:52:49.321438852 -0800
+diff --git a/test/firebase.test.mjs b/test/firebase.test.mjs
+new file mode 100644
+index 0000000..c16810b
+--- /dev/null
++++ b/test/firebase.test.mjs
 @@ -0,0 +1,55 @@
 +import { test, before, after } from 'node:test'
 +import assert from 'node:assert/strict'

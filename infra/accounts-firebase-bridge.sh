@@ -5,7 +5,7 @@
 #   infra/accounts-firebase-bridge.sh            # run from anywhere; needs aws, git, node, npm
 #
 # Steps (each is safe to re-run):
-#   1. ~/Code/accounts: new worktree + branch firebase-bridge from origin/main, apply the patch, npm test
+#   1. ~/Code/accounts: new worktree + branch firebase-bridge from origin's default branch (p1-core), apply the patch, npm test
 #   2. commit + push the branch (open a PR / merge it yourself afterwards)
 #   3. store the verified-99e74 service-account key in SSM /accounts/firebase/mattricks/verified-99e74
 #   4. deploy accounts from that worktree (infra/deploy.sh)
@@ -35,8 +35,11 @@ aws sts get-caller-identity --query Account --output text >/dev/null || { echo "
 
 say "1. accounts worktree $WT ($BRANCH)"
 git -C "$ACC" fetch -q origin
+git -C "$ACC" remote set-head origin --auto >/dev/null
+BASE_REF="$(git -C "$ACC" symbolic-ref --short refs/remotes/origin/HEAD)"   # accounts' default branch (p1-core)
+echo "base: $BASE_REF ($(git -C "$ACC" rev-parse --short "$BASE_REF"))"
 if [ ! -d "$WT" ]; then
-  git -C "$ACC" worktree add -q -b "$BRANCH" "$WT" origin/main
+  git -C "$ACC" worktree add -q -b "$BRANCH" "$WT" "$BASE_REF"
 fi
 cd "$WT"
 if git apply --check "$PATCH" 2>/dev/null; then
@@ -44,8 +47,10 @@ if git apply --check "$PATCH" 2>/dev/null; then
   echo "patch applied"
 elif git apply --reverse --check "$PATCH" 2>/dev/null; then
   echo "patch already applied"
+elif git apply -3 "$PATCH"; then
+  echo "patch applied with a 3-way merge"
 else
-  echo "patch does not apply cleanly to $WT (accounts main moved?). Send me: git -C $ACC log --oneline -5" >&2; exit 1
+  echo "patch does not apply to $BASE_REF. Send me: git -C $ACC log --oneline -5 $BASE_REF" >&2; exit 1
 fi
 npm ci --no-audit --no-fund --silent
 npm test 2>&1 | tail -4
