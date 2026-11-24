@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "check": "tsc --noEmit",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "e2e:emu": "node scripts/e2e-emu.mjs"
   },
   "dependencies": {
     "firebase": "13.4.0",

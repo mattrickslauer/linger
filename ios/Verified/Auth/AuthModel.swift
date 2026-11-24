@@ -5,7 +5,7 @@ import FirebaseCore
 import Observation
 import UIKit
 
-struct SignedInUser: Equatable, Sendable {
+nonisolated struct SignedInUser: Equatable, Sendable {
   let uid: String
   let name: String
   let photoURL: String?
@@ -21,14 +21,13 @@ final class AuthModel {
 
   init() {
     handle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
-      guard let self else { return }
       let info = user.map {
         SignedInUser(uid: $0.uid, name: $0.displayName ?? $0.email ?? "Anonymous",
                      photoURL: $0.photoURL?.absoluteString)
       }
       Task { @MainActor in
-        self.user = info
-        self.ready = true
+        self?.user = info
+        self?.ready = true
       }
     }
   }

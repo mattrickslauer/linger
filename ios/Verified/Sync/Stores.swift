@@ -14,11 +14,15 @@ final class FeedStore {
     listener = Firestore.firestore().collection("feed")
       .order(by: "sealedAtServer", descending: true).limit(to: 50)
       .addSnapshotListener { [weak self] snap, err in
-        guard let self else { return }
-        if let err { self.error = err.localizedDescription }
-        guard let snap else { return }
-        self.items = snap.documents.map { MomentCardData.fromFeed(id: $0.documentID, $0.data()) }
-        self.loaded = true
+        // Firestore delivers snapshots on the main queue.
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          if let err { self.error = err.localizedDescription }
+          guard let snap else { return }
+          self.error = nil
+          self.items = snap.documents.map { MomentCardData.fromFeed(id: $0.documentID, $0.data()) }
+          self.loaded = true
+        }
       }
   }
 }
@@ -35,11 +39,13 @@ final class MyMomentsStore {
     listener = Firestore.firestore().collection("moments")
       .whereField("ownerUid", isEqualTo: uid)
       .addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, _ in
-        guard let self, let snap else { return }
-        self.items = snap.documents
-          .map { MomentCardData.fromMoment(id: $0.documentID, $0.data(), pending: $0.metadata.hasPendingWrites) }
-          .sorted { $0.startedAt > $1.startedAt }
-        onChange(self.items)
+        MainActor.assumeIsolated {
+          guard let self, let snap else { return }
+          self.items = snap.documents
+            .map { MomentCardData.fromMoment(id: $0.documentID, $0.data(), pending: $0.metadata.hasPendingWrites) }
+            .sorted { $0.startedAt > $1.startedAt }
+          onChange(self.items)
+        }
       }
   }
 
@@ -62,9 +68,11 @@ final class ChunkSyncMonitor {
     stop()
     listener = MomentStore.chunks(momentId)
       .addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, _ in
-        guard let self, let snap else { return }
-        self.total = snap.documents.count
-        self.pending = snap.documents.filter { $0.metadata.hasPendingWrites }.count
+        MainActor.assumeIsolated {
+          guard let self, let snap else { return }
+          self.total = snap.documents.count
+          self.pending = snap.documents.filter { $0.metadata.hasPendingWrites }.count
+        }
       }
   }
 

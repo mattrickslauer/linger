@@ -113,7 +113,7 @@ function Card({ e }: { e: FeedEntry }) {
   return (
     <Link to={`/m/${e.momentId}`} className={`card ${sealed ? "" : "card-rejected"}`}>
       <div className="card-media">
-        {e.heroJpegB64 ? <img src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} loading="lazy" /> : <div className="card-noimg" />}
+        {e.heroJpegB64 ? <img src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} /> : <div className="card-noimg" />}
         <Stamp sealed={sealed} />
         {e.track?.length > 1 && (
           <span className="card-track">
