@@ -35,15 +35,14 @@ to 13.x unless you port `LiveCoach.hybrid` to that API.
    ```
    Take the plist from `.claude/worktrees/verified-core/config/` on the dev box, or download it from Firebase
    console → Project settings → iOS app `com.mattrickslauer.verified`.
-4. **Google sign-in URL scheme.** After you enable Google sign-in (Firebase console → Authentication →
-   Sign-in method → Google), download the plist again so that it contains `CLIENT_ID` and `REVERSED_CLIENT_ID`.
-   Then set `GOOGLE_REVERSED_CLIENT_ID` in `ios/project.yml` to the `REVERSED_CLIENT_ID` value
-   (`com.googleusercontent.apps.726678528605-…`). Until you do, use the emulator sign-in described below.
+4. **Sign-in** needs no setup: like Android, it goes through accounts.mattrickslauer.com (client `verified-app`,
+   loopback redirect `http://127.0.0.1:47231/auth`) and trades the result for a Firebase custom token
+   (`Verified/Auth/AccountsSignIn.swift`). No Google client id is needed in the plist.
 5. **Generate the project and open it:**
    ```bash
    cd ios && xcodegen && open Verified.xcodeproj
    ```
-   The first open resolves Swift packages (Firebase, GoogleSignIn, and the local `VerifiedCore`), which takes a
+   The first open resolves Swift packages (Firebase and the local `VerifiedCore`), which takes a
    few minutes.
 6. **Signing.** Select target Verified → Signing & Capabilities → Team, and pick your Apple ID. Signing is
    automatic. Bundle id: `com.mattrickslauer.verified` (the App Store Connect record; it cannot change). If you
@@ -130,10 +129,10 @@ ios/scripts/mac-check.sh --remote studio  # from the Linux box (rsyncs to ~/veri
 ## Layout
 
 ```
-project.yml            XcodeGen spec (SPM: Firebase 12.19.3, GoogleSignIn, local VerifiedCore)
+project.yml            XcodeGen spec (SPM: Firebase 12.19.3, local VerifiedCore)
 VerifiedCore/          chain, payload JSON, summary (+ tests, also run on Linux/macOS)
 Verified/App           entry, Firebase setup (emulator switch, offline cache, App Check, Remote Config)
-Verified/Auth          Google sign-in → Firebase Auth; emulator sign-in
+Verified/Auth          accounts.mattrickslauer.com sign-in → Firebase custom token; emulator sign-in
 Verified/Record        RecorderModel, sensors, camera, ProofFrame, Record + live screens
 Verified/AI            LiveCoach (hybrid), JudgeRunner (cloud), Vision labels, prompts
 Verified/Sync          Firestore writes, feed/my-moments/chunk-sync listeners, network monitor
