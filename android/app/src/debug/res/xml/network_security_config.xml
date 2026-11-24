@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: allow cleartext so a physical phone can reach the Emulator Suite on a LAN host
+     (./gradlew assembleDebug -Pverified.emulator=true -Pverified.emulatorHost=192.168.x.y). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
