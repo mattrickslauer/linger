@@ -84,19 +84,54 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   const [shooting, setShooting] = useState(false);
   const [last, setLast] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const [facing, setFacing] = useState<"environment" | "user">("environment");
+  const [canFlip, setCanFlip] = useState(false);
+  // Web has no photo flash for a <video> frame grab: "flash" is the torch, where the browser exposes it.
+  const [track, setTrack] = useState<MediaStreamTrack | null>(null);
+  const [torchOk, setTorchOk] = useState(false);
+  const [torch, setTorch] = useState(false);
 
   useEffect(() => {
     session.onChange = setS;
+  }, [session]);
+
+  useEffect(() => {
     let stream: MediaStream | null = null;
+    let cancelled = false;
+    setCamErr(null);
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false })
+      ?.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 } }, audio: false })
       .then((st) => {
+        if (cancelled) return st.getTracks().forEach((t) => t.stop());
         stream = st;
         if (video.current) video.current.srcObject = st;
+        const t = st.getVideoTracks()[0] ?? null;
+        setTrack(t);
+        setTorch(false);
+        setTorchOk(!!(t?.getCapabilities?.() as { torch?: boolean } | undefined)?.torch);
+        // Labels/count are only reliable once permission is granted.
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((ds) => setCanFlip(ds.filter((d) => d.kind === "videoinput").length > 1))
+          .catch(() => {});
       })
       .catch((e) => setCamErr(e?.message ?? "Camera unavailable"));
-    return () => stream?.getTracks().forEach((t) => t.stop());
-  }, [session]);
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [facing]);
+
+  async function toggleTorch() {
+    if (!track) return;
+    const next = !torch;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorch(next);
+    } catch {
+      setTorchOk(false);
+    }
+  }
 
   async function shoot() {
     if (!video.current || shooting) return;
@@ -117,7 +152,31 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
       <p className="live-intent">{session.intention}</p>
       <div className="live-grid">
         <div className="cam">
-          <video ref={video} autoPlay playsInline muted />
+          <video ref={video} autoPlay playsInline muted className={facing === "user" ? "mirror" : undefined} />
+          <div className="cam-tools">
+            {torchOk && (
+              <button type="button" className="cam-tool" aria-pressed={torch} aria-label={torch ? "Flash on" : "Flash off"} onClick={toggleTorch}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" fill={torch ? "currentColor" : "none"} />
+                  {!torch && <path d="M3 3l18 18" />}
+                </svg>
+              </button>
+            )}
+            {canFlip && (
+              <button
+                type="button"
+                className="cam-tool"
+                aria-label={facing === "user" ? "Switch to back camera" : "Switch to front camera"}
+                disabled={shooting}
+                onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                  <path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14 9.5v1.7h-1.7M10 16.5v-1.7h1.7" />
+                </svg>
+              </button>
+            )}
+          </div>
           {camErr && <p className="cam-err">Camera unavailable: {camErr}</p>}
           {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
           {coach && (

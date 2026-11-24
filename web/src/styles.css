@@ -1298,6 +1298,41 @@ path.lf-cursor {
   height: 100%;
   object-fit: cover;
 }
+.cam video.mirror {
+  transform: scaleX(-1);
+}
+.cam-tools {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cam-tool {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+.cam-tool:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cam-tool svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .cam-err {
   position: absolute;
   inset: 0;
