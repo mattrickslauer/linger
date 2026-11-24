@@ -8,7 +8,7 @@ nonisolated struct Prompts: Decodable, Sendable {
     let user: String
 
     /// Replaces `{{key}}` placeholders.
-    func user(_ values: [String: String]) -> String {
+    func fill(_ values: [String: String]) -> String {
       values.reduce(user) { $0.replacingOccurrences(of: "{{\($1.key)}}", with: $1.value) }
     }
   }
