@@ -1,0 +1,211 @@
+diff -ruN a/lambda/api.mjs b/lambda/api.mjs
+--- a/lambda/api.mjs	2026-11-19 10:59:03.385915015 -0800
++++ b/lambda/api.mjs	2026-11-24 07:52:22.198546433 -0800
+@@ -3,6 +3,7 @@
+ //   link from new-device email:  GET /not-me?t=
+ //   tenant admin (Bearer acc_sk_ key): GET /v1/users?email= · POST /v1/users/{sub}/disable
+ //                                      GET /v1/clients · PUT|DELETE /v1/clients/{id}
++//   firebase bridge (Bearer access token): POST /v1/firebase/{projectId}/token → Firebase custom token
+ import { createHash } from 'node:crypto'
+ import { jwtVerify, createLocalJWKSet } from 'jose'
+ import { HttpError } from './errors.mjs'
+@@ -14,6 +15,7 @@
+ import { messagePage, renderPage, esc } from './pages.mjs'
+ import { ConditionalCheckFailed } from './store.mjs'
+ import { deviceCookieName, issuerFor } from './provider.mjs'
++import { mintFirebaseToken, PROJECT_ID, FIREBASE_TOKEN_TTL } from './firebase.mjs'
+ 
+ const sha = s => createHash('sha256').update(s).digest('hex')
+ 
+@@ -142,6 +144,16 @@
+       return true
+     }
+ 
++    if ((m = path.match(/^\/firebase\/([^/]+)\/token$/)) && ctx.method === 'POST') {
++      const u = await user(ctx, tenant)
++      const sa = PROJECT_ID.test(m[1]) && config.loadFirebaseKey ? await config.loadFirebaseKey(tenant.id, m[1]) : null
++      if (!sa) throw new HttpError(404, 'This app is not set up for Firebase sign-in.', 'not_found')
++      const token = await mintFirebaseToken(sa, u.sub, { tid: tenant.id, email: u.email }, now())
++      track('firebase_token', { tenant: tenant.id, project: m[1] })
++      ctx.body = { token, uid: u.sub, email: u.email, expires_in: FIREBASE_TOKEN_TTL }
++      return true
++    }
++
+     if (path.startsWith('/users') || path.startsWith('/clients')) await admin(ctx, tenant)
+     if (path === '/users' && ctx.method === 'GET') {
+       const email = normalizeEmail(ctx.query.email)
+diff -ruN a/lambda/firebase.mjs b/lambda/firebase.mjs
+--- a/lambda/firebase.mjs	1969-12-31 16:00:00.000000000 -0800
++++ b/lambda/firebase.mjs	2026-11-24 07:52:15.998342428 -0800
+@@ -0,0 +1,51 @@
++// Firebase bridge: swap an accounts access token for a Firebase custom token, so an app keeps Firebase
++// Auth underneath (security rules, App Check, AI Logic) while accounts stays the one sign-in.
++//   POST /t/{tenant}/v1/firebase/{projectId}/token   Authorization: Bearer <accounts access token>
++//   → { token, uid, email, expires_in }   then the app calls signInWithCustomToken(token)
++// The project's service-account JSON is the SSM SecureString /accounts/firebase/{tenant}/{projectId}.
++// No parameter = the project isn't enabled for that tenant (404). The Firebase uid is the accounts sub.
++import { SignJWT, importPKCS8 } from 'jose'
++
++const AUDIENCE = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit'
++export const FIREBASE_TOKEN_TTL = 3600 // the most Firebase accepts
++export const PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/
++
++export const firebaseParamName = (tenant, projectId) => `/accounts/firebase/${tenant}/${projectId}`
++
++const keyCache = new WeakMap()
++async function signingKey (sa) {
++  if (!keyCache.has(sa)) keyCache.set(sa, importPKCS8(sa.private_key, 'RS256'))
++  return keyCache.get(sa)
++}
++
++/** A Firebase custom token for `uid`, signed with the project's service account. */
++export async function mintFirebaseToken (sa, uid, claims, nowMs) {
++  if (!sa?.client_email || !sa?.private_key) throw new Error('firebase: service account needs client_email and private_key')
++  const iat = Math.floor(nowMs / 1000)
++  return new SignJWT({ uid, claims })
++    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
++    .setIssuer(sa.client_email)
++    .setSubject(sa.client_email)
++    .setAudience(AUDIENCE)
++    .setIssuedAt(iat)
++    .setExpirationTime(iat + FIREBASE_TOKEN_TTL)
++    .sign(await signingKey(sa))
++}
++
++/** Loader for production: reads and caches the SSM parameter (misses are cached briefly). */
++export function makeFirebaseKeyLoader (ssm, GetParametersCommand, { missTtlMs = 60_000 } = {}) {
++  const cache = new Map()
++  return async (tenant, projectId) => {
++    const name = firebaseParamName(tenant, projectId)
++    const hit = cache.get(name)
++    if (hit && (hit.sa || Date.now() - hit.at < missTtlMs)) return hit.sa
++    let sa = null
++    try {
++      const r = await ssm.send(new GetParametersCommand({ Names: [name], WithDecryption: true }))
++      const v = r.Parameters?.[0]?.Value
++      if (v) sa = JSON.parse(v)
++    } catch (e) { console.error('firebase key load', name, e.name) }
++    cache.set(name, { sa, at: Date.now() })
++    return sa
++  }
++}
+diff -ruN a/lambda/handler.mjs b/lambda/handler.mjs
+--- a/lambda/handler.mjs	2026-11-19 10:47:26.564989418 -0800
++++ b/lambda/handler.mjs	2026-11-24 07:52:28.110740960 -0800
+@@ -6,7 +6,8 @@
+ import { loadConfig } from './config.mjs'
+ import { sendEmail } from './mail.mjs'
+ import { makeTracker } from './tally.mjs'
+-import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm'
++import { SSMClient, GetParameterCommand, GetParametersCommand } from '@aws-sdk/client-ssm'
++import { makeFirebaseKeyLoader } from './firebase.mjs'
+ 
+ export function makeHandler (deps) {
+   let ready = null
+@@ -26,6 +27,7 @@
+   config.loadTenantKey = async id => {
+     try { return JSON.parse((await ssm.send(new GetParameterCommand({ Name: `/accounts/jwks/${id}`, WithDecryption: true }))).Parameter.Value) } catch { return null }
+   }
++  config.loadFirebaseKey = makeFirebaseKeyLoader(ssm, GetParametersCommand)
+   return {
+     config,
+     store: makeStore({ ddb: new DynamoDBClient({}), table: process.env.TABLE }),
+diff -ruN a/lambda/tenants.mjs b/lambda/tenants.mjs
+--- a/lambda/tenants.mjs	2026-11-19 10:30:58.737144465 -0800
++++ b/lambda/tenants.mjs	2026-11-24 07:52:56.470674082 -0800
+@@ -38,5 +38,6 @@
+   token_endpoint_auth_method: 'none',
+   grant_types: ['authorization_code', 'refresh_token'],
+   response_types: ['code'],
+-  application_type: 'web'
++  // Mobile apps redirect to their own scheme (com.example.app:/cb), which only native clients may use.
++  application_type: (c.redirect_uris ?? []).every(u => /^https?:/.test(u)) ? 'web' : 'native'
+ })
+diff -ruN a/README.md b/README.md
+--- a/README.md	2026-11-22 15:23:38.576864491 -0800
++++ b/README.md	2026-11-24 07:53:02.142860713 -0800
+@@ -69,5 +69,25 @@
+ provider's own id wins even if the email changes. Apple relay addresses become their own user.
+ After adding a parameter, re-run `./infra/deploy.sh` (or wait for a cold start) so Lambda picks it up.
+ 
++### Firebase apps
++
++An app that keeps Firebase Auth underneath (security rules, App Check) signs in here, then swaps its
++access token for a Firebase custom token and calls `signInWithCustomToken`. The Firebase uid is the accounts `sub`.
++
++```
++POST /t/{tenant}/v1/firebase/{projectId}/token   Authorization: Bearer <access token>
++→ { token, uid, email, expires_in: 3600 }
++```
++
++Enable a project for a tenant by storing its service-account JSON (Firebase console → Project settings →
++Service accounts → Generate new private key):
++
++```
++aws ssm put-parameter --name /accounts/firebase/<tenant>/<projectId> --type SecureString --value file://key.json
++```
++
++No parameter means 404. Mobile apps register their own redirect scheme (`com.example.app:/oauth2redirect`);
++such clients are served as OIDC `native` clients.
++
+ - **Design:** `docs/superpowers/specs/2026-11-19-accounts-platform-design.md`
+ - **P1 plan:** `docs/superpowers/plans/2026-11-19-accounts-p1.md`
+diff -ruN a/test/firebase.test.mjs b/test/firebase.test.mjs
+--- a/test/firebase.test.mjs	1969-12-31 16:00:00.000000000 -0800
++++ b/test/firebase.test.mjs	2026-11-24 07:52:49.321438852 -0800
+@@ -0,0 +1,55 @@
++import { test, before, after } from 'node:test'
++import assert from 'node:assert/strict'
++import { generateKeyPair, exportPKCS8, jwtVerify, decodeProtectedHeader } from 'jose'
++import { startServer, jar, req, signIn } from './helpers.mjs'
++import { putClient, toOidcMetadata } from '../lambda/tenants.mjs'
++
++const AUD = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit'
++let srv, publicKey, sa
++before(async () => {
++  const kp = await generateKeyPair('RS256', { extractable: true })
++  publicKey = kp.publicKey
++  sa = { client_email: 'firebase-adminsdk@demo-proj.iam.gserviceaccount.com', private_key: await exportPKCS8(kp.privateKey) }
++  const loadFirebaseKey = async (tenant, project) => (tenant === 'mattricks' && project === 'demo-proj' ? sa : null)
++  srv = await startServer({ tenants: ['mattricks', 'other'], extraConfig: { loadFirebaseKey } })
++})
++after(() => srv.close())
++
++const post = (tenant, project, token) => req(null, `${srv.baseUrl}/t/${tenant}/v1/firebase/${project}/token`, { method: 'POST', headers: token ? { authorization: `Bearer ${token}` } : {} })
++
++test('a signed-in user gets a Firebase custom token for an enabled project', async () => {
++  const t = await signIn(srv, jar(), 'mattricks', 'fb@x.com')
++  const r = await post('mattricks', 'demo-proj', t.access_token)
++  assert.equal(r.status, 200)
++  const body = await r.json()
++  assert.match(body.uid, /^usr_/)
++  assert.equal(body.email, 'fb@x.com')
++  assert.equal(body.expires_in, 3600)
++  assert.equal(decodeProtectedHeader(body.token).alg, 'RS256')
++  const { payload } = await jwtVerify(body.token, publicKey, { audience: AUD, issuer: sa.client_email, subject: sa.client_email })
++  assert.equal(payload.uid, body.uid)
++  assert.deepEqual(payload.claims, { tid: 'mattricks', email: 'fb@x.com' })
++  assert.equal(payload.exp - payload.iat, 3600)
++  assert.ok(srv.events.some(([e, p]) => e === 'firebase_token' && p.project === 'demo-proj'))
++})
++
++test('no token is 401; unknown or malformed project is 404; another tenant cannot use the key', async () => {
++  assert.equal((await post('mattricks', 'demo-proj')).status, 401)
++  const t = await signIn(srv, jar(), 'mattricks', 'fb2@x.com')
++  assert.equal((await post('mattricks', 'not-enabled', t.access_token)).status, 404)
++  assert.equal((await post('mattricks', 'Bad_Project', t.access_token)).status, 404)
++  const o = await signIn(srv, jar(), 'other', 'fb3@x.com')
++  assert.equal((await post('other', 'demo-proj', o.access_token)).status, 404)
++  assert.equal((await post('mattricks', 'demo-proj', o.access_token)).status, 401)
++})
++
++test('clients with app-scheme redirects are native; https-only clients stay web', async () => {
++  await putClient(srv.store, 'mattricks', { client_id: 'mobile', client_name: 'Mobile', redirect_uris: ['com.example.app:/oauth2redirect'] })
++  assert.equal(toOidcMetadata({ redirect_uris: ['com.example.app:/oauth2redirect'] }).application_type, 'native')
++  assert.equal(toOidcMetadata({ redirect_uris: ['https://app.test/cb', 'http://localhost:5173/'] }).application_type, 'web')
++  // The provider itself must accept the app-scheme redirect (an invalid one renders a 400 error page instead).
++  const q = new URLSearchParams({ client_id: 'mobile', redirect_uri: 'com.example.app:/oauth2redirect', response_type: 'code', scope: 'openid email offline_access', code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256', prompt: 'consent' })
++  const r = await fetch(`${srv.baseUrl}/t/mattricks/auth?${q}`, { redirect: 'manual' })
++  assert.ok([302, 303].includes(r.status), `expected redirect to sign-in, got ${r.status}`)
++  assert.doesNotMatch(r.headers.get('location') ?? '', /error=/)
++})
