@@ -1,6 +1,7 @@
 // The live session engine: sensors -> 5 s hash-chained chunks -> Firestore (offline-first).
-// Writes are never awaited: with persistent cache they land in IndexedDB at once and the SDK
-// replays them in order when the network returns. Order matters for the security rules: the last
+// Firestore writes are never awaited: with persistent cache they land in IndexedDB at once and the SDK
+// replays them in order when the network returns. Each one is first journaled (awaited) to the raw vault
+// (vault.ts), so this browser keeps its own copy until the server provably has every chunk. Order matters for the security rules: the last
 // chunk is queued before the moment flips to "submitted".
 
 import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
@@ -10,6 +11,7 @@ import { makeChunk } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
 import type { AppEvent, Category, CheckMode, Chunk, GpsRow, LiveCheck, MotionRow } from "./types";
+import { journalChunk, journalMoment, journalMomentUpdate, verifyAll } from "./vault";
 
 export const CHUNK_MS = 5000;
 export const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -29,6 +31,7 @@ export interface LiveState {
   modes: Record<CheckMode, number>;
   queued: number;
   online: boolean;
+  vaultError: string | null; // a raw-vault journal write failed: nothing more is written
 }
 
 function deviceInfo() {
@@ -79,6 +82,7 @@ export class Session {
       modes: { on_device: 0, cloud: 0, none: 0 },
       queued: 0,
       online: navigator.onLine,
+      vaultError: null,
     };
   }
 
@@ -87,10 +91,11 @@ export class Session {
     this.onChange(this.state);
   }
 
-  start() {
+  /** Journals and queues the moment create; rejects if the raw vault can't be written. */
+  async start() {
     if (!db) throw new Error("Firebase is not configured");
     const ref = doc(db, "moments", this.id);
-    setDoc(ref, {
+    const fields = {
       ownerUid: this.user.uid,
       owner: { name: this.user.displayName || "Anonymous", photoURL: this.user.photoURL ?? null },
       intention: { text: this.intention.slice(0, 200), category: this.category },
@@ -108,7 +113,14 @@ export class Session {
       seal: null,
       createdAtServer: serverTimestamp(),
       submittedAtServer: null,
-    }).catch((e) => console.error("moment create failed", e));
+    };
+    // Journal first, inside the write queue so the create still precedes every chunk.
+    const create = this.queue.then(async () => {
+      await journalMoment(this.id, fields);
+      setDoc(ref, fields).catch((e) => console.error("moment create failed", e));
+    });
+    this.queue = create;
+    await create;
 
     // Sync badge: a write's promise resolves only once the server acknowledges it, so chunks
     // written but not yet acknowledged are the ones still queued on this device.
@@ -171,6 +183,7 @@ export class Session {
     const job = this.queue.then(async () => {
       const c = await makeChunk(this.id, seq, t0, t1, this.prevHash, payload, extra.frame ?? null);
       this.prevHash = c.hash;
+      await journalChunk(this.id, c); // raw vault first; throws (and stops the queue) rather than skip
       this.chunks.push(c);
       this.pending.add(seq);
       setDoc(doc(db!, "moments", this.id, "chunks", pad6(seq)), c).then(
@@ -184,6 +197,10 @@ export class Session {
       this.emit({ chunks: this.chunks.length });
     });
     this.queue = job;
+    job.catch((e) => {
+      console.error("raw vault journal write failed", seq, e);
+      this.emit({ vaultError: String((e as Error)?.message ?? e) });
+    });
     return job;
   }
 
@@ -234,7 +251,7 @@ export class Session {
     const endedAt = Math.max(end, this.lastT);
     const m = this.state.modes;
     const mode: CheckMode = m.on_device > 0 ? "on_device" : m.cloud > 0 ? "cloud" : "none";
-    updateDoc(doc(db!, "moments", this.id), {
+    const submit = {
       status: "submitted",
       endedAt,
       chunkCount: this.chunks.length,
@@ -242,7 +259,10 @@ export class Session {
       summary: computeSummary(this.startedAt, endedAt, this.chunks, this.heroSeq),
       onDevice: { mode, checks: this.state.checks, retakes: this.state.retakes },
       submittedAtServer: serverTimestamp(),
-    }).catch((e) => console.error("submit failed", e));
+    };
+    await journalMomentUpdate(this.id, submit);
+    updateDoc(doc(db!, "moments", this.id), submit).catch((e) => console.error("submit failed", e));
+    void verifyAll();
   }
 
   framesForJudge() {

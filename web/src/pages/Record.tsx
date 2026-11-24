@@ -172,14 +172,23 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
         <button
           className="btn btn-big"
           onClick={async () => {
-            await session.finish();
-            onDone();
+            try {
+              await session.finish();
+              onDone();
+            } catch (e) {
+              console.error("finish failed", e); // shown below as the vault error
+            }
           }}
           disabled={shooting}
         >
           Finish
         </button>
       </div>
+      {s.vaultError && (
+        <p className="notice notice-bad small" role="alert">
+          Couldn't save this Moment's raw data on this device ({s.vaultError}). Recording has stopped writing.
+        </p>
+      )}
       {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
     </div>
   );
@@ -302,7 +311,7 @@ export default function Record({ user, ready }: { user: User | null; ready: bool
             await DME?.requestPermission?.().catch(() => "denied");
             void loadCloudModel();
             const s = new Session(user, text, cat);
-            s.start();
+            await s.start(); // rejects if the raw vault can't be written: nothing is recorded
             setSession(s);
           } catch (e) {
             setErr(String((e as Error)?.message ?? e));

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useUser } from "./auth";
-import { FIXTURES, USE_EMULATORS } from "./firebase";
+import { configured, FIXTURES, USE_EMULATORS } from "./firebase";
 import Feed from "./pages/Feed";
 import { useRoute } from "./router";
 import { Link } from "./ui";
@@ -47,6 +47,10 @@ export default function App() {
   const { user, ready } = useUser();
   const [theme, cycleTheme] = useTheme();
   const tab = route.name === "moment" ? "feed" : route.name;
+  // Raw vault: verify on start, on sign-in and every 30 s (no-op in fixture mode).
+  useEffect(() => {
+    if (configured) void import("./vault").then((v) => v.startVault());
+  }, []);
 
   return (
     <>

@@ -6,6 +6,7 @@ import { configured } from "../firebase";
 import { decodeChunks, fmtDistance, fmtDuration } from "../geo";
 import { runCloudReview } from "../recorder";
 import type { Moment } from "../types";
+import { useVaultHeld } from "../vault";
 import { ago, Link, Stamp } from "../ui";
 
 const STATUS: Record<Moment["status"], string> = {
@@ -58,6 +59,21 @@ function Row({ m }: { m: Moment }) {
   );
 }
 
+/** Raw vault: what this browser still keeps until the server confirms every chunk (wording as on Android). */
+function VaultLine() {
+  const held = Object.values(useVaultHeld());
+  const conflicts = held.filter((s) => s === "conflict").length;
+  return (
+    <p className={`vault-line ${held.length ? "vault-held" : "vault-ok"}`} role="status">
+      {held.length === 0
+        ? "Raw data: all safely stored on the server ✓"
+        : conflicts > 0
+          ? `Raw data: ${conflicts} Moment(s) differ from the server — kept on this device`
+          : `Raw data: ${held.length} Moment(s) kept on this device until the server confirms every chunk`}
+    </p>
+  );
+}
+
 export default function Me({ user, ready }: { user: User | null; ready: boolean }) {
   const [moments, setMoments] = useState<Moment[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -93,6 +109,7 @@ export default function Me({ user, ready }: { user: User | null; ready: boolean 
           Sign out
         </button>
       </header>
+      <VaultLine />
       {err && <p className="notice notice-bad">{err}</p>}
       {moments && moments.length === 0 && (
         <div className="empty">
