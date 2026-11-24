@@ -78,7 +78,12 @@ export async function loadCloudModel(): Promise<string> {
     rc.settings.minimumFetchIntervalMillis = 10 * 60 * 1000;
     rc.defaultConfig = { cloud_model: DEFAULT_CLOUD_MODEL };
     await fetchAndActivate(rc);
-    cloudModelName = getValue(rc, "cloud_model").asString() || DEFAULT_CLOUD_MODEL;
+    const name = getValue(rc, "cloud_model").asString() || DEFAULT_CLOUD_MODEL;
+    if (name !== cloudModelName) {
+      cloudModelName = name;
+      // Models built before Remote Config answered hold the old name; rebuild them on next use.
+      live = judge = skeptic = null;
+    }
   } catch (err) {
     console.warn("Remote Config unavailable, using default model", err);
   }
