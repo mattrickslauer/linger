@@ -1,0 +1,80 @@
+{
+  "note": "Demo Moments for the seed (functions/scripts/seed.mjs). People are fictional, frames are synthetic (make-frames.py). Judge/skeptic opinions are scripted stand-ins for the client's Firebase AI Logic calls and are labelled model=seeded-demo. The seal itself is computed by the real Cloud Function.",
+  "moments": [
+    {
+      "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c01",
+      "kind": "fishing",
+      "owner": { "uid": "seed-dana", "name": "Dana Reyes", "photoURL": null },
+      "intention": { "text": "Catch and release a largemouth bass at Lake Mission Viejo", "category": "fishing" },
+      "platform": "ios",
+      "device": { "model": "iPhone 17 Pro", "os": "iOS 26.1", "appVersion": "1.0.0" },
+      "hoursAgo": 30,
+      "durationS": 420,
+      "start": { "lat": 33.61742, "lng": -117.66275, "alt": 152 },
+      "frames": [
+        { "file": "bass-1-cast.jpg", "atS": 35, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "rod over lake" } },
+        { "file": "bass-2-landing.jpg", "atS": 300, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "fish at surface" } },
+        { "file": "bass-3-hero.jpg", "atS": 345, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "bass in hand" }, "hero": true }
+      ],
+      "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
+      "judge": { "verdict": "consistent", "confidence": 0.86, "reasons": ["A largemouth bass is held up at the water's edge in the final frame", "Frames progress from cast to landing to release over about 5 minutes", "GPS stays on the lake shore; motion spikes match a cast and a fight"] },
+      "skeptic": { "verdict": "consistent", "confidence": 0.78, "reasons": ["Lighting and horizon match across all three frames", "No screen bezel, moire or print texture", "Session length and stillness fit shore fishing"] }
+    },
+    {
+      "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c02",
+      "kind": "run",
+      "owner": { "uid": "seed-sam", "name": "Sam Okafor", "photoURL": null },
+      "intention": { "text": "Run a 5k on the Oso Creek trail before work", "category": "fitness" },
+      "platform": "android",
+      "device": { "model": "Pixel 10", "os": "Android 16", "appVersion": "1.0.0" },
+      "hoursAgo": 20,
+      "durationS": 1560,
+      "start": { "lat": 33.58610, "lng": -117.66450, "alt": 98 },
+      "frames": [
+        { "file": "run-1-start.jpg", "atS": 8, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "runner on trail" } },
+        { "file": "run-2-mid.jpg", "atS": 780, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "tree-lined path" } },
+        { "file": "run-3-finish.jpg", "atS": 1552, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "watch showing run" }, "hero": true }
+      ],
+      "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
+      "judge": { "verdict": "consistent", "confidence": 0.91, "reasons": ["5.2 km in 26 minutes is a plausible 5k pace", "Steady 2.8 Hz cadence in the accelerometer throughout", "Trail frames at start, middle and finish"] },
+      "skeptic": { "verdict": "consistent", "confidence": 0.82, "reasons": ["Speed never exceeds running pace", "No gaps or teleports in the GPS track"] }
+    },
+    {
+      "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c03",
+      "kind": "hike",
+      "owner": { "uid": "seed-priya", "name": "Priya Natarajan", "photoURL": null },
+      "intention": { "text": "Hike up to Top of the World for sunrise", "category": "outdoors" },
+      "platform": "web",
+      "device": { "model": "Chrome 142 on Android", "os": "Android 16", "appVersion": "1.0.0" },
+      "hoursAgo": 6,
+      "durationS": 1500,
+      "start": { "lat": 33.54820, "lng": -117.76410, "alt": 120 },
+      "frames": [
+        { "file": "hike-1-predawn.jpg", "atS": 60, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "dark ridgeline" } },
+        { "file": "hike-2-first-light.jpg", "atS": 900, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "sun at horizon" } },
+        { "file": "hike-3-summit.jpg", "atS": 1480, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "cairn at sunrise" }, "hero": true }
+      ],
+      "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
+      "judge": { "verdict": "consistent", "confidence": 0.84, "reasons": ["Sky brightens across frames as the sun rises", "Track climbs about 250 m over 2 km", "Summit cairn frame at the end of the climb"] },
+      "skeptic": { "verdict": "uncertain", "confidence": 0.4, "reasons": ["Frames are low detail, but nothing indicates staging"] }
+    },
+    {
+      "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c04",
+      "kind": "fake",
+      "owner": { "uid": "seed-alex", "name": "Alex Mercer", "photoURL": null },
+      "intention": { "text": "Catch a 5 lb largemouth bass at Lake Mission Viejo", "category": "fishing" },
+      "platform": "android",
+      "device": { "model": "Galaxy S26", "os": "Android 16", "appVersion": "1.0.0" },
+      "hoursAgo": 3,
+      "durationS": 48,
+      "start": { "lat": 33.60120, "lng": -117.67980, "alt": 140 },
+      "frames": [
+        { "file": "fake-2-room.jpg", "atS": 12, "check": { "ok": false, "reason": "Fish not visible, hold it up", "mode": "on_device", "label": "indoor wall" } },
+        { "file": "fake-1-screen.jpg", "atS": 40, "check": { "ok": true, "reason": "keep going", "mode": "on_device", "label": "bass held up" }, "hero": true }
+      ],
+      "onDevice": { "mode": "on_device", "checks": 2, "retakes": 1 },
+      "judge": { "verdict": "consistent", "confidence": 0.64, "reasons": ["A largemouth bass is held up in the final frame", "Bass size looks plausible for 5 lb"] },
+      "skeptic": { "verdict": "inconsistent", "confidence": 0.93, "reasons": ["The bass frame is a photo of a laptop screen: bezel, scanlines and moire are visible", "The other frame is an indoor room with blinds, not a lake", "GPS never moves for 48 s at a residential address, no water nearby"] }
+    }
+  ]
+}

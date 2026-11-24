@@ -64,6 +64,8 @@ export interface Moment {
   judge: AiOpinion | null;
   skeptic: AiOpinion | null;
   seal: Seal | null;
+  /** client-only: Firestore metadata.hasPendingWrites */
+  pending?: boolean;
 }
 
 export type GpsRow = [number, number, number, number, number | null, number | null];

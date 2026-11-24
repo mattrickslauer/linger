@@ -1,0 +1,54 @@
+package com.mattricks.verified
+
+import android.app.Application
+import android.util.Log
+import com.google.firebase.Firebase
+import com.google.firebase.appcheck.appCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.firestoreSettings
+import com.google.firebase.firestore.persistentCacheSettings
+import com.google.firebase.initialize
+import com.google.firebase.remoteconfig.remoteConfig
+import com.google.firebase.remoteconfig.remoteConfigSettings
+import com.mattricks.verified.ai.Ai
+import com.mattricks.verified.judge.Judging
+
+class VerifiedApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Firebase.initialize(this)
+
+        if (BuildConfig.DEBUG) {
+            // Debug token is logged by DebugAppCheckProvider; register it in the console (App Check > Apps).
+            Firebase.appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+        }
+
+        val db = Firebase.firestore
+        // Offline-first: persistent cache (on by default; made explicit + roomy for frames).
+        db.firestoreSettings = firestoreSettings {
+            setLocalCacheSettings(persistentCacheSettings { setSizeBytes(200L * 1024 * 1024) })
+        }
+        if (BuildConfig.USE_EMULATOR) {
+            val host = BuildConfig.EMULATOR_HOST
+            db.useEmulator(host, 8080)
+            Firebase.auth.useEmulator(host, 9099)
+            Log.i(TAG, "Using Firebase Emulator Suite at $host (firestore 8080, auth 9099)")
+        }
+
+        // Model name from Remote Config key `cloud_model` (contract default gemini-3.5-flash).
+        runCatching {
+            val rc = Firebase.remoteConfig
+            rc.setConfigSettingsAsync(remoteConfigSettings { minimumFetchIntervalInSeconds = 3600 })
+            rc.setDefaultsAsync(mapOf("cloud_model" to BuildConfig.DEFAULT_CLOUD_MODEL))
+            rc.fetchAndActivate()
+        }.onFailure { Log.w(TAG, "remote config", it) }
+
+        Ai.warmUp(this)
+        Judging.init(this)
+        Firebase.auth.addAuthStateListener { if (it.currentUser != null) Judging.kick() }
+    }
+
+    companion object { const val TAG = "Verified" }
+}
