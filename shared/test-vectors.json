@@ -1,0 +1,24 @@
+{
+  "note": "sha256 over UTF-8 bytes, lowercase hex. hash = sha256(`${seq}|${t0}|${t1}|${prevHash}|${sha256(payload)}`). frameSha = sha256 of the base64 string itself (here \"aGVsbG8=\"). Implementations hash the stored payload STRING; they never re-serialize it.",
+  "momentId": "3f1c9a2e-7b4d-4e8a-9c1f-2a6b5d8e0f13",
+  "chunks": [
+    {
+      "seq": 0,
+      "t0": 1764000000000,
+      "t1": 1764000005000,
+      "prevHash": "GENESIS:3f1c9a2e-7b4d-4e8a-9c1f-2a6b5d8e0f13",
+      "payload": "{\"gps\":[[1764000000000,33.6189,-117.6681,5.2,null,0.4]],\"motion\":[[1764000000100,0.01,9.81,-0.2,0,0.001,0]],\"events\":[{\"t\":1764000000000,\"type\":\"start\"}],\"frameSha\":null,\"check\":null}",
+      "payloadSha": "8e133a363238d676b0983a08cc991638cc6469ef8f01b27d5e673120ac5fd86f",
+      "hash": "14e541ee4d613ca3d2bf32c80986a9335a2394dd6b2455de680a1cfe7ac2e946"
+    },
+    {
+      "seq": 1,
+      "t0": 1764000005000,
+      "t1": 1764000006000,
+      "prevHash": "14e541ee4d613ca3d2bf32c80986a9335a2394dd6b2455de680a1cfe7ac2e946",
+      "payload": "{\"gps\":[],\"motion\":[],\"events\":[{\"t\":1764000006000,\"type\":\"stop\"}],\"frameSha\":\"333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2\",\"check\":{\"ok\":true,\"reason\":\"keep going\",\"mode\":\"on_device\",\"label\":\"bass in hand\"}}",
+      "payloadSha": "1132c32feb3915bd0e40377b6808f5a3ff9ec8d0100f91058dd74f828e907f88",
+      "hash": "7d9d6a63c1ede5ed6ffd0a9eb859c998df1e94e379eae2dd7a8f7b219c82f91c"
+    }
+  ]
+}
