@@ -14,7 +14,7 @@ enum MomentStore {
   static func create(id: String, owner: SignedInUser, intention: String, category: Category, startedAt: Int64) throws {
     let data: [String: Any] = [
       "ownerUid": owner.uid,
-      "owner": ["name": owner.name, "photoURL": owner.photoURL ?? NSNull()],
+      "owner": ["name": owner.name, "photoURL": owner.photoURL.map { $0 as Any } ?? NSNull()] as [String: Any],
       "intention": ["text": String(intention.prefix(200)), "category": category.rawValue],
       "platform": "ios",
       "device": ["model": deviceModel(), "os": "iOS \(UIDevice.current.systemVersion)", "appVersion": AppConfig.appVersion],
