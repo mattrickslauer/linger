@@ -34,6 +34,11 @@ import com.mattricks.verified.ui.RecordScreen
 import com.mattricks.verified.ui.VerifiedTheme
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        Auth.onAppResumed()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

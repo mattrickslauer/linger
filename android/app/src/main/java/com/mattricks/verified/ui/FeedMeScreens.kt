@@ -1,7 +1,5 @@
 package com.mattricks.verified.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,25 +113,22 @@ fun SignInCard() {
         Text("Verified", style = MaterialTheme.typography.headlineMedium)
         Text("Record proof that a real moment happened.", textAlign = TextAlign.Center, color = Color.Gray)
         Spacer(Modifier.height(24.dp))
-        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            scope.launch { error = Auth.finishSignIn(activity, result.data); busy = false }
-        }
-        Button(enabled = !busy, onClick = {
-            busy = true; error = null
-            scope.launch {
-                runCatching { launcher.launch(Auth.signInIntent(activity)) }
-                    .onFailure { error = it.message ?: "Can't reach the sign-in page"; busy = false }
-            }
-        }) { Text("Sign in") }
+        val state by Auth.signIn.collectAsState()
+        val working = busy || state == Auth.SignIn.InBrowser || state == Auth.SignIn.Finishing
+        Button(enabled = !working, onClick = { error = null; Auth.startSignIn(activity) }) { Text("Sign in") }
         if (BuildConfig.USE_EMULATOR) {
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(enabled = !busy, onClick = {
+            OutlinedButton(enabled = !working, onClick = {
                 busy = true; error = null
                 scope.launch { error = Auth.signInEmulatorTestUser(); busy = false }
             }) { Text("Emulator test user") }
         }
-        if (busy) { Spacer(Modifier.height(12.dp)); CircularProgressIndicator() }
-        error?.let { Spacer(Modifier.height(12.dp)); Text(it, color = Red, textAlign = TextAlign.Center) }
+        if (working) {
+            Spacer(Modifier.height(12.dp)); CircularProgressIndicator()
+            if (state == Auth.SignIn.Finishing) Text("Signing you in…", color = Color.Gray)
+        }
+        val shown = error ?: (state as? Auth.SignIn.Failed)?.message
+        shown?.let { Spacer(Modifier.height(12.dp)); Text(it, color = Red, textAlign = TextAlign.Center) }
         Row {}
     }
 }
