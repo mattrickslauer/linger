@@ -34,7 +34,9 @@ Hero story for the video: a verified fishing catch (DerbyFish derbies pay prizes
 
 Firebase project: `verified-99e74` (switched from `linger-reader` on 2026-11-24). App ids: web `1:726678528605:web:f550d3f11e8ccf787263b4`,
 iOS `1:726678528605:ios:7a98231181871ed67263b4` (bundle `com.mattricks.verified`),
-Android `1:726678528605:android:569f9ce4ec35c6c87263b4` (package `com.mattricks.verified`).
+Android `1:726678528605:android:dab78f52952073fc7263b4` (package `com.mattrickslauer.verified`, the Play listing id;
+the Kotlin namespace stays `com.mattricks.verified`). The older Firebase app for `com.mattricks.verified`
+(`…:android:569f9ce4ec35c6c87263b4`) is unused.
 Config files live **git-ignored** in `config/` of the verified-core worktree
 (`/home/mattricks/Code/firebase-hackathon/.claude/worktrees/verified-core/config/`): `GoogleService-Info.plist`,
 `google-services.json`, `web-config.json`. Never commit them.

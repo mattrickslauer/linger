@@ -12,7 +12,7 @@ steps at all, against the Emulator Suite.
    set the support email. Then Settings → *Authorized domains*: keep `localhost`, add
    `verified-99e74.web.app` and `verified-99e74.firebaseapp.com` (added automatically on first hosting deploy).
    - Android: add the debug + release **SHA-1/SHA-256** of the signing keys to the Android app
-     (Project settings → Your apps → `com.mattricks.verified`), then re-download `google-services.json`.
+     (Project settings → Your apps → `com.mattrickslauer.verified`), then re-download `google-services.json`.
      `cd android && ./gradlew signingReport` prints them.
    - iOS: the `REVERSED_CLIENT_ID` from `GoogleService-Info.plist` must be a URL scheme in the app target
      (re-download the plist after enabling Google sign-in so it contains `CLIENT_ID`).
