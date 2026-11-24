@@ -93,6 +93,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.guava:guava:33.4.8-android") // ListenableFuture for CameraX provider
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

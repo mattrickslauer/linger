@@ -29,7 +29,7 @@ object Store {
     private const val TAG = "VerifiedStore"
     private val db get() = Firebase.firestore
 
-    private fun logFail(what: String) = { e: Exception -> Log.e(TAG, "$what failed", e) }
+    private fun logFail(what: String) = com.google.android.gms.tasks.OnFailureListener { e -> Log.e(TAG, "$what failed", e) }
 
     fun chunkId(seq: Int) = "%06d".format(seq)
 

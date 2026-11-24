@@ -8,9 +8,8 @@ import com.google.firebase.ai.InferenceMode
 import com.google.firebase.ai.InferenceSource
 import com.google.firebase.ai.OnDeviceConfig
 import com.google.firebase.ai.ai
-import com.google.firebase.ai.ondevice.DownloadStatus
-import com.google.firebase.ai.ondevice.FirebaseAIOnDevice
-import com.google.firebase.ai.ondevice.OnDeviceModelStatus
+import com.google.firebase.ai.DownloadStatus
+import com.google.firebase.ai.OnDeviceModelStatus
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.PublicPreviewAPI
 import com.google.firebase.ai.type.Schema
@@ -48,12 +47,20 @@ object Ai {
             .onFailure { Log.e(TAG, "prompts.json missing from assets", it) }.getOrNull()
         scope.launch {
             try {
-                when (FirebaseAIOnDevice.checkStatus()) {
-                    OnDeviceModelStatus.AVAILABLE -> _onDeviceState.value = "available"
+                // OnDeviceExtension (firebase-ai 18.x) replaces the deprecated FirebaseAIOnDevice helpers.
+                val ext = liveModel.onDeviceExtension
+                if (ext == null) {
+                    _onDeviceState.value = "unavailable"
+                } else when (ext.checkStatus()) {
+                    OnDeviceModelStatus.AVAILABLE -> {
+                        _onDeviceState.value = "available"
+                        runCatching { ext.warmUp() }
+                    }
                     OnDeviceModelStatus.DOWNLOADING -> _onDeviceState.value = "downloading"
                     OnDeviceModelStatus.DOWNLOADABLE -> {
                         _onDeviceState.value = "downloading"
-                        FirebaseAIOnDevice.download().collect { s ->
+                        // The SDK never downloads on demand: start it early (AICore manages the model).
+                        ext.download().collect { s ->
                             _onDeviceState.value = when (s) {
                                 is DownloadStatus.DownloadStarted -> "downloading"
                                 is DownloadStatus.DownloadInProgress -> "downloading"
@@ -120,7 +127,7 @@ object Ai {
     private val opinionSchema = Schema.obj(
         mapOf(
             "verdict" to Schema.enumeration(listOf("consistent", "inconsistent", "uncertain")),
-            "confidence" to Schema.numDouble(),
+            "confidence" to Schema.double(),
             "reasons" to Schema.array(Schema.string()),
         )
     )
