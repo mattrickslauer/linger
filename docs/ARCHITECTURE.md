@@ -158,6 +158,19 @@ keeps its **own raw copy** of each Moment and deletes it **only after the server
 
 Android: `android/.../data/Vault.kt` (pure comparison `VaultCheck`, unit-tested; verified on a real phone). Web: `web/src/vault.ts` (IndexedDB journal; pure `compareVault` in `web/src/vaultCheck.ts`, unit-tested; emulator browser test `npm run vault:emu`). iOS: `ios/Verified/Sync/Vault.swift` (pure `VaultCheck` in VerifiedCore, `swift test`; app target not yet compiled: needs Xcode).
 
+### Deleting a Moment (owner only, from "my Moments")
+
+Only the owner can delete, and only from their own Moments list or that Moment's detail when opened from it — never from
+the public feed. Any status. Not the Moment currently being recorded on this device. Always behind a confirm dialog
+("Delete this Moment? Its recording, proof shots and feed entry are removed for good.").
+
+1. **Client:** delete the local raw-vault journal for that id **first** (so this device can't re-upload it), then
+   `delete moments/{id}`. Offline is fine: the delete queues like any write.
+2. **Server (`onMomentDeleted`):** writes `deleted/{id} = { ownerUid, deletedAt }`, recursively deletes
+   `moments/{id}/chunks`, deletes `feed/{id}`. Clients can't do these (chunks are append-only, the feed is server-written).
+3. **Every raw vault:** before re-creating a Moment the server lacks, read `deleted/{id}` from the server. If it exists,
+   the owner deleted it on another device: drop the local journal and do **not** re-create.
+
 Product direction (not built): **pay to store a Moment forever.** The verified raw archive (full time series, frames,
 hash chain) is the paid asset: free Moments keep the sealed summary and feed entry, raw data expires after a retention
 window; paid Moments keep the raw archive permanently plus an exportable, independently re-verifiable proof bundle.

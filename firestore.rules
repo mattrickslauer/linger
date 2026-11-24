@@ -14,6 +14,13 @@ service cloud.firestore {
     }
 
     // ── public feed: read by anyone, written by nobody (Function only)
+    // Tombstones written by onMomentDeleted. A raw vault checks here before re-creating a Moment the server lacks.
+    // `resource == null` lets a client ask "was this deleted?" about an id that never was.
+    match /deleted/{momentId} {
+      allow read: if resource == null || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow write: if false;
+    }
+
     match /feed/{momentId} {
       allow read: if true;
       allow write: if false;
@@ -49,7 +56,9 @@ service cloud.firestore {
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'recording' && request.resource.data.status == 'submitted'));
 
-      allow delete: if false;
+      // Only the owner deletes, from "my Moments". The onMomentDeleted function then removes the chunks and the
+      // feed entry and writes deleted/{momentId} so no device's raw vault re-creates it.
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
       // ── chunks: append-only
       match /chunks/{seq} {

@@ -3,7 +3,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore, Transaction } from "firebase-admin/firestore";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { ChunkDoc, MomentDoc, SEAL_VERSION, evaluateSeal, isReadyToSeal } from "./seal";
 
 initializeApp();
@@ -78,4 +78,18 @@ export const onMomentWritten = onDocumentWritten("moments/{momentId}", async (ev
 export const onChunkWritten = onDocumentCreated("moments/{momentId}/chunks/{seq}", async (event) => {
   // Late (offline-tail) chunks: once the last one arrives the moment may become sealable.
   await trySeal(event.params.momentId);
+});
+
+/**
+ * The owner deleted a Moment from "my Moments" (firestore.rules allow only that). Clean up what clients can't:
+ * the append-only chunks and the public feed entry. Then leave a tombstone so no device's raw vault re-creates it
+ * (docs/ARCHITECTURE.md "Raw vault" + "Deleting a Moment"). Idempotent.
+ */
+export const onMomentDeleted = onDocumentDeleted("moments/{momentId}", async (event) => {
+  const momentId = event.params.momentId;
+  const before = event.data?.data() as MomentDoc | undefined;
+  await db.doc(`deleted/${momentId}`).set({ ownerUid: before?.ownerUid ?? null, deletedAt: FieldValue.serverTimestamp() });
+  await db.recursiveDelete(db.collection(`moments/${momentId}/chunks`));
+  await db.doc(`feed/${momentId}`).delete();
+  logger.info("moment deleted by owner", { momentId, ownerUid: before?.ownerUid });
 });

@@ -87,9 +87,22 @@ describe("moments", () => {
     await assertFails(updateDoc(doc(alice(), "moments/m2"), { ownerUid: "bob" }));
     await assertFails(updateDoc(doc(bob(), "moments/m2"), { status: "submitted" }));
   });
-  it("no deletes", async () => {
+  it("only the owner can delete a moment, in any status", async () => {
     await admin("moments/m1", newMoment());
-    await assertFails(deleteDoc(doc(alice(), "moments/m1")));
+    await assertFails(deleteDoc(doc(bob(), "moments/m1")));
+    await assertFails(deleteDoc(doc(anon(), "moments/m1")));
+    await assertSucceeds(deleteDoc(doc(alice(), "moments/m1")));
+    await admin("moments/m3", newMoment("alice", { status: "sealed" }));
+    await assertFails(deleteDoc(doc(bob(), "moments/m3")));
+    await assertSucceeds(deleteDoc(doc(alice(), "moments/m3")));
+  });
+  it("deleted/ tombstones: owner reads, others don't, nobody writes; unknown ids are readable as absent", async () => {
+    await admin("deleted/m9", { ownerUid: "alice", deletedAt: 1 });
+    await assertSucceeds(getDoc(doc(alice(), "deleted/m9")));
+    await assertFails(getDoc(doc(bob(), "deleted/m9")));
+    await assertSucceeds(getDoc(doc(bob(), "deleted/never-existed")));
+    await assertFails(setDoc(doc(alice(), "deleted/m10"), { ownerUid: "alice" }));
+    await assertFails(deleteDoc(doc(alice(), "deleted/m9")));
   });
   it("others cannot read a recording/submitted moment; owner can", async () => {
     await admin("moments/m1", newMoment());

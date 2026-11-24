@@ -12,7 +12,7 @@
     "test": "npm run test:unit && npm run test:rules && npm run test:e2e",
     "test:unit": "npm --prefix functions test",
     "test:rules": "infra/fb.sh emulators:exec --project demo-verified-rules --only firestore \"npm --prefix functions run test:rules\"",
-    "test:e2e": "npm run build && infra/fb.sh emulators:exec --only firestore,functions \"node functions/scripts/seed.mjs && node functions/scripts/feed.mjs\"",
+    "test:e2e": "npm run build && infra/fb.sh emulators:exec --only firestore,functions \"node functions/scripts/seed.mjs && node functions/scripts/feed.mjs && node functions/scripts/delete-check.mjs\"",
     "deploy": "infra/fb.sh deploy --only firestore,functions,hosting",
     "deploy:rules": "infra/fb.sh deploy --only firestore:rules,firestore:indexes",
     "deploy:hosting": "infra/fb.sh deploy --only hosting",
