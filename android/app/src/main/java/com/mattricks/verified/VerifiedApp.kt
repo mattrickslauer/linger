@@ -13,7 +13,10 @@ import com.google.firebase.initialize
 import com.google.firebase.remoteconfig.remoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
 import com.mattricks.verified.ai.Ai
+import com.mattricks.verified.data.Prefs
 import com.mattricks.verified.data.Vault
+import com.mattricks.verified.devices.Devices
+import com.mapbox.common.MapboxOptions
 import com.mattricks.verified.judge.Judging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +53,10 @@ class VerifiedApp : Application() {
             rc.setDefaultsAsync(mapOf("cloud_model" to BuildConfig.DEFAULT_CLOUD_MODEL))
             rc.fetchAndActivate()
         }.onFailure { Log.w(TAG, "remote config", it) }
+
+        Prefs.init(this)
+        Devices.init(this)
+        if (BuildConfig.MAPBOX_TOKEN.isNotBlank()) MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
 
         Ai.warmUp(this)
         Judging.init(this)

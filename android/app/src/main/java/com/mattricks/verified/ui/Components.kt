@@ -85,8 +85,8 @@ fun fmtDuration(ms: Long): String {
 fun fmtDistance(m: Double): String = if (m >= 1000) String.format(Locale.US, "%.2f km", m / 1000) else "${m.toInt()} m"
 
 @Composable
-fun Pill(text: String, bg: Color, fg: Color = Color.White) {
-    Surface(color = bg, shape = RoundedCornerShape(50)) {
+fun Pill(text: String, bg: Color, fg: Color = Color.White, modifier: Modifier = Modifier) {
+    Surface(modifier, color = bg, shape = RoundedCornerShape(50)) {
         Text(text, color = fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
     }
 }
