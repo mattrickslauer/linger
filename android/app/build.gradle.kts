@@ -27,6 +27,10 @@ android {
         buildConfigField("boolean", "USE_EMULATOR", useEmulator.toString())
         buildConfigField("String", "EMULATOR_HOST", "\"$emulatorHost\"")
         buildConfigField("String", "DEFAULT_CLOUD_MODEL", "\"gemini-3.5-flash\"")
+        // Sign-in: accounts.mattrickslauer.com (OIDC + PKCE via AppAuth), then a Firebase custom token.
+        buildConfigField("String", "ACCOUNTS_ISSUER", "\"https://accounts.mattrickslauer.com/t/mattricks\"")
+        buildConfigField("String", "ACCOUNTS_CLIENT_ID", "\"verified-app\"")
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.mattricks.verified"
     }
 
     buildTypes {
@@ -82,10 +86,8 @@ dependencies {
     implementation("com.google.firebase:firebase-appcheck-debug")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
-    // Google sign-in via Credential Manager
-    implementation("androidx.credentials:credentials:1.5.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    // Sign-in through accounts.mattrickslauer.com (Custom Tab, OIDC code + PKCE)
+    implementation("net.openid:appauth:0.11.1")
 
     // Sensors
     implementation("com.google.android.gms:play-services-location:21.3.0")

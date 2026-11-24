@@ -1,5 +1,7 @@
 package com.mattricks.verified.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,7 +79,7 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
                 if (BuildConfig.USE_EMULATOR) Text("Emulator mode · ${BuildConfig.EMULATOR_HOST}", style = MaterialTheme.typography.bodySmall, color = Amber)
                 judging?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { scope.launch { Auth.signOut(ctx) } }) { Text("Sign out") }
+                OutlinedButton(onClick = { Auth.signOut() }) { Text("Sign out") }
             }
         }
         CardList(items, empty = "Your Moments will show up here.", header = null, onOpen = onOpen)
@@ -113,10 +115,16 @@ fun SignInCard() {
         Text("Verified", style = MaterialTheme.typography.headlineMedium)
         Text("Record proof that a real moment happened.", textAlign = TextAlign.Center, color = Color.Gray)
         Spacer(Modifier.height(24.dp))
+        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            scope.launch { error = Auth.finishSignIn(activity, result.data); busy = false }
+        }
         Button(enabled = !busy, onClick = {
             busy = true; error = null
-            scope.launch { error = Auth.signInWithGoogle(activity); busy = false }
-        }) { Text("Sign in with Google") }
+            scope.launch {
+                runCatching { launcher.launch(Auth.signInIntent(activity)) }
+                    .onFailure { error = it.message ?: "Can't reach the sign-in page"; busy = false }
+            }
+        }) { Text("Sign in") }
         if (BuildConfig.USE_EMULATOR) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(enabled = !busy, onClick = {
