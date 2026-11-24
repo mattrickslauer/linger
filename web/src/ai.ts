@@ -1,6 +1,6 @@
 // The three AI Logic calls, with routing recorded so the UI can say which model ran.
 
-import { InferenceSource } from "firebase/ai";
+import { InferenceSource, type InlineDataPart } from "firebase/ai";
 import { cloudModel, judgeModel, liveCheckModel, prompts, skepticModel } from "./firebase";
 import { fmtDistance, fmtDuration } from "./geo";
 import type { AiOpinion, CheckMode, LiveCheck, Moment, Summary, Verdict } from "./types";
@@ -30,7 +30,7 @@ export function parseJson<T>(raw: string): Partial<T> {
   }
 }
 
-const jpegPart = (b64: string) => ({ inlineData: { data: b64, mimeType: "image/jpeg" } });
+const jpegPart = (b64: string): InlineDataPart => ({ type: "inlineData", inlineData: { data: b64, mimeType: "image/jpeg" } });
 
 /**
  * On-device coach. Never verifies: "keep going" or "retake: <reason>". If no model can answer
