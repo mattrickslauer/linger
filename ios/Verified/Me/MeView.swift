@@ -1,10 +1,14 @@
 import SwiftUI
+import VerifiedCore
 
 /// Me tab: profile, my Moments (any status, with sync state), cloud judge status, developer switches.
 struct MeView: View {
   @Environment(AppModel.self) private var app
   @AppStorage("useEmulator") private var useEmulator = false
   @AppStorage("emulatorHost") private var emulatorHost = "127.0.0.1"
+  /// The Moment waiting for delete confirmation.
+  @State private var pendingDelete: MomentCardData?
+  @State private var deleteError: String?
 
   var body: some View {
     NavigationStack {
@@ -29,9 +33,21 @@ struct MeView: View {
           }
           ForEach(app.mine.items) { m in
             NavigationLink {
-              MomentDetailView(initial: m)
+              MomentDetailView(initial: m, fromMyMoments: true)
             } label: {
               MyMomentRow(item: m, judging: app.judge.running.contains(m.id))
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+              if app.canDelete(m, fromMyMoments: true) {
+                // No destructive role here: that animates the row away before the user has confirmed.
+                Button { pendingDelete = m } label: { Label("Delete", systemImage: "trash") }
+                  .tint(Theme.bad)
+              }
+            }
+            .contextMenu {
+              if app.canDelete(m, fromMyMoments: true) {
+                Button(role: .destructive) { pendingDelete = m } label: { Label("Delete Moment", systemImage: "trash") }
+              }
             }
           }
         } header: {
@@ -72,7 +88,27 @@ struct MeView: View {
         }
       }
       .navigationTitle("Me")
+      .confirmationDialog(
+        MomentDeletion.confirmTitle,
+        isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+        titleVisibility: .visible, presenting: pendingDelete
+      ) { m in
+        Button("Delete Moment", role: .destructive) { delete(m) }
+        Button("Cancel", role: .cancel) {}
+      } message: { _ in
+        Text(MomentDeletion.confirmMessage)
+      }
+      .alert("Could not delete", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(deleteError ?? "")
+      }
     }
+  }
+
+  private func delete(_ m: MomentCardData) {
+    pendingDelete = nil
+    do { try app.deleteMoment(m) } catch { deleteError = error.localizedDescription }
   }
 
   private var stats: String {

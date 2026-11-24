@@ -5,11 +5,18 @@ import VerifiedCore
 
 /// Moment detail: map track, frame timeline, motion chart, judge/skeptic reasons, seal checklist.
 struct MomentDetailView: View {
+  @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   @State private var model: MomentDetailModel
   @State private var selectedFrame: MomentDetailModel.Frame?
+  @State private var confirmingDelete = false
+  @State private var deleteError: String?
+  /// Opened from "My Moments": the only place delete is offered (never from the feed).
+  private let fromMyMoments: Bool
 
-  init(initial: MomentCardData) {
+  init(initial: MomentCardData, fromMyMoments: Bool = false) {
     _model = State(initialValue: MomentDetailModel(initial: initial))
+    self.fromMyMoments = fromMyMoments
   }
 
   var body: some View {
@@ -31,6 +38,34 @@ struct MomentDetailView: View {
     .task { model.start() }
     .onDisappear { model.stop() }
     .sheet(item: $selectedFrame) { f in FrameSheet(frame: f) }
+    .toolbar {
+      if app.canDelete(m, fromMyMoments: fromMyMoments) {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete Moment", systemImage: "trash") }
+        }
+      }
+    }
+    .confirmationDialog(MomentDeletion.confirmTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+      Button("Delete Moment", role: .destructive) { delete(m) }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(MomentDeletion.confirmMessage)
+    }
+    .alert("Could not delete", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(deleteError ?? "")
+    }
+  }
+
+  private func delete(_ m: MomentCardData) {
+    do {
+      try app.deleteMoment(m)
+      model.stop()
+      dismiss()
+    } catch {
+      deleteError = error.localizedDescription
+    }
   }
 
   private func header(_ m: MomentCardData) -> some View {

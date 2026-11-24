@@ -25,6 +25,8 @@ final class Vault {
   private(set) var held: [String: VaultState] = [:]
   @ObservationIgnored private var running = false
   @ObservationIgnored private var again = false
+  /// Moments the owner deleted while this process runs: an in-flight verify pass must not re-mark or re-create them.
+  @ObservationIgnored private var forgotten: Set<String> = []
 
   private init() {
     try? FileManager.default.createDirectory(at: VaultIO.root, withIntermediateDirectories: true)
@@ -50,6 +52,17 @@ final class Vault {
     try VaultIO.write(VaultIO.chunkFile(id, seq: seq), VaultIO.plain(chunk))
   }
 
+  /// Owner deleted this Moment (docs/ARCHITECTURE.md "Deleting a Moment"): drop the local journal so this device can
+  /// never re-upload it. Called by `MomentStore.delete` BEFORE the Firestore delete; throws if the files can't be
+  /// removed (the caller then does not delete on the server).
+  func forget(_ id: String) throws {
+    let dir = VaultIO.dir(id)
+    if FileManager.default.fileExists(atPath: dir.path) { try FileManager.default.removeItem(at: dir) }
+    forgotten.insert(id)
+    held[id] = nil
+    print("[Verified] vault: Moment deleted, local copy removed: \(id)")
+  }
+
   // MARK: - Verification
 
   /// Checks every held Moment against the server. Safe to call often: one pass at a time
@@ -64,31 +77,51 @@ final class Vault {
     repeat {
       again = false
       guard let uid = Auth.auth().currentUser?.uid else { return }
-      for id in VaultIO.ids() {
-        let result = await Task.detached { () -> VaultState? in
+      for id in VaultIO.ids() where !forgotten.contains(id) {
+        let result = await Task.detached { () -> VaultIO.Outcome in
           do {
             return try await VaultIO.verify(id, uid: uid) { s in await Vault.shared.mark(id, s) }
           } catch {
             print("[Verified] vault verify \(id): \(error.localizedDescription)")
-            return .waiting  // offline or any error: keep
+            return .keep(.waiting)  // offline or any error: keep
           }
         }.value
-        if let result {
-          if result == .conflict || held[id] == nil { held[id] = result }
-        } else if (try? FileManager.default.removeItem(at: VaultIO.dir(id))) != nil {
-          held[id] = nil
-          print("[Verified] vault: verified on server, local copy removed: \(id)")
+        if forgotten.contains(id) { continue }  // deleted by the owner during this check
+        switch result {
+        case .keep(let state):
+          if state == .conflict || held[id] == nil { held[id] = state }
+        case .stored:
+          if (try? FileManager.default.removeItem(at: VaultIO.dir(id))) != nil {
+            held[id] = nil
+            print("[Verified] vault: verified on server, local copy removed: \(id)")
+          }
+        case .deletedByOwner:
+          print("[Verified] vault \(id): deleted by its owner (deleted/\(id) exists), not re-creating")
+          do { try forget(id) } catch { print("[Verified] vault forget \(id): \(error.localizedDescription)") }
         }
       }
     } while again
   }
 
-  private func mark(_ id: String, _ s: VaultState) { held[id] = s }
+  private func mark(_ id: String, _ s: VaultState) {
+    guard !forgotten.contains(id) else { return }
+    held[id] = s
+  }
 }
 
 /// File and Firestore work for the vault, off the main actor. Every Firestore argument is built fresh from
 /// Sendable journal bytes at the call site, so nothing non-Sendable crosses an isolation boundary.
 nonisolated enum VaultIO {
+  /// Result of checking one journaled Moment against the server.
+  nonisolated enum Outcome: Sendable, Equatable {
+    /// Keep the local copy, in this state.
+    case keep(VaultState)
+    /// The server provably has everything: the local copy may go.
+    case stored
+    /// The owner deleted the Moment (tombstone `deleted/{id}` on the server): drop the journal, never re-create.
+    case deletedByOwner
+  }
+
   nonisolated enum Failure: LocalizedError {
     case notJSON(String)
     var errorDescription: String? {
@@ -163,13 +196,13 @@ nonisolated enum VaultIO {
       payload: d["payload"] as? String ?? "", frameB64: (d["frame"] as? [String: Any])?["jpegB64"] as? String)
   }
 
-  /// nil only when the server provably has everything (the local copy may go); otherwise the state to keep it in.
-  /// Throws when the server can't be reached (the caller keeps the copy).
-  static func verify(_ id: String, uid: String, mark: @Sendable (VaultState) async -> Void) async throws -> VaultState? {
+  /// `.stored` only when the server provably has everything (the local copy may go); `.deletedByOwner` when the owner
+  /// deleted it; otherwise the state to keep it in. Throws when the server can't be reached (the caller keeps the copy).
+  static func verify(_ id: String, uid: String, mark: @Sendable (VaultState) async -> Void) async throws -> Outcome {
     let momentJSON = try Data(contentsOf: momentFile(id))
     let local = try object(momentJSON, "moment.json")
-    guard local["ownerUid"] as? String == uid else { return .waiting }  // another account's Moment: keep, don't touch
-    guard local["status"] as? String == "submitted" else { return .waiting }  // still recording
+    guard local["ownerUid"] as? String == uid else { return .keep(.waiting) }  // another account's Moment: keep, don't touch
+    guard local["status"] as? String == "submitted" else { return .keep(.waiting) }  // still recording
     let names = ((try? FileManager.default.contentsOfDirectory(atPath: chunksDir(id).path)) ?? [])
       .filter { $0.hasSuffix(".json") }.sorted()
     let chunkJSON = try names.map { try Data(contentsOf: chunksDir(id).appendingPathComponent($0)) }
@@ -177,7 +210,7 @@ nonisolated enum VaultIO {
     let chunkCount = (local["chunkCount"] as? NSNumber)?.intValue ?? -1
     if localChunks.count != chunkCount {
       print("[Verified] vault \(id): journal has \(localChunks.count) chunks, moment says \(chunkCount); keeping")
-      return .conflict
+      return .keep(.conflict)
     }
 
     // A fresh reference per call: nothing non-Sendable is reused across Firestore's async calls.
@@ -187,6 +220,12 @@ nonisolated enum VaultIO {
     let server = try await ref().getDocument(source: .server)
     var serverStatus = server.data()?["status"] as? String
     if !server.exists {
+      // Missing on the server: deleted by the owner (maybe on another device), or lost? Ask the server for the
+      // tombstone before re-creating anything (a nonexistent deleted/{id} is readable, so this doesn't throw).
+      let tomb = try await Firestore.firestore().collection("deleted").document(id).getDocument(source: .server)
+      if MomentDeletion.repair(serverExists: false, tombstoneExists: tomb.exists) == .forget { return .deletedByOwner }
+      // Deleted on this device while this check ran: the journal is gone, don't resurrect the Moment.
+      guard FileManager.default.fileExists(atPath: momentFile(id).path) else { return .deletedByOwner }
       await mark(.repairing)
       print("[Verified] vault \(id): missing on server, re-creating from the journal")
       try await ref().setData(recreateFields(momentJSON))
@@ -218,8 +257,8 @@ nonisolated enum VaultIO {
       serverStatus: m["status"] as? String, local: localChunks, server: back)
     if !problems.isEmpty {
       print("[Verified] vault \(id): server copy differs from the journal, keeping local copy: \(problems.prefix(5))")
-      return .conflict
+      return .keep(.conflict)
     }
-    return nil
+    return .stored
   }
 }

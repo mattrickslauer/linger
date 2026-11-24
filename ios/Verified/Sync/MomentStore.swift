@@ -67,6 +67,15 @@ enum MomentStore {
     }
   }
 
+  /// Owner-only delete (docs/ARCHITECTURE.md "Deleting a Moment"). The local raw-vault journal goes FIRST, so this
+  /// device can never re-upload the Moment; if that fails the call throws and nothing is deleted on the server.
+  /// Then `delete moments/{id}` (queues offline like any write). The `onMomentDeleted` function removes the chunks
+  /// and the feed entry and writes the `deleted/{id}` tombstone other devices' vaults check.
+  static func delete(id: String) throws {
+    try Vault.shared.forget(id)
+    moment(id).delete { err in if let err { print("[Verified] delete moment \(id):", err) } }
+  }
+
   /// "iPhone17,1" style hardware identifier.
   static func deviceModel() -> String {
     var info = utsname()
