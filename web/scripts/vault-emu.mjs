@@ -1,7 +1,10 @@
 // Raw vault against the Emulator Suite (`npm run dev:emu` + auth/firestore emulators running):
 //  1. record a short Moment: after submit the vault verifies it from the server and drops the local copy;
 //  2. journal a Moment the server never got: the vault re-creates it, uploads every chunk, submits, then drops it;
-//  3. journal a chunk that differs from the server's: the vault keeps it and reports a conflict on /me.
+//  3. journal a chunk that differs from the server's: the vault keeps it and reports a conflict on /me;
+//  4. the server loses a chunk: the vault re-uploads it;
+//  5. owner delete from /me (confirm dialog): the journal goes, then the server doc; Delete only shows via ?from=me;
+//  6. a journal whose id has a deleted/{id} tombstone is dropped and not re-created.
 import { chromium } from "playwright-core";
 
 const BASE = process.env.BASE || "http://localhost:5173";
@@ -132,6 +135,102 @@ const shown = await page
     () => false,
   );
 check(shown, `/me says: ${await page.locator(".vault-line").innerText()}`);
+
+// 5. owner delete. The res.id Moment is on the server and still held in the journal (conflict) - the worst case.
+const inJournal = (id) =>
+  page.evaluate(
+    (id) =>
+      new Promise((resolve, reject) => {
+        const r = indexedDB.open("verified-vault", 1);
+        r.onsuccess = () => {
+          const t = r.result.transaction(["moments", "chunks"], "readonly");
+          const m = t.objectStore("moments").count(id);
+          const c = t.objectStore("chunks").count(IDBKeyRange.bound([id, 0], [id, Number.MAX_SAFE_INTEGER]));
+          t.oncomplete = () => resolve(m.result + c.result);
+        };
+        r.onerror = () => reject(r.error);
+      }),
+    id,
+  );
+const delBtn = page.getByRole("button", { name: "Delete Moment: vault repair" });
+await page.goto(`${BASE}/m/${res.id}`, { waitUntil: "load" });
+await page.locator(".detail-head").waitFor({ timeout: 15_000 });
+check((await delBtn.count()) === 0, "detail opened from the feed shows no Delete");
+await page.goto(`${BASE}/m/${res.id}?from=me`, { waitUntil: "load" });
+check(await delBtn.waitFor({ timeout: 15_000 }).then(() => true, () => false), "detail opened from /me shows Delete for the owner");
+
+await page.goto(BASE + "/me", { waitUntil: "load" });
+await delBtn.waitFor({ timeout: 15_000 });
+check((await inJournal(res.id)) > 0, "before delete: Moment is in the journal");
+await delBtn.click();
+const dialog = page.getByRole("alertdialog");
+check(
+  (await dialog.getByText("Delete this Moment? Its recording, proof shots and feed entry are removed for good.").count()) === 1,
+  "confirm dialog uses the contract wording",
+);
+await dialog.getByRole("button", { name: "Cancel" }).click();
+check((await inJournal(res.id)) > 0 && (await delBtn.count()) === 1, "Cancel keeps the Moment");
+await delBtn.click();
+await dialog.getByRole("button", { name: "Delete Moment" }).click();
+const gone = await delBtn.waitFor({ state: "detached", timeout: 15_000 }).then(() => true, () => false);
+check(gone, "deleted Moment's row disappears from /me");
+check((await inJournal(res.id)) === 0, "journal for the deleted Moment is gone");
+let status = 0;
+for (let i = 0; i < 10 && status !== 404; i++) {
+  status = (await fetch(REST, { headers: H })).status;
+  if (status !== 404) await page.waitForTimeout(1000);
+}
+check(status === 404, `server moments/${res.id} deleted (HTTP ${status})`);
+const heldAfter = await page.evaluate(async (id) => {
+  const v = await import("/src/vault.ts");
+  await v.verifyAll();
+  return v.vaultHeld()[id] ?? null;
+}, res.id);
+check(heldAfter === null && (await fetch(REST, { headers: H })).status === 404, "a vault pass after the delete does not re-create it");
+
+// 6. deleted on another device: a journal whose id has a deleted/{id} tombstone is dropped, not re-created.
+// The tombstone is written through the admin REST API (what onMomentDeleted would write), so no functions emulator.
+const tomb = await page.evaluate(async () => {
+  const v = await import("/src/vault.ts");
+  const { auth } = await import("/src/firebase.ts");
+  const id = crypto.randomUUID();
+  const t = Date.now() - 60_000;
+  await v.journalMoment(id, {
+    ownerUid: auth.currentUser.uid,
+    owner: { name: "Vault test", photoURL: null },
+    intention: { text: "deleted elsewhere", category: "fishing" },
+    platform: "web",
+    device: { model: "test", os: "test", appVersion: "1.0.0" },
+    status: "recording",
+    startedAt: t,
+    endedAt: null,
+    chunkCount: 0,
+    headHash: null,
+    summary: null,
+    onDevice: { mode: "none", checks: 0, retakes: 0 },
+    judge: null,
+    skeptic: null,
+    seal: null,
+    submittedAtServer: null,
+  });
+  await v.journalMomentUpdate(id, { status: "submitted", endedAt: t + 15_000, chunkCount: 0, headHash: null, summary: null });
+  return { id, uid: auth.currentUser.uid };
+});
+const TOMB = `http://${EMU}/v1/projects/${PROJECT}/databases/(default)/documents/deleted?documentId=${tomb.id}`;
+const tw = await fetch(TOMB, {
+  method: "POST",
+  headers: { ...H, "Content-Type": "application/json" },
+  body: JSON.stringify({ fields: { ownerUid: { stringValue: tomb.uid }, deletedAt: { timestampValue: new Date().toISOString() } } }),
+});
+check(tw.ok, `tombstone deleted/${tomb.id} written (HTTP ${tw.status})`);
+const tombHeld = await page.evaluate(async (id) => {
+  const v = await import("/src/vault.ts");
+  await v.verifyAll();
+  return v.vaultHeld()[id] ?? null;
+}, tomb.id);
+const REST2 = `http://${EMU}/v1/projects/${PROJECT}/databases/(default)/documents/moments/${tomb.id}`;
+check(tombHeld === null && (await inJournal(tomb.id)) === 0, `tombstoned journal dropped (held=${tombHeld})`);
+check((await fetch(REST2, { headers: H })).status === 404, "tombstoned Moment was NOT re-created on the server");
 
 await browser.close();
 process.exit(failed ? 1 : 0);

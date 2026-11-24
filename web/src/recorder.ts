@@ -4,14 +4,14 @@
 // (vault.ts), so this browser keeps its own copy until the server provably has every chunk. Order matters for the security rules: the last
 // chunk is queued before the moment flips to "submitted".
 
-import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { judgeAndSkeptic, liveCheck } from "./ai";
 import { makeChunk } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
 import type { AppEvent, Category, CheckMode, Chunk, GpsRow, LiveCheck, MotionRow } from "./types";
-import { journalChunk, journalMoment, journalMomentUpdate, verifyAll } from "./vault";
+import { forgetMoment, journalChunk, journalMoment, journalMomentUpdate, verifyAll } from "./vault";
 
 export const CHUNK_MS = 5000;
 export const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -39,6 +39,23 @@ function deviceInfo() {
   const b = ua.userAgentData?.brands.find((x) => !/Not.?A.?Brand|Chromium/i.test(x.brand));
   const model = b ? `${b.brand} ${b.version}` : (navigator.userAgent.match(/(Firefox|Safari|Chrome)\/\d+/)?.[0] ?? "Browser");
   return { model, os: ua.userAgentData?.platform || navigator.platform || "web", appVersion: "1.0.0" };
+}
+
+// The Moment this tab is recording right now (sensors running), if any: it can't be deleted.
+let recordingId: string | null = null;
+export const recordingMomentId = () => recordingId;
+
+/**
+ * Owner-only delete (docs/ARCHITECTURE.md "Deleting a Moment"). The raw-vault journal goes FIRST, so this browser
+ * can never re-upload it; then the Firestore delete is queued (offline is fine). onMomentDeleted removes the chunks
+ * and feed entry and writes the deleted/{id} tombstone other devices' vaults honour.
+ */
+export async function deleteMoment(id: string): Promise<void> {
+  if (!db) throw new Error("Firebase is not configured");
+  if (id === recordingId) throw new Error("This Moment is still being recorded.");
+  await forgetMoment(id); // throws if the journal can't be cleared: then nothing is deleted
+  // Not awaited: the SDK resolves only once the server acknowledges; the local cache drops the doc at once.
+  deleteDoc(doc(db, "moments", id)).catch((e) => console.error("moment delete failed", id, e));
 }
 
 export class Session {
@@ -114,6 +131,7 @@ export class Session {
       createdAtServer: serverTimestamp(),
       submittedAtServer: null,
     };
+    recordingId = this.id;
     // Journal first, inside the write queue so the create still precedes every chunk.
     const create = this.queue.then(async () => {
       await journalMoment(this.id, fields);
@@ -231,6 +249,7 @@ export class Session {
   }
 
   private stopSensors() {
+    if (recordingId === this.id) recordingId = null;
     if (this.watchId != null) navigator.geolocation.clearWatch(this.watchId);
     if (this.timer) clearInterval(this.timer);
     window.removeEventListener("devicemotion", this.onMotion);

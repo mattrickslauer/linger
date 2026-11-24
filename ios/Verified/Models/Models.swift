@@ -75,6 +75,8 @@ struct SummaryInfo: Sendable, Equatable {
 /// What a Moment card needs; built from either `feed/{id}` or `moments/{id}`.
 struct MomentCardData: Identifiable, Sendable, Equatable {
   var id: String
+  /// Set from `moments/{id}` (owner view); nil from the feed. Delete is only offered when it is the signed-in uid.
+  var ownerUid: String?
   var ownerName: String
   var ownerPhotoURL: String?
   var intention: String
@@ -123,7 +125,7 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     let seal = d.obj("seal")
     let judge = AiOpinion(d.obj("judge"))
     return MomentCardData(
-      id: id, ownerName: owner.str("name") ?? "Me", ownerPhotoURL: owner.str("photoURL"),
+      id: id, ownerUid: d.str("ownerUid"), ownerName: owner.str("name") ?? "Me", ownerPhotoURL: owner.str("photoURL"),
       intention: intention.str("text") ?? "", category: intention.str("category") ?? "other",
       platform: d.str("platform") ?? "ios", status: d.str("status") ?? "recording",
       startedAt: d.i64("startedAt") ?? 0, summary: SummaryInfo(d.obj("summary")),

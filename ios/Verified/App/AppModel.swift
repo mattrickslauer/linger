@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import VerifiedCore
 
 /// App-wide state, created once after Firebase is configured.
 @Observable
@@ -30,5 +31,18 @@ final class AppModel {
     } else {
       mine.stop()
     }
+  }
+
+  /// Owner-only delete (docs/ARCHITECTURE.md "Deleting a Moment"): the signed-in user's own Moment, opened from
+  /// "My Moments" (never the feed), and not the Moment this device is recording right now.
+  func canDelete(_ m: MomentCardData, fromMyMoments: Bool) -> Bool {
+    MomentDeletion.canDelete(momentId: m.id, ownerUid: m.ownerUid, currentUid: auth.user?.uid,
+                             recordingId: recorder.momentId, fromMyMoments: fromMyMoments)
+  }
+
+  /// Local raw-vault journal first, then `moments/{id}` (see `MomentStore.delete`). Re-checks `canDelete`.
+  func deleteMoment(_ m: MomentCardData) throws {
+    guard canDelete(m, fromMyMoments: true) else { return }
+    try MomentStore.delete(id: m.id)
   }
 }
