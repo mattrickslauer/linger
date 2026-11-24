@@ -9,7 +9,7 @@
 #   2. commit + push the branch (open a PR / merge it yourself afterwards)
 #   3. store the verified-99e74 service-account key in SSM /accounts/firebase/mattricks/verified-99e74
 #   4. deploy accounts from that worktree (infra/deploy.sh)
-#   5. register Verified's clients on the mattricks tenant: verified-web (https) + verified-app (native scheme)
+#   5. register Verified's clients on the mattricks tenant: verified-web (https) + verified-app (loopback http://127.0.0.1:47231/auth)
 #   6. smoke test: the new endpoint answers 401 without a token
 #
 # Env overrides: ACCOUNTS_DIR, FIREBASE_KEY, AWS_REGION (default us-east-1), ALERT_EMAIL (optional, deploy.sh)
@@ -74,7 +74,7 @@ node bin/accounts client add "$TENANT" verified-web --name "Verified" \
   --redirect "https://$PROJECT.web.app/" --redirect "https://$PROJECT.firebaseapp.com/" --redirect "http://localhost:5173/" \
   --origin "https://$PROJECT.web.app" --origin "https://$PROJECT.firebaseapp.com" --origin "http://localhost:5173"
 node bin/accounts client add "$TENANT" verified-app --name "Verified" \
-  --redirect "com.mattricks.verified:/oauth2redirect"
+  --redirect "http://127.0.0.1:47231/auth"   # loopback (RFC 8252), like puq-android
 node bin/accounts client list "$TENANT" | grep -E "verified-(web|app)" || true
 
 say "6. smoke test"
