@@ -76,6 +76,19 @@ object Vault {
         writeAtomic(File(dir(id), "chunks/${Store.chunkId(chunk["seq"] as Int)}.json"), toJson(chunk).toString())
     }
 
+    /**
+     * The owner deleted this Moment: drop the local journal so this phone can never re-upload it. Takes the verify
+     * lock, so an in-flight [verifyAll] pass can't re-create it afterwards from files that are about to vanish.
+     */
+    suspend fun forget(id: String) = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val d = dir(id)
+            if (d.exists() && !d.deleteRecursively()) error("vault: could not delete ${d.path}")
+        }
+        _held.update { it - id }
+        Log.i(TAG, "deleted by owner, local copy removed: $id")
+    }
+
     // ── verification
 
     /** Checks every held Moment against the server. Safe to call often; one pass at a time. */
@@ -91,7 +104,7 @@ object Vault {
         }
     }
 
-    /** True only when the server provably has everything. Throws when the server can't be reached. */
+    /** True when the local copy can go: the server provably has everything, or the owner deleted the Moment. Throws when the server can't be reached. */
     private suspend fun verify(id: String, uid: String): Boolean = withContext(Dispatchers.IO) {
         val local = JSONObject(File(dir(id), "moment.json").readText())
         if (local.optString("ownerUid") != uid) return@withContext false // another account's Moment: keep, don't touch
@@ -108,6 +121,12 @@ object Vault {
         val ref = db.collection("moments").document(id)
         var server = ref.get(Source.SERVER).await()
         if (!server.exists()) {
+            // Deleted on another device? The Cloud Function leaves a tombstone; never resurrect a deleted Moment.
+            val tombstone = db.collection("deleted").document(id).get(Source.SERVER).await().exists()
+            if (VaultCheck.onMissing(tombstone) == VaultCheck.Missing.Forget) {
+                Log.i(TAG, "$id: deleted by the owner on another device; dropping the local copy")
+                return@withContext true // caller removes the journal
+            }
             _held.update { it + (id to State.Repairing) }
             Log.w(TAG, "$id: missing on server, re-creating from the journal")
             val create = fromJson(local).toMutableMap()
@@ -175,6 +194,11 @@ object Vault {
 
 /** Pure comparison of the journal with what the server returned (unit-tested). */
 object VaultCheck {
+    enum class Missing { Recreate, Forget }
+
+    /** Moment missing on the server: a deleted/{id} tombstone means the owner deleted it elsewhere, so drop the journal. */
+    fun onMissing(tombstoneExists: Boolean): Missing = if (tombstoneExists) Missing.Forget else Missing.Recreate
+
     data class Chunk(val seq: Int, val hash: String, val payload: String, val frameB64: String?)
 
     fun compare(

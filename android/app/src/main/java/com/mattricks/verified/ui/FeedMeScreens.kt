@@ -43,6 +43,7 @@ import com.mattricks.verified.auth.Auth
 import com.mattricks.verified.data.MomentCard
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.judge.Judging
+import com.mattricks.verified.record.RecordViewModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -91,12 +92,26 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
                 OutlinedButton(onClick = { Auth.signOut() }) { Text("Sign out") }
             }
         }
-        CardList(items, empty = "Your Moments will show up here.", header = null, onOpen = onOpen)
+        val recordingId by RecordViewModel.recording.collectAsState()
+        var confirmDelete by remember { mutableStateOf<String?>(null) }
+        CardList(
+            items, empty = "Your Moments will show up here.", header = null, onOpen = onOpen,
+            onDelete = { c -> if (canDeleteMoment(c, user.uid, recordingId)) ({ confirmDelete = c.id }) else null },
+        )
+        confirmDelete?.let { id ->
+            DeleteMomentDialog(
+                onConfirm = { confirmDelete = null; Store.deleteMoment(id) },
+                onDismiss = { confirmDelete = null },
+            )
+        }
     }
 }
 
 @Composable
-private fun CardList(items: List<MomentCard>?, empty: String, header: String?, onOpen: (String) -> Unit) {
+private fun CardList(
+    items: List<MomentCard>?, empty: String, header: String?, onOpen: (String) -> Unit,
+    onDelete: (MomentCard) -> (() -> Unit)? = { null },
+) {
     when {
         items == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         items.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -104,7 +119,7 @@ private fun CardList(items: List<MomentCard>?, empty: String, header: String?, o
         }
         else -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (header != null) item { Text(header, style = MaterialTheme.typography.headlineSmall) }
-            items(items, key = { it.id }) { MomentCardView(it) { onOpen(it.id) } }
+            items(items, key = { it.id }) { MomentCardView(it, onDelete = onDelete(it)) { onOpen(it.id) } }
         }
     }
 }

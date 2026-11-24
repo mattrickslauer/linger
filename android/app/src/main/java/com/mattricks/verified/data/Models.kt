@@ -72,6 +72,7 @@ data class MomentCard(
     val heroJpegB64: String?,
     val startedAt: Long = 0,
     val pendingWrites: Boolean = false,
+    val ownerUid: String = "",
 )
 
 data class Frame(val seq: Int, val t: Long, val jpegB64: String, val check: Check?)

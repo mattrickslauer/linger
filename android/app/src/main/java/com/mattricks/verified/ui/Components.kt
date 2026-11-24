@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -106,7 +108,7 @@ fun onDeviceLabel(mode: String) = when (mode) {
 }
 
 @Composable
-fun MomentCardView(c: MomentCard, onClick: () -> Unit) {
+fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         if (c.heroJpegB64 != null) B64Image(c.heroJpegB64, Modifier.fillMaxWidth().aspectRatio(16f / 10f))
         Column(Modifier.padding(14.dp)) {
@@ -123,10 +125,14 @@ fun MomentCardView(c: MomentCard, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
                 Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
                 if (c.pendingWrites) Pill("Offline · queued", Amber)
+                if (onDelete != null) {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDelete) { Text("Delete", color = Red) }
+                }
             }
         }
     }
@@ -195,3 +201,19 @@ fun MotionChart(motion: List<Pair<Long, Float>>, frameTimes: List<Long>, modifie
         drawPath(path, Green, style = Stroke(width = 1.5.dp.toPx()))
     }
 }
+
+/** Owner-only delete confirmation; wording is the shared contract (docs/ARCHITECTURE.md "Deleting a Moment"). */
+@Composable
+fun DeleteMomentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete this Moment?") },
+        text = { Text("Its recording, proof shots and feed entry are removed for good.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = Red) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Delete is offered only for the signed-in user's own Moment, and never for the one being recorded right now. */
+fun canDeleteMoment(c: MomentCard, uid: String?, recordingId: String?): Boolean =
+    uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId

@@ -38,4 +38,9 @@ class VaultCheckTest {
     @Test fun extraServerChunkIsFlagged() {
         assertTrue(check(local + Chunk(2, "h2", "{}", null)).any { "server has 3" in it })
     }
+
+    @Test fun tombstoneMeansForgetNotRecreate() {
+        assertEquals(VaultCheck.Missing.Forget, VaultCheck.onMissing(tombstoneExists = true))
+        assertEquals(VaultCheck.Missing.Recreate, VaultCheck.onMissing(tombstoneExists = false))
+    }
 }

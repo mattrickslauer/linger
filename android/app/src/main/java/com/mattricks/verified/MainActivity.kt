@@ -47,11 +47,12 @@ class MainActivity : ComponentActivity() {
                 val user by remember { Auth.user() }.collectAsState(initial = Firebase.auth.currentUser)
                 var tab by rememberSaveable { mutableStateOf(0) }
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
+                var openFromMe by rememberSaveable { mutableStateOf(false) }
 
                 val o = open
                 if (o != null) {
                     BackHandler { open = null }
-                    DetailScreen(o) { open = null }
+                    DetailScreen(o, fromMe = openFromMe) { open = null }
                     return@VerifiedTheme
                 }
                 Scaffold(bottomBar = {
@@ -67,9 +68,9 @@ class MainActivity : ComponentActivity() {
                 }) { pad ->
                     Box(Modifier.padding(pad)) {
                         when (tab) {
-                            0 -> FeedScreen { open = it }
-                            1 -> RecordScreen(user) { open = it }
-                            else -> MeScreen(user) { open = it }
+                            0 -> FeedScreen { open = it; openFromMe = false }
+                            1 -> RecordScreen(user) { open = it; openFromMe = false }
+                            else -> MeScreen(user) { open = it; openFromMe = true }
                         }
                     }
                 }

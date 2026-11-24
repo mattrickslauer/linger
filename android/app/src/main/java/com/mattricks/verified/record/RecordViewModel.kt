@@ -65,6 +65,12 @@ data class RecUi(
  * 5 s or when a proof frame is taken. Chunks are written straight to Firestore (offline cache first).
  */
 class RecordViewModel(app: Application) : AndroidViewModel(app) {
+    companion object {
+        private val _recording = MutableStateFlow<String?>(null)
+        /** Id of the Moment being recorded on this device right now (until it is submitted); it can't be deleted. */
+        val recording: StateFlow<String?> = _recording
+    }
+
     private val _ui = MutableStateFlow(RecUi())
     val ui: StateFlow<RecUi> = _ui
 
@@ -105,6 +111,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         seq = 0; prevHash = Chain.genesis(momentId); t0 = now; holdForFrame = false
         gpsBuf.clear(); motionBuf.clear(); events.clear(); track.clear(); frameSeqs.clear(); checks.clear(); motionCount = 0
         events += Event(now, "start")
+        _recording.value = momentId
         Store.createMoment(momentId, s.intention.trim(), s.category, now)
         _ui.update {
             it.copy(phase = RecUi.Phase.Recording, momentId = momentId, startedAt = now, elapsedMs = 0, distanceM = 0.0,
@@ -204,6 +211,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             }
             val onDevice = mapOf("mode" to mode, "checks" to checks.count { it.mode != "none" }, "retakes" to checks.count { !it.ok })
             Store.submit(id, endedAt, count, headHash, summary, onDevice)
+            _recording.compareAndSet(id, null)
             _ui.update { it.copy(phase = RecUi.Phase.Finished, elapsedMs = summary.durationMs) }
             // Keep the sync badge live after finishing so the user sees the queue drain.
             jobs += viewModelScope.launch {
@@ -214,6 +222,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun reset() {
+        if (_ui.value.phase != RecUi.Phase.Recording) _recording.value = null
         jobs.forEach { it.cancel() }; jobs.clear()
         _ui.update { RecUi(intention = it.intention, category = it.category) }
     }
@@ -265,5 +274,5 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         accel = null; gyro = null
     }
 
-    override fun onCleared() { stopSensors(); super.onCleared() }
+    override fun onCleared() { stopSensors(); _recording.compareAndSet(momentId, null); super.onCleared() }
 }

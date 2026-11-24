@@ -15,7 +15,11 @@ import com.mattricks.verified.BuildConfig
 import com.mattricks.verified.chain.Chain
 import com.mattricks.verified.chain.ChainLink
 import com.mattricks.verified.chain.Check
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
@@ -87,6 +91,24 @@ object Store {
         db.collection("moments").document(momentId).update(fields).addOnFailureListener(logFail("submit"))
     }
 
+    /**
+     * Owner-only delete (docs/ARCHITECTURE.md "Deleting a Moment"). The local raw-vault journal goes FIRST so this
+     * phone can never re-upload it; then the moment doc is deleted (queued offline like any write). The Cloud Function
+     * onMomentDeleted removes the chunks and feed entry and writes the deleted/{id} tombstone.
+     */
+    fun deleteMoment(id: String) {
+        val uid = Firebase.auth.currentUser?.uid ?: return
+        if (id == com.mattricks.verified.record.RecordViewModel.recording.value) return // never the one being recorded
+        bg.launch {
+            val forgot = runCatching { Vault.forget(id) }.onFailure { Log.e(TAG, "vault forget $id failed; not deleting", it) }
+            if (forgot.isFailure) return@launch
+            Log.i(TAG, "deleting moment $id (owner $uid)")
+            db.collection("moments").document(id).delete().addOnFailureListener(logFail("delete moment"))
+        }
+    }
+
+    private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     suspend fun writeOpinions(momentId: String, judge: Map<String, Any?>, skeptic: Map<String, Any?>) {
         db.collection("moments").document(momentId).update(mapOf("judge" to judge, "skeptic" to skeptic)).await()
     }
@@ -151,6 +173,7 @@ object Store {
             platform = d.getString("platform") ?: "", status = d.getString("status") ?: "",
             summary = Summary.from(d.get("summary") as? Map<String, Any?>), onDeviceMode = onDevice?.get("mode") as? String ?: "none",
             heroJpegB64 = null, startedAt = d.getLong("startedAt") ?: 0, pendingWrites = d.metadata.hasPendingWrites(),
+            ownerUid = d.getString("ownerUid") ?: "",
         )
     }
 

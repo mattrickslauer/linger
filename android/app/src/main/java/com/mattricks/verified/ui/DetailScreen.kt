@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,15 +45,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mattricks.verified.data.MomentDetail
 import com.mattricks.verified.data.Opinion
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.mattricks.verified.data.Store
+import com.mattricks.verified.record.RecordViewModel
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailScreen(momentId: String, onBack: () -> Unit) {
+fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) {
     var detail by remember { mutableStateOf<MomentDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val recordingId by RecordViewModel.recording.collectAsState()
     LaunchedEffect(momentId, refresh) {
         runCatching { Store.detail(momentId) }.onSuccess { detail = it; error = null }.onFailure { error = it.message }
         // While it is being judged/sealed, poll so the checklist fills in live.
@@ -62,8 +69,19 @@ fun DetailScreen(momentId: String, onBack: () -> Unit) {
         TopAppBar(
             title = { Text("Moment") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = {
+                // Only from "my Moments", only the owner's own, never the one being recorded (ARCHITECTURE.md).
+                val card = detail?.card
+                if (fromMe && card != null && canDeleteMoment(card, Firebase.auth.currentUser?.uid, recordingId)) {
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete Moment") }
+                }
+            },
         )
     }) { pad ->
+        if (confirmDelete) DeleteMomentDialog(
+            onConfirm = { confirmDelete = false; Store.deleteMoment(momentId); onBack() },
+            onDismiss = { confirmDelete = false },
+        )
         val d = detail
         when {
             d != null -> DetailBody(d, Modifier.padding(pad))
