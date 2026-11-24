@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+# Firebase config: copy from verified-core/config, never commit
+app/google-services.json
