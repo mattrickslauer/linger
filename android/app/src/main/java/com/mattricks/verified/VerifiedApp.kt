@@ -61,6 +61,7 @@ class VerifiedApp : Application() {
 
         Prefs.init(this)
         com.mattricks.verified.voice.Voice.init(this)
+        com.mattricks.verified.witness.WitnessNotifier.init(this)
         Devices.init(this)
         if (BuildConfig.MAPBOX_TOKEN.isNotBlank()) MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
 

@@ -41,6 +41,16 @@ import com.mattricks.verified.ui.SettingsScreen
 import com.mattricks.verified.ui.VerifiedTheme
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** Tab requested by an intent (the witness notification opens Record = 1). */
+        val tabRequest = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        if (intent.hasExtra("tab")) tabRequest.value = intent.getIntExtra("tab", 0)
+    }
+
     override fun onResume() {
         super.onResume()
         Auth.onAppResumed()
@@ -48,6 +58,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.hasExtra("tab") == true) tabRequest.value = intent.getIntExtra("tab", 0)
         enableEdgeToEdge()
         setContent {
             VerifiedTheme(dark = isSystemInDarkTheme()) {
@@ -61,6 +72,8 @@ class MainActivity : ComponentActivity() {
                 ask?.let { if (user == null) SignInSheet(it) }
                 if (offerClaims && user != null) ClaimSheet()
                 var tab by rememberSaveable { mutableStateOf(0) }
+                val requested by tabRequest.collectAsState()
+                LaunchedEffect(requested) { requested?.let { tab = it; tabRequest.value = null } }
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
                 var openFromMe by rememberSaveable { mutableStateOf(false) }
 

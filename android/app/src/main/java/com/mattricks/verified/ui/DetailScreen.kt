@@ -116,6 +116,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
                     style = MaterialTheme.typography.bodySmall, color = if (c.ok) Green else Red,
                 )
             }
+            f.witnessAsk?.let { Pill("Witness asked: $it", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) }
             Section("Frame timeline")
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(d.frames.indices.toList()) { i ->
@@ -131,6 +132,8 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
                 }
             }
         }
+
+        if (d.witness.isNotEmpty()) WitnessSection(d)
 
         Section("Track")
         TrackMap(d.track, Modifier.fillMaxWidth().height(260.dp))
@@ -192,6 +195,45 @@ private fun LocalBanner(d: MomentDetail) {
                 d.card.status == "submitted" -> androidx.compose.material3.Button(onClick = {
                     com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(d.card.id)) }
                 }) { Text("Upload & verify") }
+            }
+        }
+    }
+}
+
+/** v3.4 witness requests read back from the hash chain, with how each was answered. */
+@Composable
+private fun WitnessSection(d: MomentDetail) {
+    Section("Witness")
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val answered = d.witness.count { it.outcome != null && it.outcome != "skipped" }
+            Text("${d.witness.size} asked · $answered answered · all in the hash chain", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            d.witness.forEach { w ->
+                Row(verticalAlignment = Alignment.Top) {
+                    val (mark, color) = when (w.outcome) {
+                        null -> "…" to Color.Gray
+                        "skipped" -> "–" to Amber
+                        else -> "✓" to Green
+                    }
+                    Text(mark, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(w.ask, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            buildString {
+                                append(w.kind).append(" · ").append(modeChip(w.by))
+                                when (w.outcome) {
+                                    "frame" -> append(" · answered with a proof shot")
+                                    "voice" -> append(" · answered by voice")
+                                    "text" -> append(" · answered in text")
+                                    "done" -> append(" · done")
+                                    "skipped" -> append(" · skipped")
+                                }
+                            },
+                            fontSize = 11.sp, color = Color.Gray,
+                        )
+                        w.answer?.let { Text("“$it”", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
             }
         }
     }
