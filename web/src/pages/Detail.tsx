@@ -18,6 +18,7 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
+import "../room.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoStatusText } from "../v4";
 import { offersV4 } from "../ladder";
@@ -377,12 +378,21 @@ export default function Detail({ id }: { id: string }) {
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
 
+  const checkList = sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS;
+  const passedChecks = checks ? checkList.filter((c) => checks[c.key]).length : 0;
+  const shownScore = finalScore ?? moment?.score?.probability ?? feed?.verificationScore ?? null;
+
   return (
-    <article className="page detail">
+    <article className={`page detail room ${pending ? "" : sealed ? "room-ok" : "room-no"}`}>
       <div className="detail-bar">
         <Link to={fromMe ? "/me" : "/"} className="back">
           {fromMe ? "← My Moments" : "← Feed"}
         </Link>
+        <nav className="room-nav" aria-label="Evidence room">
+          <a href="#intent">Intent</a>
+          <a href="#proof">Proof</a>
+          <a href="#result">Result</a>
+        </nav>
         {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet" />}
       </div>
       {local && (
@@ -393,269 +403,298 @@ export default function Detail({ id }: { id: string }) {
           onUploaded={() => setReload((n) => n + 1)}
         />
       )}
-      <header className="detail-head">
-        <div>
-          <p className="cat">{intention.category}</p>
-          <h1>{intention.text}</h1>
-          <p className="muted">
-            {owner?.name ?? "You, as a guest"}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
-            {moment?.device ? `, ${moment.device.model}` : ""}
-          </p>
-          <Chips platform={platform} mode={mode} />
-        </div>
-        {!pending && <Stamp sealed={sealed} size="lg" />}
-      </header>
+      <p className="room-title">Evidence room</p>
 
-      {showClaims && (
-        <ClaimsPanel
-          views={views}
-          bar={barValue}
-          score={sealV4 ? finalScore : null}
-          verified={sealed}
-          sealed={!pending && sealV4}
-          claimsBacked={ver?.claimsBacked ?? feed?.claimsBacked ?? null}
-          cheating={cheatingSignals}
-          videoStatus={vr && vr.status !== "none" ? videoStatusText(vr) : null}
-          videoSummary={moment?.videoReview?.summary || feed?.video?.summary || null}
-          offers={
-            claimOffers
-              ? (claimId) => {
-                  const rows = claimOffers.flatMap((o) =>
-                    (o.state === "ready" || o.state === "blocked") && o.claims.some((c) => c.id === claimId) ? [{ o, c: o.claims.find((c) => c.id === claimId)! }] : [],
-                  );
-                  if (!rows.length) return null;
-                  return (
-                    <ul className="claim-offers" aria-label="Checks that can still back this claim">
-                      {rows.map(({ o, c }) => (
-                        <li key={o.module.id} className="claim-offer">
-                          <span>
-                            <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
-                            <span className="down">{c.fail.toFixed(2)}</span>
-                            {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
-                          </span>
-                          {o.state === "ready" && (
-                            <button
-                              type="button"
-                              className="btn btn-small"
-                              onClick={() => {
-                                setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
-                              }}
-                            >
-                              Run · {o.module.cost} cr
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  );
-                }
-              : undefined
-          }
-        />
-      )}
+      <section id="intent" className="room-wp room-intent" aria-labelledby="intent-h">
+        <h2 id="intent-h" className="room-label">
+          Intent <span>what {owner?.name ?? "they"} said they would do, before starting</span>
+        </h2>
+        <header className="detail-head">
+          <div>
+            <p className="cat">{intention.category}</p>
+            <h1 className="room-intent-text">{intention.text}</h1>
+            <p className="muted">
+              {owner?.name ?? "You, as a guest"}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
+              {moment?.device ? `, ${moment.device.model}` : ""}
+            </p>
+            <Chips platform={platform} mode={mode} />
+          </div>
+        </header>
+      </section>
 
-      {summary && (
-        <dl className="stats stats-wide">
-          <div>
-            <dt>time</dt>
-            <dd>{fmtDuration(summary.durationMs)}</dd>
-          </div>
-          <div>
-            <dt>distance</dt>
-            <dd>{fmtDistance(summary.distanceM)}</dd>
-          </div>
-          <div>
-            <dt>proof frames</dt>
-            <dd>{summary.frameCount}</dd>
-          </div>
-          <div>
-            <dt>GPS fixes</dt>
-            <dd>{summary.gpsCount.toLocaleString()}</dd>
-          </div>
-          <div>
-            <dt>motion samples</dt>
-            <dd>{summary.motionCount.toLocaleString()}</dd>
-          </div>
-          {barValue != null && finalScore != null && (
+      <section id="proof" className="room-wp room-proof" aria-labelledby="proof-h">
+        <h2 id="proof-h" className="room-label">
+          Proof <span>captured on the phone as it happened, hashed chunk by chunk</span>
+        </h2>
+        {summary && (
+          <dl className="stats stats-wide">
             <div>
-              <dt>score / bar</dt>
-              <dd>
-                {finalScore.toFixed(2)}
-                <span className="dd-sub"> / {barValue.toFixed(2)}</span>
-              </dd>
+              <dt>time</dt>
+              <dd>{fmtDuration(summary.durationMs)}</dd>
             </div>
-          )}
-          {moment && (
             <div>
-              <dt>live checks</dt>
-              <dd>
-                {moment.onDevice.checks}
-                {moment.onDevice.retakes ? <span className="dd-sub"> ({moment.onDevice.retakes} retake{moment.onDevice.retakes > 1 ? "s" : ""})</span> : null}
-              </dd>
+              <dt>distance</dt>
+              <dd>{fmtDistance(summary.distanceM)}</dd>
             </div>
-          )}
-        </dl>
-      )}
-
-      <section className="viewer">
-        <div className="viewer-main">
-          <div className="frame-stage">
-            {frame ? (
-              <>
-                <img src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} />
-                <p className="frame-cap">
-                  <span>{fmtDuration(frame.t - start)}</span>
-                  {frame.label && <span>{frame.label}</span>}
-                  {frame.ok === false ? <span className="coach coach-bad">coach: retake</span> : frame.ok ? <span className="coach">coach: keep going</span> : null}
-                  {frame.mode !== "none" && <span className="muted">{frame.mode === "on_device" ? "on-device" : "cloud"}</span>}
-                </p>
-              </>
-            ) : feed?.heroJpegB64 ? (
-              <img src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
-            ) : (
-              <div className="frame-empty">{chunks ? "No proof frames available." : "Loading frames…"}</div>
+            <div>
+              <dt>proof frames</dt>
+              <dd>{summary.frameCount}</dd>
+            </div>
+            <div>
+              <dt>GPS fixes</dt>
+              <dd>{summary.gpsCount.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>motion samples</dt>
+              <dd>{summary.motionCount.toLocaleString()}</dd>
+            </div>
+            {barValue != null && finalScore != null && (
+              <div>
+                <dt>score / bar</dt>
+                <dd>
+                  {finalScore.toFixed(2)}
+                  <span className="dd-sub"> / {barValue.toFixed(2)}</span>
+                </dd>
+              </div>
             )}
-          </div>
-          <div className="timeline">
-            <div className="thumbs">
-              {decoded.frames.map((f) => (
-                <button
-                  key={f.seq}
-                  className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
-                  style={{ left: `${((f.t - start) / duration) * 100}%` }}
-                  onClick={() => {
-                    setT(f.t - start);
-                    setPickedSeq(null);
-                  }}
-                  aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
-                >
-                  <img src={jpegSrc(f.jpegB64)} alt="" />
-                </button>
-              ))}
+            {moment && (
+              <div>
+                <dt>live checks</dt>
+                <dd>
+                  {moment.onDevice.checks}
+                  {moment.onDevice.retakes ? <span className="dd-sub"> ({moment.onDevice.retakes} retake{moment.onDevice.retakes > 1 ? "s" : ""})</span> : null}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
+
+        <h3 className="room-exhibit">Proof shots, track and motion</h3>
+        <section className="viewer">
+          <div className="viewer-main">
+            <div className="frame-stage">
+              {frame ? (
+                <>
+                  <img src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} />
+                  <p className="frame-cap">
+                    <span>{fmtDuration(frame.t - start)}</span>
+                    {frame.label && <span>{frame.label}</span>}
+                    {frame.ok === false ? <span className="coach coach-bad">coach: retake</span> : frame.ok ? <span className="coach">coach: keep going</span> : null}
+                    {frame.mode !== "none" && <span className="muted">{frame.mode === "on_device" ? "on-device" : "cloud"}</span>}
+                  </p>
+                </>
+              ) : feed?.heroJpegB64 ? (
+                <img src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
+              ) : (
+                <div className="frame-empty">{chunks ? "No proof frames available." : "Loading frames…"}</div>
+              )}
             </div>
-            <input
-              type="range"
-              className="scrub"
-              min={0}
-              max={duration}
-              step={100}
-              value={t}
-              onChange={(e) => {
-                setT(Number(e.target.value));
+            <div className="timeline">
+              <div className="thumbs">
+                {decoded.frames.map((f) => (
+                  <button
+                    key={f.seq}
+                    className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
+                    style={{ left: `${((f.t - start) / duration) * 100}%` }}
+                    onClick={() => {
+                      setT(f.t - start);
+                      setPickedSeq(null);
+                    }}
+                    aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
+                  >
+                    <img src={jpegSrc(f.jpegB64)} alt="" />
+                  </button>
+                ))}
+              </div>
+              <input
+                type="range"
+                className="scrub"
+                min={0}
+                max={duration}
+                step={100}
+                value={t}
+                onChange={(e) => {
+                  setT(Number(e.target.value));
+                  setPickedSeq(null);
+                }}
+                aria-label="Scrub through the session"
+                aria-valuetext={fmtDuration(t)}
+              />
+              <div className="scrub-scale">
+                <span>0:00</span>
+                <span>{fmtDuration(t)}</span>
+                <span>{fmtDuration(duration)}</span>
+              </div>
+            </div>
+            <MotionChart
+              motion={decoded.motion}
+              start={start}
+              duration={duration}
+              frames={decoded.frames.map((f) => f.t)}
+              t={t}
+              onSeek={(ms) => {
+                setT(ms);
                 setPickedSeq(null);
               }}
-              aria-label="Scrub through the session"
-              aria-valuetext={fmtDuration(t)}
             />
-            <div className="scrub-scale">
-              <span>0:00</span>
-              <span>{fmtDuration(t)}</span>
-              <span>{fmtDuration(duration)}</span>
-            </div>
           </div>
-          <MotionChart
-            motion={decoded.motion}
-            start={start}
-            duration={duration}
-            frames={decoded.frames.map((f) => f.t)}
-            t={t}
-            onSeek={(ms) => {
-              setT(ms);
-              setPickedSeq(null);
+          <aside className="viewer-side">
+            <Suspense fallback={<div className="map" />}>
+              <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
+            </Suspense>
+          </aside>
+        </section>
+
+        {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
+
+        {chunks && chunks.length > 0 && (
+          <ChainViewer
+            momentId={id}
+            chunks={chunks}
+            headHash={moment?.headHash ?? null}
+            chunkCount={moment?.chunkCount ?? null}
+            activeSeq={activeSeq}
+            onPick={(seq) => {
+              setPickedSeq(seq);
+              const c = chunks.find((x) => x.seq === seq);
+              if (c) setT(Math.min(duration, (c.frame?.t ?? c.t0) - start));
             }}
           />
-        </div>
-        <aside className="viewer-side">
-          <Suspense fallback={<div className="map" />}>
-            <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
-          </Suspense>
-        </aside>
-      </section>
-
-      {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
-
-      <section className="review" aria-labelledby="ai-h">
-        <h2 id="ai-h">What the AIs said</h2>
-        <div className="opinions">
-          <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
-          <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
-          {barValue != null ? (
-            <ScoreVsBar
-              score={finalScore}
-              baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
-              bar={barValue}
-              rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
-              factors={moment?.bar?.factors ?? []}
-              source={moment?.bar?.source ?? (feed?.bar != null ? "ai" : null)}
-              model={moment?.bar?.model ?? null}
-              difficulty={moment?.bar?.difficulty ?? feed?.difficulty ?? null}
-              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
-            />
-          ) : (
-            <ScoreCard
-              probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
-              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
-            />
-          )}
-        </div>
-      </section>
-
-      {!local && (
-        <Ladder
-          momentId={id}
-          ownerUid={moment?.ownerUid ?? null}
-          isOwner={isOwner}
-          eligible={eligible}
-          v4={v4Ladder}
-          requested={requested}
-          score={finalScore}
-          baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? null}
-          bar={barValue}
-          modules={moment?.verification?.modules ?? null}
-          feedLadder={feed?.ladder}
-          chunks={chunks}
-          intention={intention}
-          onRan={() => setReload((n) => n + 1)}
-        />
-      )}
-
-      <section className="seal" aria-labelledby="seal-h">
-        <div className="section-head">
-          <h2 id="seal-h">Seal</h2>
-          <p className="muted small">Written only by a Cloud Function. AI proposes; code decides.</p>
-        </div>
-        <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
-        {checks ? (
-          <ul className="checklist">
-            {(sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
-              <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
-                <span className="mark" aria-hidden="true">
-                  {checks[c.key] ? "✓" : "✗"}
-                </span>
-                <strong>{c.name}</strong>
-                <span>{checks[c.key] ? c.ok : c.bad}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">Not sealed yet.</p>
         )}
       </section>
 
-      {chunks && chunks.length > 0 && (
-        <ChainViewer
-          momentId={id}
-          chunks={chunks}
-          headHash={moment?.headHash ?? null}
-          chunkCount={moment?.chunkCount ?? null}
-          activeSeq={activeSeq}
-          onPick={(seq) => {
-            setPickedSeq(seq);
-            const c = chunks.find((x) => x.seq === seq);
-            if (c) setT(Math.min(duration, (c.frame?.t ?? c.t0) - start));
-          }}
-        />
-      )}
+      <section id="result" className="room-wp room-result" aria-labelledby="result-h">
+        <h2 id="result-h" className="room-label">
+          Result <span>AIs propose, a Cloud Function decides</span>
+        </h2>
+        <div className="room-verdict">
+          {!pending && <Stamp sealed={sealed} size="lg" />}
+          <div>
+            <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
+            {checks && (
+              <p className="muted small">
+                {passedChecks} of {checkList.length} seal checks passed
+                {shownScore != null ? `, ${Math.round(shownScore * 100)}% likely true` : ""}.
+              </p>
+            )}
+          </div>
+        </div>
+        {showClaims && (
+          <ClaimsPanel
+            views={views}
+            bar={barValue}
+            score={sealV4 ? finalScore : null}
+            verified={sealed}
+            sealed={!pending && sealV4}
+            claimsBacked={ver?.claimsBacked ?? feed?.claimsBacked ?? null}
+            cheating={cheatingSignals}
+            videoStatus={vr && vr.status !== "none" ? videoStatusText(vr) : null}
+            videoSummary={moment?.videoReview?.summary || feed?.video?.summary || null}
+            offers={
+              claimOffers
+                ? (claimId) => {
+                    const rows = claimOffers.flatMap((o) =>
+                      (o.state === "ready" || o.state === "blocked") && o.claims.some((c) => c.id === claimId) ? [{ o, c: o.claims.find((c) => c.id === claimId)! }] : [],
+                    );
+                    if (!rows.length) return null;
+                    return (
+                      <ul className="claim-offers" aria-label="Checks that can still back this claim">
+                        {rows.map(({ o, c }) => (
+                          <li key={o.module.id} className="claim-offer">
+                            <span>
+                              <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
+                              <span className="down">{c.fail.toFixed(2)}</span>
+                              {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
+                            </span>
+                            {o.state === "ready" && (
+                              <button
+                                type="button"
+                                className="btn btn-small"
+                                onClick={() => {
+                                  setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
+                                }}
+                              >
+                                Run · {o.module.cost} cr
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  }
+                : undefined
+            }
+          />
+        )}
+
+        <section className="review" aria-labelledby="ai-h">
+          <h2 id="ai-h">What the AIs said</h2>
+          <div className="opinions">
+            <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
+            <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
+            {barValue != null ? (
+              <ScoreVsBar
+                score={finalScore}
+                baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
+                bar={barValue}
+                rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
+                factors={moment?.bar?.factors ?? []}
+                source={moment?.bar?.source ?? (feed?.bar != null ? "ai" : null)}
+                model={moment?.bar?.model ?? null}
+                difficulty={moment?.bar?.difficulty ?? feed?.difficulty ?? null}
+                reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+              />
+            ) : (
+              <ScoreCard
+                probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
+                reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+              />
+            )}
+          </div>
+        </section>
+
+        {!local && (
+          <Ladder
+            momentId={id}
+            ownerUid={moment?.ownerUid ?? null}
+            isOwner={isOwner}
+            eligible={eligible}
+            v4={v4Ladder}
+            requested={requested}
+            score={finalScore}
+            baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? null}
+            bar={barValue}
+            modules={moment?.verification?.modules ?? null}
+            feedLadder={feed?.ladder}
+            chunks={chunks}
+            intention={intention}
+            onRan={() => setReload((n) => n + 1)}
+          />
+        )}
+
+        <section className="seal" aria-labelledby="seal-h">
+          <div className="section-head">
+            <h2 id="seal-h">Seal</h2>
+            <p className="muted small">Written only by a Cloud Function. AI proposes; code decides.</p>
+          </div>
+          <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
+          {checks ? (
+            <ul className="checklist">
+              {(sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
+                <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
+                  <span className="mark" aria-hidden="true">
+                    {checks[c.key] ? "✓" : "✗"}
+                  </span>
+                  <strong>{c.name}</strong>
+                  <span>{checks[c.key] ? c.ok : c.bad}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Not sealed yet.</p>
+          )}
+        </section>
+      </section>
     </article>
   );
 }

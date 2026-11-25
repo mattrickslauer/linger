@@ -50,6 +50,10 @@ export default function App() {
   const { user, ready } = useUser();
   const [theme, cycleTheme] = useTheme();
   const tab = route.name === "moment" ? "feed" : route.name;
+  const immersive = route.name === "feed";
+  useEffect(() => {
+    document.body.classList.toggle("immersive", immersive);
+  }, [immersive]);
   useEffect(() => {
     document.title = route.name === "embed" ? "Embed Verified into your app" : "Verified";
   }, [route.name]);
@@ -92,7 +96,7 @@ export default function App() {
           </svg>
         </button>
       </header>
-      {(FIXTURES || USE_EMULATORS) && <p className="modebar">{FIXTURES ? "Sample data mode: nothing here touches Firebase." : "Emulator mode: local Auth and Firestore."}</p>}
+      {!immersive && (FIXTURES || USE_EMULATORS) && <p className="modebar">{FIXTURES ? "Sample data mode: nothing here touches Firebase." : "Emulator mode: local Auth and Firestore."}</p>}
       <SignInSheet />
       {configured && (
         <Suspense fallback={null}>
@@ -116,7 +120,7 @@ export default function App() {
           )}
         </Suspense>
       </main>
-      <footer className="foot">
+      <footer className="foot" hidden={immersive}>
         <p>
           Built for the Firebase #BuildHybridAI hackathon. On-device and cloud AI through Firebase AI Logic; data in Firestore; seals by Cloud
           Functions.{" "}
