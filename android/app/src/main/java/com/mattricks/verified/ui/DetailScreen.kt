@@ -182,6 +182,8 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
         // v4: the free video review sits with the evidence it reviewed.
         if (isV4(d)) add { VideoReviewCard(d) }
         else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) add { VideoUploadLine(d.card.id) }
+        // v4.12: every uploaded clip, playable by anyone who can see the Moment.
+        if (d.sharedClips.isNotEmpty()) add { SharedVideoSection(d) }
         if (d.frames.isNotEmpty()) add {
             val f = d.frames[selected.coerceIn(0, d.frames.size - 1)]
             B64Image(f.jpegB64, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(16.dp)))

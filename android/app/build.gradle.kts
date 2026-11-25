@@ -119,6 +119,11 @@ dependencies {
     implementation("androidx.camera:camera-view:$camerax")
     implementation("androidx.camera:camera-video:$camerax")
 
+    // v4.12 shared video: feed autoplay + evidence-room player
+    val media3 = "1.8.0"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+
     // Maps
     val mapbox = "11.24.0"
     implementation("com.mapbox.maps:android-ndk27:$mapbox")

@@ -106,7 +106,8 @@ data class VideoReview(
     val status: String, val clips: List<Clip>, val claims: List<ClaimVerdict>, val cheatingDetected: Boolean,
     val signals: List<String>, val summary: String, val reason: String?, val model: String?,
 ) {
-    data class Clip(val sha256: String, val durationMs: Long, val uploaded: Boolean, val hashOk: Boolean?)
+    /** [ext] "mp4"|"mov"|"webm" once uploaded (Storage path `clips/{ownerUid}/{momentId}/{sha256}.{ext}`, v4.12). */
+    data class Clip(val sha256: String, val durationMs: Long, val uploaded: Boolean, val hashOk: Boolean?, val ext: String? = null)
 
     companion object {
         @Suppress("UNCHECKED_CAST")
@@ -115,7 +116,9 @@ data class VideoReview(
             VideoReview(
                 it["status"] as? String ?: "waiting",
                 (it["clips"] as? List<Any?>).orEmpty().mapNotNull { c ->
-                    (c as? Map<String, Any?>)?.let { x -> Clip(x["sha256"] as? String ?: "", num(x["durationMs"]).toLong(), x["uploaded"] == true, x["hashOk"] as? Boolean) }
+                    (c as? Map<String, Any?>)?.let { x ->
+                        Clip(x["sha256"] as? String ?: "", num(x["durationMs"]).toLong(), x["uploaded"] == true, x["hashOk"] as? Boolean, x["ext"] as? String)
+                    }
                 },
                 ClaimVerdict.list(it["claims"]), ch?.get("detected") == true,
                 (ch?.get("signals") as? List<Any?>).orEmpty().mapNotNull { s -> s as? String },

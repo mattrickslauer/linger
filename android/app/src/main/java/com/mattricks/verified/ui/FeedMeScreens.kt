@@ -44,6 +44,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.onEach
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
+import androidx.media3.exoplayer.ExoPlayer
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,6 +120,10 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
     val pager = rememberPagerState { 1 + (if (all == null) 1 else shown.size + 1) }
     val scope = rememberCoroutineScope()
     val reduceMotion = rememberReduceMotion()
+    // v4.12: one player for the whole feed, lent to the current settled slide while the app is in the foreground.
+    val player = rememberFeedPlayer()
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val foreground = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 
     // Back from an evidence room: land on the slide you left, even if the list moved meanwhile.
     LaunchedEffect(all != null) {
@@ -140,7 +148,8 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
                 all == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = TokInk) }
                 p <= shown.size -> {
                     val c = shown[p - 1]
-                    FeedSlide(c, active = pager.settledPage == p, reduceMotion = reduceMotion, onOpen = { open(c.id) })
+                    val active = pager.settledPage == p
+                    FeedSlide(c, active = active, reduceMotion = reduceMotion, player = player.takeIf { active && foreground }, onOpen = { open(c.id) })
                 }
                 else -> FeedEnd(shown.isNotEmpty(), onRecord) {
                     scope.launch { if (reduceMotion) pager.scrollToPage(0) else pager.animateScrollToPage(0) }
@@ -258,7 +267,7 @@ private fun WpLabel(label: String, sub: String?) = Text(
 
 /** The slide template, identical for every Moment: intent → proof → result over the proof photo. */
 @Composable
-private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, onOpen: () -> Unit) {
+private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, player: ExoPlayer?, onOpen: () -> Unit) {
     val ok = c.status == "sealed" && !c.cheating
     val ctx = LocalContext.current
     // The one reveal, played once when the slide first settles: track segments draw, waypoints arrive in order, the
@@ -277,6 +286,10 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, onO
             bmp, "Proof shot: ${c.intention}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
             colorFilter = if (ok) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
         ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), TokBg))))
+        // v4.12: the feed clip plays over the photo on the current slide only (muted, looping, no controls).
+        val clip = c.feedClip
+        var muted by remember(c.id) { mutableStateOf(true) }
+        if (clip != null && player != null) FeedVideo(clip, player, muted, Modifier.fillMaxSize())
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -374,6 +387,7 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, onO
             Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 180.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (clip != null && player != null) MuteButton(muted) { muted = !muted }
             RailButton(Icons.Filled.Search, "Evidence", primary = true, onClick = onOpen)
             RailButton(Icons.Filled.Share, "Share") {
                 val url = "$SHARE_HOST/m/${c.id}"

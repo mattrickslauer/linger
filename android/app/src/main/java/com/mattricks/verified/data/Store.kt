@@ -227,8 +227,18 @@ object Store {
             judgeReasons = (d["judgeReasons"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
             cheatingSignals = (d["cheatingSignals"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
             witnessAnswered = ((d["witness"] as? Map<String, Any?>)?.get("answered") as? Number)?.toInt() ?: 0,
+            clips = feedClips(d["video"]),
         )
     }
+
+    /** feed.video.clips (v4.12); absent on feeds sealed before it → []. */
+    @Suppress("UNCHECKED_CAST")
+    private fun feedClips(video: Any?): List<SharedClip> =
+        ((video as? Map<String, Any?>)?.get("clips") as? List<Any?>).orEmpty().mapNotNull { c ->
+            val x = c as? Map<String, Any?> ?: return@mapNotNull null
+            val path = x["path"] as? String ?: return@mapNotNull null
+            SharedClip(path, x["sha256"] as? String ?: "", x["ext"] as? String ?: path.substringAfterLast('.', "mp4"), num(x["durationMs"]).toLong(), x["hashOk"] as? Boolean)
+        }
 
     /** feed.track: the backend writes [{lat,lng}] (Firestore rejects nested arrays); also accept [[lat,lng]]. */
     private fun trackFrom(x: Any?): List<LatLng> = (x as? List<Any?>).orEmpty().mapNotNull { pt ->
@@ -367,7 +377,17 @@ object Store {
             videos = videos,
             v4 = v4From(m, feed),
             witnessRids = witness.filter { it.outcome != null && it.outcome != "skipped" }.map { it.rid },
+            sharedClips = sharedClips(momentId, m, feed),
         )
+    }
+
+    /** v4.12: moments videoReview.clips where uploaded (so the owner sees them before the seal), else feed.video.clips. */
+    private fun sharedClips(momentId: String, m: Map<String, Any?>?, feed: Map<String, Any?>?): List<SharedClip> {
+        val uid = m?.get("ownerUid") as? String
+        val fromMoment = if (uid.isNullOrBlank()) emptyList() else VideoReview.from(m?.get("videoReview"))?.clips.orEmpty()
+            .filter { it.uploaded && it.ext != null && it.sha256.isNotBlank() }
+            .map { SharedClip("clips/$uid/$momentId/${it.sha256}.${it.ext}", it.sha256, it.ext!!, it.durationMs, it.hashOk) }
+        return fromMoment.ifEmpty { feedClips(feed?.get("video")) }
     }
 
     /** v4 server state (moments doc) or the public subset (feed v4.8). Null when neither has claims. */
