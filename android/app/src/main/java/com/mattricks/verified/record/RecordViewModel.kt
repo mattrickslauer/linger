@@ -24,6 +24,7 @@ import com.mattricks.verified.chain.Check
 import com.mattricks.verified.chain.Event
 import com.mattricks.verified.chain.Payload
 import com.mattricks.verified.data.Claims
+import com.mattricks.verified.data.Intention
 import com.mattricks.verified.data.LatLng
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Summary
@@ -62,6 +63,8 @@ data class RecUi(
     val videoCount: Int = 0,
     /** Recorded signed out: kept only on this phone until claimed at sign-in (v3.1). */
     val guest: Boolean = false,
+    /** v3.2 structured intention from the interview; null = typed v1 `{text, category}`. */
+    val structured: Intention? = null,
 ) {
     enum class Phase { Idle, Recording, Finished }
 }
@@ -110,6 +113,13 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     fun setIntention(s: String) = _ui.update { it.copy(intention = s.take(200)) }
     fun setCategory(s: String) = _ui.update { it.copy(category = s) }
 
+    /** From the interview card: the structured intention (its text drives the live coach). */
+    fun useStructured(i: Intention?, transcript: List<String> = emptyList()) {
+        this.transcript = transcript
+        _ui.update { it.copy(structured = i, intention = i?.text ?: it.intention, category = i?.category ?: it.category) }
+    }
+    private var transcript: List<String> = emptyList()
+
     fun start() {
         val s = _ui.value
         if (s.phase == RecUi.Phase.Recording || s.intention.isBlank()) return
@@ -119,7 +129,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         gpsBuf.clear(); motionBuf.clear(); events.clear(); track.clear(); frameSeqs.clear(); checks.clear(); motionCount = 0
         events += Event(now, "start")
         _recording.value = momentId
-        guest = Store.createMoment(momentId, mapOf("text" to s.intention.trim().take(200), "category" to s.category), now)
+        val intention = s.structured?.copy(text = s.intention.trim(), category = s.category)?.toMap(now)
+            ?: mapOf("text" to s.intention.trim().take(200), "category" to s.category)
+        guest = Store.createMoment(momentId, intention, now, if (transcript.isEmpty()) emptyMap() else mapOf("transcript" to transcript))
         _ui.update {
             it.copy(phase = RecUi.Phase.Recording, momentId = momentId, startedAt = now, elapsedMs = 0, distanceM = 0.0,
                 lastFix = null, track = emptyList(), accuracyM = null, gpsCount = 0, sparkline = emptyList(), frameCount = 0, coach = null,
@@ -274,6 +286,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     fun reset() {
         if (_ui.value.phase != RecUi.Phase.Recording) _recording.value = null
         jobs.forEach { it.cancel() }; jobs.clear()
+        transcript = emptyList()
         _ui.update { RecUi(intention = it.intention, category = it.category) }
     }
 

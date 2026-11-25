@@ -120,39 +120,6 @@ fun RecordScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun SetupView(ui: RecUi, vm: RecordViewModel) {
-    val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.start() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Declare your intention", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(
-            value = ui.intention, onValueChange = vm::setIntention, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Catch and release a largemouth bass at Lake Mission Viejo") }, minLines = 2,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            CATEGORIES.take(3).forEach { c -> FilterChip(selected = ui.category == c, onClick = { vm.setCategory(c) }, label = { Text(c) }) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CATEGORIES.drop(3).forEach { c -> FilterChip(selected = ui.category == c, onClick = { vm.setCategory(c) }, label = { Text(c) }) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                val want = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                if (Prefs.videoAudio.value) want += Manifest.permission.RECORD_AUDIO
-                if (Devices.state.value.savedAddress != null) want += Devices.permissions()
-                perms.launch(want.distinct().toTypedArray())
-            },
-            enabled = ui.intention.isNotBlank(), modifier = Modifier.fillMaxWidth().height(64.dp),
-            shape = RoundedCornerShape(32.dp),
-        ) { Text("Start Moment", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Text(
-            "GPS, motion and proof shots are hash-chained as you go. Works offline — it syncs when you're back online.",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-        )
-    }
-}
-
-@Composable
 private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     val view = LocalView.current
     DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }

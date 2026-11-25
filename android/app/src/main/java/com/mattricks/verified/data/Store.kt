@@ -51,7 +51,7 @@ object Store {
      * Returns true when the Moment is a guest Moment.
      * [intention] is `{text, category}` or the v3 structured map (v3.2).
      */
-    fun createMoment(id: String, intention: Map<String, Any?>, startedAt: Long): Boolean {
+    fun createMoment(id: String, intention: Map<String, Any?>, startedAt: Long, journalExtra: Map<String, Any?> = emptyMap()): Boolean {
         val u = Firebase.auth.currentUser
         val doc = mutableMapOf(
             "ownerUid" to u?.uid,
@@ -74,10 +74,10 @@ object Store {
         )
         if (u == null) {
             doc["guest"] = true
-            Vault.saveMoment(id, doc) // guest: the journal is the only copy until it is claimed
+            Vault.saveMoment(id, doc + journalExtra) // guest: the journal is the only copy until it is claimed
             return true
         }
-        Vault.saveMoment(id, doc) // raw copy on the phone first, kept until the server provably has it
+        Vault.saveMoment(id, doc + journalExtra) // raw copy on the phone first, kept until the server provably has it
         db.collection("moments").document(id).set(doc).addOnFailureListener(logFail("create moment"))
         return false
     }

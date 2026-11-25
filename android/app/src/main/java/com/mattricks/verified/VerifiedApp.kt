@@ -60,6 +60,7 @@ class VerifiedApp : Application() {
         }.onFailure { Log.w(TAG, "remote config", it) }
 
         Prefs.init(this)
+        com.mattricks.verified.voice.Voice.init(this)
         Devices.init(this)
         if (BuildConfig.MAPBOX_TOKEN.isNotBlank()) MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
 

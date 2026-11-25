@@ -226,3 +226,24 @@ fun DeleteMomentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 /** Delete is offered only for the signed-in user's own Moment, and never for the one being recorded right now. */
 fun canDeleteMoment(c: MomentCard, uid: String?, recordingId: String?): Boolean =
     (c.local && c.id != recordingId) || uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId
+
+/**
+ * Score vs bar on one 0..1 track (v3.3/v3.5): the fill is the score, the tick is the bar the score must reach.
+ * [score] null = not scored yet (only the bar tick is drawn).
+ */
+@Composable
+fun BarMeter(score: Double?, bar: Double, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 10.dp) {
+    val track = MaterialTheme.colorScheme.outlineVariant
+    val ok = score != null && score >= bar
+    Canvas(modifier.height(height + 6.dp)) {
+        val h = height.toPx(); val y = (size.height - h) / 2
+        drawRoundRect(track, Offset(0f, y), androidx.compose.ui.geometry.Size(size.width, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
+        if (score != null) drawRoundRect(
+            if (ok) Green else Amber, Offset(0f, y),
+            androidx.compose.ui.geometry.Size((size.width * score.coerceIn(0.0, 1.0)).toFloat().coerceAtLeast(h), h),
+            androidx.compose.ui.geometry.CornerRadius(h / 2),
+        )
+        val x = (size.width * bar.coerceIn(0.0, 1.0)).toFloat()
+        drawLine(Color.Black.copy(alpha = 0.75f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+    }
+}
