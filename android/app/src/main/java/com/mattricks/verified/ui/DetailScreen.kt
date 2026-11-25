@@ -142,16 +142,21 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
             Text("|acceleration| m/s² · ${d.motion.size} samples · amber = proof shot", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
 
+        d.intention?.takeIf { it.structured }?.let { IntentionSection(it) }
+
         Section("AI opinions")
         OpinionCard("Judge", d.judge, d.judgeReasons)
         OpinionCard("Skeptic", d.skeptic, emptyList())
-        ScoreCard(d.score)
+        ScoreCard(d.score, d.bar?.value ?: 0.5, baseline = d.verification?.modules?.isNotEmpty() == true)
+        BarCard(d)
 
         Section("Seal")
         val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
         val labels = linkedMapOf(
             "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
-            "frames" to "Proof frames match", "ai" to "Judge consistent, skeptic found nothing, score ≥ 50%",
+            "frames" to "Proof frames match",
+            "ai" to if (d.sealVersion >= 3) "Judge consistent, skeptic found nothing" else "Judge consistent, skeptic found nothing, score ≥ 50%",
+            "bar" to "Score reaches the bar" + (d.bar?.let { " (${com.mattricks.verified.data.V3Math.fmt(it.value)})" } ?: ""),
         )
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -192,6 +197,74 @@ private fun LocalBanner(d: MomentDetail) {
     }
 }
 
+/** v3.2 structured intention as recorded (frozen once the Moment is submitted). */
+@Composable
+private fun IntentionSection(i: com.mattricks.verified.data.Intention) {
+    Section("Intention")
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (i.goal.isNotBlank()) Text(i.goal, fontWeight = FontWeight.SemiBold)
+            listOfNotNull(
+                i.activity.takeIf { it.isNotBlank() },
+                i.place?.label()?.takeIf { it.isNotBlank() },
+                i.expectedMinutes?.let { "~${it.toInt()} min" },
+            ).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+            i.quantities.forEach { q -> Text("• ${q.metric}: ${fmtNum(q.value)} ${q.unit} (by ${q.measuredBy})", style = MaterialTheme.typography.bodyMedium) }
+            if (i.conditions.isNotEmpty()) Text("Conditions: " + i.conditions.joinToString(", "), style = MaterialTheme.typography.bodySmall)
+            if (i.assumptions.isNotEmpty()) Text("Assumed: " + i.assumptions.joinToString("; "), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Interview: ${i.interviewTurns} answer(s) · ${modeChip(i.interviewMode)}", fontSize = 11.sp, color = Color.Gray)
+        }
+    }
+}
+
+/** The AI-set bar (v3.3, server-side) against the final score (v3.5). Public on sealed posts. */
+@Composable
+private fun BarCard(d: MomentDetail) {
+    val bar = d.bar
+    val preview = d.intention?.preview
+    val score = d.verification?.score ?: d.score?.probability
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("The bar", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                when {
+                    bar != null -> Pill(if (bar.source == "default") "standard bar" else "set by AI · cloud", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                    preview != null -> Pill("preview · ${modeChip(preview.mode)}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            when {
+                bar != null -> {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        if (score != null) {
+                            Text(com.mattricks.verified.data.V3Math.fmt(score), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = if (score >= bar.value) Green else Amber)
+                            Text("  score", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+                            Spacer(Modifier.width(16.dp))
+                        }
+                        Text(com.mattricks.verified.data.V3Math.fmt(bar.value), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        Text("  bar", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+                    }
+                    BarMeter(score, bar.value, Modifier.fillMaxWidth())
+                    if (bar.rationale.isNotBlank()) Text(bar.rationale, style = MaterialTheme.typography.bodyMedium)
+                    bar.factors.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    Text(
+                        "Difficulty ${com.mattricks.verified.data.V3Math.fmt(bar.difficulty)} → bar = 0.5 + 0.45 × difficulty. The score must reach it to be Verified.",
+                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                    )
+                }
+                preview != null -> {
+                    Text("Bar ≈ ${com.mattricks.verified.data.V3Math.fmt(preview.bar)} (preview)", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    BarMeter(null, preview.bar, Modifier.fillMaxWidth())
+                    Text("The binding bar is set in the cloud once the Moment is submitted.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+                else -> Text(
+                    if (d.local) "Set in the cloud once you sign in and upload." else "Set in the cloud once the Moment is submitted.",
+                    color = Color.Gray,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun Section(t: String) = Text(t, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
 
@@ -221,16 +294,16 @@ private fun OpinionCard(title: String, o: Opinion?, fallbackReasons: List<String
 }
 
 @Composable
-private fun ScoreCard(s: Score?) {
+private fun ScoreCard(s: Score?, bar: Double, baseline: Boolean) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Verification score", fontWeight = FontWeight.Bold)
+            Text(if (baseline) "Baseline score (before the ladder)" else "Verification score", fontWeight = FontWeight.Bold)
             if (s == null) {
                 Text("Not scored", color = Color.Gray)
             } else {
                 Text(
                     "${(s.probability * 100).toInt()}%", fontSize = 36.sp, fontWeight = FontWeight.Bold,
-                    color = if (s.probability >= 0.5) Green else Red,
+                    color = if (s.probability >= bar) Green else Red,
                 )
                 Text(
                     "Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%).",

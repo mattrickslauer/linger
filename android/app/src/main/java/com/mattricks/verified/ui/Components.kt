@@ -131,6 +131,7 @@ fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onUpload: (() 
                 "${fmtDuration(c.summary.durationMs)} · ${fmtDistance(c.summary.distanceM)} · ${c.summary.frameCount} frames",
                 style = MaterialTheme.typography.bodyMedium,
             )
+            ScoreBarLine(c)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (c.local) Pill("sign in to verify", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
@@ -145,6 +146,27 @@ fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onUpload: (() 
             }
         }
     }
+}
+
+/** v3.8 card line: "score 0.83 · bar 0.80" over the meter, a ladder chip, or the client's bar preview for local Moments. */
+@Composable
+private fun ScoreBarLine(c: MomentCard) {
+    val bar = c.bar ?: c.previewBar ?: return
+    val preview = c.bar == null
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            buildString {
+                if (!preview && c.score != null) append("score ${com.mattricks.verified.data.V3Math.fmt(c.score)} · ")
+                append(if (preview) "bar ≈ ${com.mattricks.verified.data.V3Math.fmt(bar)} (preview)" else "bar ${com.mattricks.verified.data.V3Math.fmt(bar)}")
+            },
+            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
+        )
+        if (c.ladderCount > 0) Pill("+${c.ladderCount} check${if (c.ladderCount == 1) "" else "s"}", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        if (c.witnessAsked > 0) { Spacer(Modifier.width(6.dp)); Pill("witness ${c.witnessAsked}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    Spacer(Modifier.height(4.dp))
+    BarMeter(if (preview) null else c.score, bar, Modifier.fillMaxWidth(), height = 8.dp)
 }
 
 /** GPS track on a light grid, equirectangular projection fitted to the box. No Maps API key needed. */
