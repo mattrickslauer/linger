@@ -2128,3 +2128,60 @@ path.lf-cursor {
   background: var(--gold);
   box-shadow: 0 0 0 1.5px var(--gold-ink);
 }
+
+/* ---------------------------------------------------------------- v3: score vs bar */
+.scorebar {
+  grid-column: span 1;
+}
+.sb-meter {
+  position: relative;
+  height: 14px;
+  margin: 18px 0 6px;
+  border-radius: 7px;
+  background: var(--paper-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.sb-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 7px;
+  background: var(--ok);
+}
+.opinion-bad .sb-fill {
+  background: var(--bad);
+}
+.sb-base {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.sb-bar {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  width: 6px;
+  margin-left: -3px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1.5px var(--gold-ink);
+}
+.sb-bar span {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.tag-static {
+  padding: 3px 12px;
+}
+.opinion ul.tagrow {
+  padding-left: 0;
+  flex-direction: row;
+  gap: 6px;
+}

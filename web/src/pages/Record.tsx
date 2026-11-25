@@ -343,6 +343,13 @@ function Done({ session }: { session: Session }) {
       state: m?.judge ? "done" : review === "running" ? "now" : review === "failed" ? "bad" : "todo",
     },
     {
+      // v3.3: the binding bar, set by the Cloud Function from the claim once the Moment is submitted.
+      name: m?.bar
+        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
+        : "Cloud Function sets the bar for this claim",
+      state: m?.bar ? "done" : m?.status === "submitted" && !pending ? "now" : "todo",
+    },
+    {
       name: m?.seal ? (m.seal.sealed ? "Sealed: Verified ✓" : `Not verified: ${m.seal.reason}`) : "Deterministic seal by Cloud Function",
       state: m?.seal ? (m.seal.sealed ? "done" : "bad") : m?.judge ? "now" : "todo",
     },

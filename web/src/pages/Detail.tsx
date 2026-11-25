@@ -24,6 +24,88 @@ const CHECKS: { key: keyof SealChecks; name: string; ok: string; bad: string }[]
   { key: "frames", name: "Proof frames", ok: "At least one frame, each matching its fingerprint in the chain.", bad: "Missing frames, or a frame does not match its fingerprint." },
   { key: "ai", name: "AI review", ok: "Judge found it consistent, the skeptic found no fake signal, and the verification score is at least 50%.", bad: "The judge was not convinced, the skeptic found a fake signal, or the verification score is under 50%." },
 ];
+// Seal v3 moved the score gate out of `ai` into its own `bar` check.
+const CHECKS_V3: typeof CHECKS = [
+  ...CHECKS.slice(0, 4),
+  { key: "ai", name: "AI review", ok: "The judge found it consistent and the skeptic found no fake signal.", bad: "The judge was not convinced, or the skeptic found a fake signal." },
+  { key: "bar", name: "Score clears the bar", ok: "The final verification score is at or above the bar the AI set for this claim.", bad: "The final verification score is below the bar the AI set for this claim." },
+];
+
+/**
+ * v3: the final score against the AI-set bar (docs/ARCHITECTURE.md v3.3/v3.5). The bar is public: how hard the claim
+ * is, why, and the line the evidence had to clear. The score is the scorer's baseline after any ladder checks.
+ */
+function ScoreVsBar({
+  score,
+  baseline,
+  bar,
+  rationale,
+  factors,
+  source,
+  model,
+  reasons,
+  difficulty,
+}: {
+  score: number | null;
+  baseline: number | null;
+  bar: number;
+  rationale: string | null;
+  factors: string[];
+  source: "ai" | "default" | null;
+  model: string | null;
+  reasons: string[];
+  difficulty: number | null;
+}) {
+  const clears = score != null && score >= bar;
+  const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
+  return (
+    <article className={`opinion scorebar opinion-${score == null ? "meh" : clears ? "ok" : "bad"}`}>
+      <header>
+        <h3>Verification score vs the bar</h3>
+        <p className="verdict">
+          {score == null ? "not scored" : score.toFixed(2)}
+          <span className="muted small"> needs {bar.toFixed(2)}</span>
+        </p>
+      </header>
+      <div className="sb-meter" role="img" aria-label={`score ${score?.toFixed(2) ?? "none"}, bar ${bar.toFixed(2)}`}>
+        {score != null && <span className="sb-fill" style={{ width: pct(score) }} />}
+        {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && <span className="sb-base" style={{ left: pct(baseline) }} title={`baseline ${baseline.toFixed(2)}`} />}
+        <span className="sb-bar" style={{ left: pct(bar) }}>
+          <span>bar</span>
+        </span>
+      </div>
+      <p className="small">
+        {source === "default" ? "Standard bar: no claim-specific bar was set." : rationale || "Set by AI from the structured claim."}
+        {difficulty != null && source !== "default" && <span className="muted"> Difficulty {difficulty.toFixed(2)}.</span>}
+      </p>
+      {factors.length > 0 && (
+        <ul className="tagrow" aria-label="What set the bar">
+          {factors.map((f) => (
+            <li key={f} className="tag tag-static">
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && (
+        <p className="muted small">
+          Baseline {baseline.toFixed(2)} from the scorer, {score > baseline ? "raised" : "lowered"} by the extra checks below.
+        </p>
+      )}
+      {reasons.length > 0 && (
+        <ul>
+          {reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small">
+        Score: P(claim true | evidence), assuming most submissions cheat (prior 0.2).{" "}
+        {source === "ai" && model ? `Bar set by ${model} in a Cloud Function; code maps difficulty to 0.50–0.95.` : ""}
+      </p>
+    </article>
+  );
+}
 
 /** The scorer: P(claim true | evidence), starting from the assumption that most submissions cheat. */
 function ScoreCard({ probability, reasons }: { probability: number | null; reasons: string[] }) {
@@ -244,6 +326,9 @@ export default function Detail({ id }: { id: string }) {
   const checks = moment?.seal?.checks ?? feed?.checks ?? null;
   const sealed = moment?.seal ? moment.seal.sealed : feed?.status === "sealed";
   const pending = !moment?.seal && !feed;
+  const barValue = moment?.bar?.value ?? moment?.verification?.bar ?? feed?.bar ?? null;
+  const finalScore = moment?.verification?.score ?? feed?.verificationScore ?? moment?.score?.probability ?? null;
+  const sealV3 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 3 || checks?.bar !== undefined;
   const sealReason = moment?.seal?.reason ?? feed?.sealReason ?? "Waiting for the seal.";
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
@@ -299,6 +384,15 @@ export default function Detail({ id }: { id: string }) {
             <dt>motion samples</dt>
             <dd>{summary.motionCount.toLocaleString()}</dd>
           </div>
+          {barValue != null && finalScore != null && (
+            <div>
+              <dt>score / bar</dt>
+              <dd>
+                {finalScore.toFixed(2)}
+                <span className="dd-sub"> / {barValue.toFixed(2)}</span>
+              </dd>
+            </div>
+          )}
           {moment && (
             <div>
               <dt>live checks</dt>
@@ -391,10 +485,24 @@ export default function Detail({ id }: { id: string }) {
         <div className="opinions">
           <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
           <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
-          <ScoreCard
-            probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
-            reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
-          />
+          {barValue != null ? (
+            <ScoreVsBar
+              score={finalScore}
+              baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
+              bar={barValue}
+              rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
+              factors={moment?.bar?.factors ?? []}
+              source={moment?.bar?.source ?? (feed?.bar != null ? "ai" : null)}
+              model={moment?.bar?.model ?? null}
+              difficulty={moment?.bar?.difficulty ?? feed?.difficulty ?? null}
+              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+            />
+          ) : (
+            <ScoreCard
+              probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
+              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+            />
+          )}
         </div>
       </section>
 
@@ -406,7 +514,7 @@ export default function Detail({ id }: { id: string }) {
         <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
         {checks ? (
           <ul className="checklist">
-            {CHECKS.map((c) => (
+            {(sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
               <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
                 <span className="mark" aria-hidden="true">
                   {checks[c.key] ? "✓" : "✗"}

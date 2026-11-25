@@ -31,6 +31,12 @@ function Row({ m, uid }: { m: Moment; uid: string }) {
       <div>
         <h3>{done ? <Link to={`/m/${m.id}?from=me`}>{m.intention.text}</Link> : m.intention.text}</h3>
         {m.recordedAsGuest && <p className="muted small">Recorded as a guest, uploaded {ago(m.claimedAt ?? null)}</p>}
+        {m.verification?.score != null && (
+          <p className="muted small">
+            score {m.verification.score.toFixed(2)} · bar {m.verification.bar.toFixed(2)}
+            {m.verification.modules.length ? ` · ${m.verification.modules.length} extra check${m.verification.modules.length > 1 ? "s" : ""}` : ""}
+          </p>
+        )}
         <p className="muted small">
           {ago(m.startedAt)}
           {m.summary ? `, ${fmtDuration(m.summary.durationMs)}, ${fmtDistance(m.summary.distanceM)}, ${m.summary.frameCount} frames` : ""}
