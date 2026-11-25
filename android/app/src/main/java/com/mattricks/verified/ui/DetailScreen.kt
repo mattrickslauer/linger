@@ -85,8 +85,22 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
         )
         val d = detail
         var ladderOpen by remember { mutableStateOf(false) }
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        // full_video: the chained clip must still be on this phone (it never left it).
+        val clipRef = d?.videos?.lastOrNull()
+        var clipUri by remember { mutableStateOf<android.net.Uri?>(null) }
+        LaunchedEffect(clipRef?.sha256, ladderOpen) { clipUri = clipRef?.let { com.mattricks.verified.data.Clips.find(ctx, it) } }
+        val runVideo: (suspend (String) -> com.mattricks.verified.data.Ladder.Run)? = clipRef?.let { ref ->
+            clipUri?.let { uri ->
+                { requestId: String ->
+                    val uid = Firebase.auth.currentUser?.uid ?: throw com.mattricks.verified.data.Ladder.RunError("sign_in", "Sign in first.")
+                    val sha = com.mattricks.verified.data.Clips.upload(ctx, uid, momentId, ref, uri)
+                    com.mattricks.verified.data.Ladder.run(momentId, "full_video", clipSha = sha, requestId = requestId)
+                }
+            }
+        }
         if (ladderOpen && d != null) LadderSheet(
-            d, clipOnPhone = false, runVideo = null,
+            d, clipOnPhone = clipUri != null, runVideo = runVideo,
             onDone = { refresh++ }, onDismiss = { ladderOpen = false; refresh++ },
         )
         when {
@@ -152,7 +166,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
             Text("|acceleration| m/s² · ${d.motion.size} samples · amber = proof shot", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
 
-        d.intention?.takeIf { it.structured }?.let { IntentionSection(it) }
+        d.intention?.takeIf { it.structured }?.let { IntentionSection(it, d.card.summary.distanceM) }
 
         Section("AI opinions")
         OpinionCard("Judge", d.judge, d.judgeReasons)
@@ -249,7 +263,7 @@ private fun WitnessSection(d: MomentDetail) {
 
 /** v3.2 structured intention as recorded (frozen once the Moment is submitted). */
 @Composable
-private fun IntentionSection(i: com.mattricks.verified.data.Intention) {
+private fun IntentionSection(i: com.mattricks.verified.data.Intention, distanceM: Double) {
     Section("Intention")
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -260,11 +274,29 @@ private fun IntentionSection(i: com.mattricks.verified.data.Intention) {
                 i.expectedMinutes?.let { "~${it.toInt()} min" },
             ).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
             i.quantities.forEach { q -> Text("• ${q.metric}: ${fmtNum(q.value)} ${q.unit} (by ${q.measuredBy})", style = MaterialTheme.typography.bodyMedium) }
+            measuredHint(i, distanceM)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
             if (i.conditions.isNotEmpty()) Text("Conditions: " + i.conditions.joinToString(", "), style = MaterialTheme.typography.bodySmall)
             if (i.assumptions.isNotEmpty()) Text("Assumed: " + i.assumptions.joinToString("; "), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Text("Interview: ${i.interviewTurns} answer(s) · ${modeChip(i.interviewMode)}", fontSize = 11.sp, color = Color.Gray)
         }
     }
+}
+
+/**
+ * Sensor-countable numbers measured deterministically on this phone (distance from GPS). The count_measure module
+ * re-measures them server-side; this is only a preview next to the claim.
+ */
+fun measuredHint(i: com.mattricks.verified.data.Intention, distanceM: Double): String? {
+    val q = i.quantities.firstOrNull { it.metric.equals("distance", true) } ?: return null
+    if (distanceM <= 0) return null
+    val claimedM = when (q.unit.lowercase()) {
+        "km", "kilometers", "kilometres" -> q.value * 1000
+        "mi", "mile", "miles" -> q.value * 1609.344
+        "m", "meters", "metres" -> q.value
+        else -> return "GPS measured ${fmtDistance(distanceM)}"
+    }
+    val pct = (100 * distanceM / claimedM).toInt()
+    return "GPS measured ${fmtDistance(distanceM)} · $pct% of the claimed ${fmtNum(q.value)} ${q.unit}"
 }
 
 /** The AI-set bar (v3.3, server-side) against the final score (v3.5). Public on sealed posts. */

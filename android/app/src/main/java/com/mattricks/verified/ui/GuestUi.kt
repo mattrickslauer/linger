@@ -144,7 +144,10 @@ fun ClaimSheet() {
     var kept by remember { mutableStateOf(setOf<String>()) }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
     val shown = list.filter { it.id !in kept }
-    if (shown.isEmpty()) { Claims.dismiss(); return }
+    if (shown.isEmpty()) {
+        androidx.compose.runtime.LaunchedEffect(Unit) { Claims.dismiss() }
+        return
+    }
     ModalBottomSheet(onDismissRequest = { Claims.dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
