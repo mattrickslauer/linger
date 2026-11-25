@@ -205,6 +205,12 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
 @Composable
 private fun LocalBanner(d: MomentDetail) {
     val uploading by com.mattricks.verified.data.Claims.uploading.collectAsState()
+    val guest = remember(d.card.id, uploading) { com.mattricks.verified.data.Vault.isGuest(d.card.id) }
+    if (!guest) {
+        // A signed-in Moment the server doesn't have yet: the raw vault uploads it by itself, no claim needed.
+        Pill("Kept on this phone · syncs when online", Amber)
+        return
+    }
     Card(Modifier.fillMaxWidth(), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("On this device · sign in to verify", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)

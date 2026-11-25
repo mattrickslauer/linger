@@ -72,10 +72,11 @@ class MainActivity : ComponentActivity() {
                 ask?.let { if (user == null) SignInSheet(it) }
                 if (offerClaims && user != null) ClaimSheet()
                 var tab by rememberSaveable { mutableStateOf(0) }
-                val requested by tabRequest.collectAsState()
-                LaunchedEffect(requested) { requested?.let { tab = it; tabRequest.value = null } }
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
                 var openFromMe by rememberSaveable { mutableStateOf(false) }
+                val requested by tabRequest.collectAsState()
+                // The witness notification opens the live record screen, even from a Moment's detail.
+                LaunchedEffect(requested) { requested?.let { tab = it; open = null; tabRequest.value = null } }
 
                 val o = open
                 if (o != null) {

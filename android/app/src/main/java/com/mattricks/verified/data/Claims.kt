@@ -28,7 +28,8 @@ object Claims {
     private val _uploading = MutableStateFlow<Set<String>>(emptySet())
     val uploading: StateFlow<Set<String>> = _uploading
 
-    fun claimable(): List<Vault.LocalMoment> = Vault.guests.value.filter { it.status == "submitted" }
+    /** Finished guest Moments not already being uploaded (a Gate-resumed claim may still be running). */
+    fun claimable(): List<Vault.LocalMoment> = Vault.guests.value.filter { it.status == "submitted" && it.id !in _uploading.value }
 
     /** On sign-in / app start while signed in: at most once per session. */
     fun maybeOffer() {
@@ -50,14 +51,16 @@ object Claims {
     fun claim(ids: List<String>) {
         val u = Firebase.auth.currentUser ?: return
         _offer.value = false
-        _uploading.value = _uploading.value + ids
+        val fresh = ids.filter { it !in _uploading.value } // a double tap never claims or uploads twice
+        if (fresh.isEmpty()) return
+        _uploading.value = _uploading.value + fresh
         scope.launch {
-            for (id in ids) {
+            for (id in fresh) {
                 runCatching { Vault.claim(id, u.uid, u.displayName ?: "Anonymous", u.photoUrl?.toString()) }
                     .onFailure { Log.e(TAG, "claim $id", it) }
             }
             runCatching { Vault.verifyAll() }.onFailure { Log.w(TAG, "verify after claim", it) }
-            _uploading.value = _uploading.value - ids.toSet()
+            _uploading.value = _uploading.value - fresh.toSet()
             Judging.kick()
         }
     }

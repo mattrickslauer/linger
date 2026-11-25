@@ -305,7 +305,8 @@ object Store {
             track = track, motion = motion, frames = frames,
             chunkCount = links.size, chainOk = if (links.isEmpty()) null else Chain.verify(momentId, links) == -1,
             judge = Opinion.from(m?.get("judge")), skeptic = Opinion.from(m?.get("skeptic")), seal = Seal.from(m?.get("seal")),
-            score = Score.from(m?.get("score")) ?: feed?.let { Score.fromFeed(it["verificationScore"], it["scoreReasons"]) },
+            // The scorer's own (baseline) score; the feed's verificationScore is the final score after the ladder (v3.8).
+            score = Score.from(m?.get("score")) ?: feed?.let { Score.fromFeed(it["baselineScore"] ?: it["verificationScore"], it["scoreReasons"]) },
             feedChecks = (feed?.get("checks") as? Map<String, Any?>).orEmpty().mapValues { it.value == true },
             feedReason = feed?.get("sealReason") as? String,
             judgeReasons = (feed?.get("judgeReasons") as? List<String>).orEmpty(),

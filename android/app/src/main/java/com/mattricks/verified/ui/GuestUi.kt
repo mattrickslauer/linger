@@ -140,7 +140,8 @@ fun SignInSheet(ask: Gate.Ask) {
 @Composable
 fun ClaimSheet() {
     val guests by Vault.guests.collectAsState()
-    val list = guests.filter { it.status == "submitted" }
+    val uploading by Claims.uploading.collectAsState()
+    val list = guests.filter { it.status == "submitted" && it.id !in uploading }
     var kept by remember { mutableStateOf(setOf<String>()) }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
     val shown = list.filter { it.id !in kept }

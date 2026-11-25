@@ -256,6 +256,7 @@ fun canDeleteMoment(c: MomentCard, uid: String?, recordingId: String?): Boolean 
 @Composable
 fun BarMeter(score: Double?, bar: Double, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 10.dp) {
     val track = MaterialTheme.colorScheme.outlineVariant
+    val tick = MaterialTheme.colorScheme.onSurface // readable in light and dark themes
     val ok = score != null && score >= bar
     Canvas(modifier.height(height + 6.dp)) {
         val h = height.toPx(); val y = (size.height - h) / 2
@@ -266,6 +267,6 @@ fun BarMeter(score: Double?, bar: Double, modifier: Modifier = Modifier, height:
             androidx.compose.ui.geometry.CornerRadius(h / 2),
         )
         val x = (size.width * bar.coerceIn(0.0, 1.0)).toFloat()
-        drawLine(Color.Black.copy(alpha = 0.75f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+        drawLine(tick.copy(alpha = 0.8f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
     }
 }
