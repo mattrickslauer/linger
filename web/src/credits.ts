@@ -8,10 +8,11 @@
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from "firebase/functions";
 import { getMetadata, ref, uploadBytes } from "firebase/storage";
 import { bucket, clipPath } from "./upload";
-import { applyFixtureLadder } from "./data";
+import { applyFixtureLadder, applyFixtureLadderV4 } from "./data";
 import { app, FIXTURES, USE_EMULATORS } from "./firebase";
 import { applyStep, countsAsPass, FREE_CREDITS, moduleSpec } from "./ladder";
 import type { ModuleId } from "./types";
+import type { ClaimScore, ModuleClaimOutcome } from "./v4";
 import { clipsOf } from "./vault";
 
 export interface Credits {
@@ -35,6 +36,10 @@ export interface RunResult {
   balance: number;
   reasons: string[];
   measured?: { metric: string; value: number; unit: string }[];
+  // v4 Moments (v4.7)
+  claims?: ModuleClaimOutcome[];
+  claimScores?: ClaimScore[];
+  claimsBacked?: number;
 }
 
 /** A callable failed with `details.reason` from the v3.7 error table. */
@@ -122,7 +127,7 @@ async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s
 }
 
 export async function runLadderModule(
-  a: { uid: string; momentId: string; module: ModuleId; requestId: string; clipSha?: string; score: number; bar: number },
+  a: { uid: string; momentId: string; module: ModuleId; requestId: string; clipSha?: string; score: number; bar: number; /** v4: claims this module backs (demo only; the server decides) */ claimIds?: string[] },
   onStep: (s: string) => void = () => {},
 ): Promise<RunResult> {
   if (LADDER_DEMO) return demoRun(a, onStep);
@@ -143,7 +148,7 @@ export async function runLadderModule(
   }
 }
 
-async function demoRun(a: { momentId: string; module: ModuleId; requestId: string; score: number; bar: number }, onStep: (s: string) => void): Promise<RunResult> {
+async function demoRun(a: { momentId: string; module: ModuleId; requestId: string; score: number; bar: number; claimIds?: string[] }, onStep: (s: string) => void): Promise<RunResult> {
   const m = moduleSpec(a.module)!;
   if (demo.balance < m.cost) throw new LadderError("insufficient_credits", "insufficient credits", { balance: demo.balance, cost: m.cost });
   demo.balance -= m.cost;
@@ -151,6 +156,35 @@ async function demoRun(a: { momentId: string; module: ModuleId; requestId: strin
   onStep("Simulating the Cloud Function…");
   await new Promise((r) => setTimeout(r, 900));
   const confidence = 0.78;
+  // v4 sample Moment: per-claim verdicts (the simulation backs every claim the module backs) and the v4.5 recompute.
+  const backed = a.claimIds ?? [];
+  if (backed.length) {
+    const v4 = await applyFixtureLadderV4(
+      a.momentId,
+      { ...m, module: m.id },
+      backed.map((id) => ({ id, verdict: "backed" as const, confidence, reasons: [DEMO_REASONS[a.module]] })),
+      { runId: a.requestId, confidence, reasons: [DEMO_REASONS[a.module]] },
+    );
+    if (v4)
+      return {
+        runId: a.requestId,
+        module: a.module,
+        passed: v4.result.passed,
+        confidence,
+        before: v4.result.before,
+        after: v4.result.after,
+        score: v4.score,
+        bar: a.bar,
+        verified: v4.verified,
+        status: v4.status,
+        cost: m.cost,
+        balance: demo.balance,
+        reasons: v4.result.reasons,
+        claims: v4.result.claims,
+        claimScores: v4.claimScores,
+        claimsBacked: v4.claimsBacked,
+      };
+  }
   const passed = countsAsPass(true, confidence);
   const after = applyStep(a.score, m.strength, passed);
   const res: RunResult = {

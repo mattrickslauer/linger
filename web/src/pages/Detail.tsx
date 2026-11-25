@@ -19,7 +19,10 @@ import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
 import ClaimsPanel from "../components/Claims";
-import { claimViews, videoStatusText } from "../v4";
+import { claimViews, factsOf, videoStatusText } from "../v4";
+import { offersV4 } from "../ladder";
+import type { V4Ladder } from "../components/Ladder";
+import type { ModuleId } from "../types";
 
 const TrackMap = lazy(() => import("../components/TrackMap"));
 
@@ -246,6 +249,7 @@ export default function Detail({ id }: { id: string }) {
 
   const [local, setLocal] = useState(false);
   const [reload, setReload] = useState(0);
+  const [requested, setRequested] = useState<{ module: ModuleId; n: number } | null>(null);
   useEffect(() => {
     let live = true;
     // Server (or fixtures) first; a Moment only this browser holds (a guest's, or one not yet synced) comes from the
@@ -359,6 +363,17 @@ export default function Detail({ id }: { id: string }) {
   const cheatingSignals =
     moment?.seal?.checks.cheating === false ? (moment.seal.cheatingSignals ?? []) : feed?.cheating ? (feed.cheatingSignals ?? []) : null;
   const vr = moment?.videoReview ?? (feed?.video ? { status: feed.video.status } : null);
+  // v4.6: modules back claims. Owner offers per claim, with that claim's previews.
+  const isOwner = LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid);
+  const eligible = !!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected");
+  const v4Ladder: V4Ladder | null =
+    sealV4 && moment?.claims?.items?.length && moment.plan && ver?.version === 4 && ver.claims
+      ? { claims: moment.claims.items, requirements: moment.plan.requirements, scores: ver.claims, witness: factsOf(chunks ?? []).witness }
+      : null;
+  const claimOffers =
+    v4Ladder && isOwner && eligible && !local
+      ? offersV4({ ...v4Ladder, modules: ver?.modules ?? [] }, evidenceOf(chunks ?? [], intention), null)
+      : null;
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
 
@@ -402,6 +417,40 @@ export default function Detail({ id }: { id: string }) {
           cheating={cheatingSignals}
           videoStatus={vr && vr.status !== "none" ? videoStatusText(vr) : null}
           videoSummary={moment?.videoReview?.summary || feed?.video?.summary || null}
+          offers={
+            claimOffers
+              ? (claimId) => {
+                  const rows = claimOffers.flatMap((o) =>
+                    (o.state === "ready" || o.state === "blocked") && o.claims.some((c) => c.id === claimId) ? [{ o, c: o.claims.find((c) => c.id === claimId)! }] : [],
+                  );
+                  if (!rows.length) return null;
+                  return (
+                    <ul className="claim-offers" aria-label="Checks that can still back this claim">
+                      {rows.map(({ o, c }) => (
+                        <li key={o.module.id} className="claim-offer">
+                          <span>
+                            <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
+                            <span className="down">{c.fail.toFixed(2)}</span>
+                            {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
+                          </span>
+                          {o.state === "ready" && (
+                            <button
+                              type="button"
+                              className="btn btn-small"
+                              onClick={() => {
+                                setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
+                              }}
+                            >
+                              Run · {o.module.cost} cr
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                }
+              : undefined
+          }
         />
       )}
 
@@ -555,8 +604,10 @@ export default function Detail({ id }: { id: string }) {
         <Ladder
           momentId={id}
           ownerUid={moment?.ownerUid ?? null}
-          isOwner={LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid)}
-          eligible={!!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected")}
+          isOwner={isOwner}
+          eligible={eligible}
+          v4={v4Ladder}
+          requested={requested}
           score={finalScore}
           baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? null}
           bar={barValue}

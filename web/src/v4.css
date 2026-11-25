@@ -330,6 +330,24 @@
 .claim-offer-why {
   color: var(--ink-3);
 }
+.offer-claims {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.run-claims {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.run-claims .up {
+  color: var(--ok);
+}
+.run-claims .down {
+  color: var(--bad);
+}
 .rung-claims {
   list-style: none;
   margin: 4px 0 0;
