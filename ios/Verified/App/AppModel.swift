@@ -25,6 +25,8 @@ final class AppModel {
   let mine = MyMomentsStore()
   let recorder: RecorderModel
   let judge: JudgeRunner
+  /// Voice interview → structured intention (v3.2), on the Record tab.
+  let interview: InterviewModel
   /// Raw vault: each Moment's raw data stays on the phone until the server provably has all of it.
   /// Guest Moments live only here until they are claimed at sign-in.
   let vault = Vault.shared
@@ -41,6 +43,7 @@ final class AppModel {
     network = net
     recorder = RecorderModel(network: net)
     judge = JudgeRunner(network: net)
+    interview = InterviewModel(network: net)
     net.whenOnline { Task { await Vault.shared.verifyAll() } }
   }
 

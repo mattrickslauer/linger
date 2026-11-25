@@ -17,6 +17,29 @@ nonisolated struct Prompts: Decodable, Sendable {
   let judge: Prompt
   let skeptic: Prompt
   let scorer: Prompt
+  // v3 client prompts (docs/ARCHITECTURE.md v3.10)
+  let interviewTurn: Prompt
+  let structureIntention: Prompt
+  let barPreview: Prompt
+  let witnessDraft: Prompt
+  let witnessRefine: Prompt
+
+  /// The prompt's JSON `schema`, as compact JSON text (for models without a response schema, e.g. on-device).
+  static func schemaJSON(_ name: String) -> String? { schemas[name] }
+
+  private static let schemas: [String: String] = {
+    guard let url = Bundle.main.url(forResource: "prompts", withExtension: "json"),
+          let data = try? Data(contentsOf: url),
+          let all = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return [:] }
+    var out: [String: String] = [:]
+    for (k, v) in all {
+      guard let schema = (v as? [String: Any])?["schema"],
+            let d = try? JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys]) else { continue }
+      out[k] = String(decoding: d, as: UTF8.self)
+    }
+    return out
+  }()
 
   static let shared: Prompts = {
     guard let url = Bundle.main.url(forResource: "prompts", withExtension: "json"),

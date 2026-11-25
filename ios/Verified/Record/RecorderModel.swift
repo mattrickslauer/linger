@@ -20,6 +20,9 @@ final class RecorderModel {
   // Form
   var intention = ""
   var category: Category = .fishing
+  /// The voice interview's structured intention (v3.2), nil for a typed one. Its `text`/`category` are copied into
+  /// the form fields, which stay editable.
+  var structured: StructuredIntention?
 
   // Live state
   private(set) var phase: Phase = .idle
@@ -102,8 +105,19 @@ final class RecorderModel {
   // MARK: - Start
 
   /// The intention as written on `moments/{id}.intention` (v1 `{text, category}`; v3 adds the structured keys).
-  var intentionData: [String: Any] {
-    ["text": String(intention.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)), "category": category.rawValue]
+  func intentionData(startedAt: Int64) -> [String: Any] {
+    let text = String(intention.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+    guard var s = structured else { return ["text": text, "category": category.rawValue] }
+    s.text = text
+    s.category = category
+    return s.firestoreData(startedAt: startedAt)
+  }
+
+  /// Takes the interview's result into the form.
+  func use(_ s: StructuredIntention) {
+    structured = s
+    intention = s.text
+    category = s.category
   }
 
   /// `owner == nil`: a guest Moment, kept on this phone until it is claimed at sign-in.
@@ -136,7 +150,7 @@ final class RecorderModel {
     isGuest = owner == nil
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
     do {
-      try MomentStore.create(id: id, owner: owner, intention: intentionData, startedAt: t)
+      try MomentStore.create(id: id, owner: owner, intention: intentionData(startedAt: t), startedAt: t)
     } catch {
       // Raw vault: without a local copy we don't record at all.
       self.error = "Could not save this Moment on the phone: \(error.localizedDescription)"
@@ -430,6 +444,7 @@ final class RecorderModel {
 
     lastSubmitted = Submitted(id: id, intention: intention, guest: isGuest)
     intention = ""
+    structured = nil
     coach = nil
     phase = .idle
     momentId = nil

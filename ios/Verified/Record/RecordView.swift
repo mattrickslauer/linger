@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Record tab: intention + category chips -> Start Moment -> live screen -> Finish.
+/// Record tab: voice interview (or typed intention + category chips) -> Start Moment -> live screen -> Finish.
 struct RecordView: View {
   @Environment(AppModel.self) private var app
   @FocusState private var focused: Bool
@@ -25,8 +25,10 @@ struct RecordView: View {
           if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
           if let err = rec.error { Text(err).font(.footnote).foregroundStyle(Theme.bad) }
 
+          InterviewCard(typeInstead: { focused = true })
+
           VStack(alignment: .leading, spacing: 8) {
-            Text("What are you about to do?").font(.headline)
+            Text(rec.structured == nil ? "Or just type it" : "In one sentence").font(.headline)
             TextField("Catch and release a largemouth bass at Lake Mission Viejo",
                       text: $rec.intention, axis: .vertical)
               .lineLimit(2...4)
@@ -67,9 +69,17 @@ struct RecordView: View {
       .scrollDismissesKeyboard(.interactively)
       .background(Color(.systemGroupedBackground))
       .navigationTitle("Record")
+      .onChange(of: app.interview.phase) { _, phase in
+        if phase == .done, let r = app.interview.result { rec.use(r) }
+      }
+      .onChange(of: app.interview.result) { _, r in
+        // Edits on the card (removed assumptions, re-previewed bar) keep the typed sentence.
+        if app.interview.phase == .done { rec.structured = r }
+      }
       .safeAreaInset(edge: .bottom) {
         Button {
           focused = false
+          if app.interview.active { app.interview.cancel() }
           let user = app.auth.user  // nil: a guest Moment, kept on this phone (v3.1)
           let recorder = app.recorder
           Task {
@@ -78,10 +88,14 @@ struct RecordView: View {
             recorder.start(owner: user)
           }
         } label: {
-          Label("Start Moment", systemImage: "record.circle.fill")
-            .font(.title3.bold())
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+          VStack(spacing: 2) {
+            Label("Start Moment", systemImage: "record.circle.fill").font(.title3.bold())
+            if app.isGuest {
+              Text("as a guest · kept on this phone").font(.caption2.weight(.medium)).opacity(0.85)
+            }
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 8)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)

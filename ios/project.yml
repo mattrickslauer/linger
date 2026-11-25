@@ -57,7 +57,8 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         NSCameraUsageDescription: Verified takes proof shots and video clips of your Moment.
-        NSMicrophoneUsageDescription: Verified records sound with the video clips you take during a Moment.
+        NSMicrophoneUsageDescription: Verified listens when you talk to your witness, and records sound with the video clips you take during a Moment.
+        NSSpeechRecognitionUsageDescription: Verified turns what you tell your witness into text, on the device when it can.
         NSPhotoLibraryAddUsageDescription: Verified saves your Moment's video clips to Photos.
         # Full access only to find or create the "Verified" album for clips (limited access saves them without it).
         NSPhotoLibraryUsageDescription: Verified keeps your Moment's video clips together in a "Verified" album in Photos.
