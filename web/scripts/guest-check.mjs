@@ -52,8 +52,12 @@ for (const size of [
     await page.getByRole("link", { name: /Record a Moment/ }).first().click();
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${OUT}/record-setup-${size.name}.png`, fullPage: true });
-    const skip = page.getByRole("button", { name: /just type it/i });
-    if (await skip.count()) await skip.click();
+    // Voice interview, typed (no microphone headless; no model in a sample-data build -> local write-up).
+    await page.getByLabel("Type your answer").fill("Going fishing for bass at the lake");
+    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("heading", { name: "Here's your claim." }).waitFor({ timeout: 15_000 });
+    ok("interview -> claim card");
+    await page.screenshot({ path: `${OUT}/record-claim-${size.name}.png`, fullPage: true });
     const start = page.getByRole("button", { name: /^Start Moment/ });
     if (!(await start.count())) {
       fail("no Start Moment button for a guest");

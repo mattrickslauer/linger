@@ -1879,3 +1879,252 @@ path.lf-cursor {
   border: 1.5px dashed var(--ink-3);
   background: var(--sheet);
 }
+
+/* ---------------------------------------------------------------- v3: voice interview + claim card */
+
+.interview,
+.claim {
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.talk {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bubble {
+  max-width: min(86%, 520px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 1.08rem;
+  line-height: 1.4;
+}
+.bubble-ai {
+  align-self: flex-start;
+  background: var(--sheet);
+  border: 1.5px solid var(--rule);
+  border-bottom-left-radius: 6px;
+}
+.bubble-me {
+  align-self: flex-end;
+  align-items: flex-end;
+  background: var(--ink);
+  color: var(--paper);
+  border-bottom-right-radius: 6px;
+}
+.bubble-partial {
+  opacity: 0.6;
+}
+.bubble-wait p {
+  color: var(--ink-3);
+  animation: breathe 1.2s ease-in-out infinite alternate;
+}
+@keyframes breathe {
+  to {
+    opacity: 0.35;
+  }
+}
+.chip-route {
+  font-size: 0.72rem;
+  padding: 1px 8px;
+}
+.talk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0;
+  background: linear-gradient(transparent, var(--paper) 30%);
+}
+.mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 0 22px 0 14px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mic-icon {
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  border-radius: 50%;
+  background: var(--track);
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.mic-on {
+  background: var(--track);
+  border-color: var(--track);
+  color: #fff;
+}
+.mic-on .mic-icon {
+  background: #fff;
+  stroke: var(--track);
+  animation: breathe 0.8s ease-in-out infinite alternate;
+}
+.mic:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.talk-type {
+  flex: 1 1 260px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.talk-type input,
+.claim-facts input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--rule);
+  background: var(--sheet);
+  color: var(--ink);
+}
+.claim-facts input {
+  width: 100%;
+  border-radius: var(--r-sm);
+}
+.talk-type input:focus,
+.claim-facts input:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+.talk-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: -8px;
+}
+.claim-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--sheet);
+  border: 1.5px solid var(--ink);
+}
+.field-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+.claim-facts {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.claim-facts div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 4px 16px;
+  align-items: baseline;
+}
+.claim-facts dt {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+.claim-facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .claim-facts div {
+    grid-template-columns: 1fr;
+  }
+}
+.tagrow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 12px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+.tag button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.tag button:hover {
+  background: var(--rule);
+  color: var(--ink);
+}
+/* Bar: a gold notch on a rule, the same mark the seal uses for "this is the line to clear". */
+.barbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--r);
+  background: var(--paper);
+  border: 1px dashed var(--ink-3);
+}
+.barbox-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.barbox-head strong {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.barbox-meter {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--paper-2) 50%, color-mix(in srgb, var(--gold) 35%, var(--paper-2)) 100%);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.barbox-meter span {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 6px;
+  margin-left: -3px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1.5px var(--gold-ink);
+}

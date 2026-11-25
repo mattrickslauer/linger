@@ -6,6 +6,12 @@
 //   judge      ONLY_IN_CLOUD     once per Moment, multimodal, needs the larger model.
 //   skeptic    ONLY_IN_CLOUD     a second, adversarial opinion from a separate prompt.
 //   scorer     ONLY_IN_CLOUD     P(claim true | evidence), assuming most submissions cheat (prior 0.2).
+// v3 (docs/ARCHITECTURE.md v3.10), all through the same hybrid API:
+//   interviewTurn       PREFER_ON_DEVICE  short spoken follow-ups; fast, private, works with no signal
+//   structureIntention  ONLY_IN_CLOUD     one final pass that normalises the claim into the shared structure
+//   barPreview          PREFER_ON_DEVICE  a preview only; the binding bar is set server-side by a Cloud Function
+//   witnessDraft        PREFER_ON_DEVICE  the witness drafts its next request on the device, offline too
+//   witnessRefine       ONLY_IN_CLOUD     with signal, a cloud model sees the latest frames and may improve it
 //
 // Modes:  VITE_FIXTURES=true      no Firebase at all; feed + detail render built-in sample data
 //         VITE_USE_EMULATORS=true Auth + Firestore talk to the local Emulator Suite
@@ -84,6 +90,7 @@ export async function loadCloudModel(): Promise<string> {
       cloudModelName = name;
       // Models built before Remote Config answered hold the old name; rebuild them on next use.
       live = judge = skeptic = scorer = null;
+      v3models.clear();
     }
   } catch (err) {
     console.warn("Remote Config unavailable, using default model", err);
@@ -170,6 +177,43 @@ export function skepticModel(): GenerativeModel {
 /** P(claim true | evidence) under a cheater-heavy prior. */
 export function scorerModel(): GenerativeModel {
   return (scorer ??= cloudOpinionModel(prompts.scorer.system, scoreSchema));
+}
+
+// ---------------------------------------------------------------- v3 prompt models
+
+export type V3Prompt = "interviewTurn" | "structureIntention" | "barPreview" | "witnessDraft" | "witnessRefine";
+const v3models = new Map<V3Prompt, GenerativeModel>();
+
+/**
+ * One model per v3 prompt, routed by the prompt's own `mode` in shared/prompts.json. On-device answers are
+ * constrained by the same JSON schema (Chrome Prompt API `responseConstraint`) as the cloud's `responseJsonSchema`.
+ * The on-device path ignores systemInstruction, so ai.ts puts the system text in the prompt for both routes.
+ */
+export function promptModel(name: V3Prompt): GenerativeModel {
+  let m = v3models.get(name);
+  if (!m) {
+    const p = prompts[name] as { mode: string; schema: Record<string, unknown> };
+    const inCloudParams = {
+      model: cloudModelName,
+      generationConfig: { responseMimeType: "application/json", responseJsonSchema: p.schema },
+    };
+    m =
+      p.mode === "PREFER_ON_DEVICE"
+        ? getGenerativeModel(ai(), {
+            mode: InferenceMode.PREFER_ON_DEVICE,
+            onDeviceParams: {
+              createOptions: {
+                expectedInputs: [{ type: "text", languages: ["en"] }],
+                expectedOutputs: [{ type: "text", languages: ["en"] }],
+              },
+              promptOptions: { responseConstraint: p.schema },
+            },
+            inCloudParams,
+          })
+        : getGenerativeModel(ai(), { mode: InferenceMode.ONLY_IN_CLOUD, inCloudParams });
+    v3models.set(name, m);
+  }
+  return m;
 }
 
 export { prompts };

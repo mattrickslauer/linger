@@ -9,6 +9,7 @@ import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
 import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
+import Interview from "../components/Interview";
 
 const EXAMPLES: Record<Category, string> = {
   fishing: "Catch and release a largemouth bass at Lake Mission Viejo",
@@ -30,7 +31,8 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-function Setup({ onStart, guest }: { onStart: (i: Intention) => void; guest: boolean }) {
+/** v1 typed form: the "Skip, just type it" path (a plain {text, category} intention stays valid). */
+function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; guest: boolean; onVoice: () => void }) {
   const [cat, setCat] = useState<Category>("fishing");
   const [text, setText] = useState("");
   return (
@@ -56,6 +58,9 @@ function Setup({ onStart, guest }: { onStart: (i: Intention) => void; guest: boo
       </div>
       <button className="btn btn-primary btn-big" type="submit">
         Start Moment
+      </button>
+      <button type="button" className="btn btn-quiet" onClick={onVoice}>
+        Use the voice interview instead
       </button>
       <p className="muted small">
         Uses your location, motion sensor and camera while recording. Works offline.{" "}
@@ -383,7 +388,23 @@ export default function Record({ user, ready }: { user: User | null; ready: bool
   const [done, setDone] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [typed, setTyped] = useState(false);
   useEffect(() => () => session?.dispose(), [session]);
+  const begin = async (intention: Intention, transcript?: string[]) => {
+    try {
+      // iOS Safari gates motion behind a user gesture.
+      const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
+      await DME?.requestPermission?.().catch(() => "denied");
+      // Witness requests may arrive while the tab is in the background: ask once, on this gesture.
+      if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission().catch(() => {});
+      void loadCloudModel();
+      const s = new Session(user, intention, transcript);
+      await s.start(); // rejects if the raw vault can't be written: nothing is recorded
+      setSession(s);
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    }
+  };
 
   if (configured && !ready) return <div className="page" aria-busy="true" />;
   if (session && done) return session.guest && !claimed ? <GuestDone session={session} onClaimed={() => setClaimed(true)} /> : <Done session={session} />;
@@ -391,22 +412,11 @@ export default function Record({ user, ready }: { user: User | null; ready: bool
   return (
     <>
       {err && <p className="notice notice-bad page">{err}</p>}
-      <Setup
-        guest={!user}
-        onStart={async (intention) => {
-          try {
-            // iOS Safari gates motion behind a user gesture.
-            const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
-            await DME?.requestPermission?.().catch(() => "denied");
-            void loadCloudModel();
-            const s = new Session(user, intention);
-            await s.start(); // rejects if the raw vault can't be written: nothing is recorded
-            setSession(s);
-          } catch (e) {
-            setErr(String((e as Error)?.message ?? e));
-          }
-        }}
-      />
+      {typed ? (
+        <Setup guest={!user} onStart={(i) => void begin(i)} onVoice={() => setTyped(false)} />
+      ) : (
+        <Interview guest={!user} onStart={(i, t) => void begin(i, t)} onSkip={() => setTyped(true)} />
+      )}
     </>
   );
 }

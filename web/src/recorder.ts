@@ -85,6 +85,8 @@ export class Session {
   constructor(
     private user: User | null,
     public intentionObj: Intention,
+    /** The interview transcript: journal-only, never sent to Firestore (contract v3.2). */
+    private transcript?: string[],
   ) {
     this.guest = !user;
     this.state = {
@@ -146,7 +148,7 @@ export class Session {
     recordingId = this.id;
     // Journal first, inside the write queue so the create still precedes every chunk.
     const create = this.queue.then(async () => {
-      await journalMoment(this.id, fields);
+      await journalMoment(this.id, this.transcript?.length ? { ...fields, transcript: this.transcript } : fields);
       if (!this.guest) setDoc(doc(db!, "moments", this.id), fields).catch((e) => console.error("moment create failed", e));
     });
     this.queue = create;
