@@ -7,6 +7,8 @@ import VerifiedCore
 final class LocationFeed {
   private var task: Task<Void, Never>?
   private var session: CLServiceSession?
+  /// Keeps GPS (and so the Moment, the chunk ticker and the witness) running with the screen locked.
+  private var background: CLBackgroundActivitySession?
   private var lastT: Int64 = 0
   private var onSample: ((GPSSample) -> Void)?
 
@@ -14,6 +16,7 @@ final class LocationFeed {
     stop()
     self.onSample = onSample
     session = CLServiceSession(authorization: .whenInUse)
+    background = CLBackgroundActivitySession()
     task = Task {
       do {
         for try await update in CLLocationUpdate.liveUpdates(.fitness) {
@@ -41,6 +44,8 @@ final class LocationFeed {
     task = nil
     session?.invalidate()
     session = nil
+    background?.invalidate()
+    background = nil
     onSample = nil
     lastT = 0
   }

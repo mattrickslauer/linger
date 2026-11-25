@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Record tab: intention + category chips -> Start Moment -> live screen -> Finish.
+/// Record tab: voice interview (or typed intention + category chips) -> Start Moment -> live screen -> Finish.
 struct RecordView: View {
   @Environment(AppModel.self) private var app
   @FocusState private var focused: Bool
@@ -25,8 +25,10 @@ struct RecordView: View {
           if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
           if let err = rec.error { Text(err).font(.footnote).foregroundStyle(Theme.bad) }
 
+          InterviewCard(typeInstead: { focused = true })
+
           VStack(alignment: .leading, spacing: 8) {
-            Text("What are you about to do?").font(.headline)
+            Text(rec.structured == nil ? "Or just type it" : "In one sentence").font(.headline)
             TextField("Catch and release a largemouth bass at Lake Mission Viejo",
                       text: $rec.intention, axis: .vertical)
               .lineLimit(2...4)
@@ -67,10 +69,18 @@ struct RecordView: View {
       .scrollDismissesKeyboard(.interactively)
       .background(Color(.systemGroupedBackground))
       .navigationTitle("Record")
+      .onChange(of: app.interview.phase) { _, phase in
+        if phase == .done, let r = app.interview.result { rec.use(r) }
+      }
+      .onChange(of: app.interview.result) { _, r in
+        // Edits on the card (removed assumptions, re-previewed bar) keep the typed sentence.
+        if app.interview.phase == .done { rec.structured = r }
+      }
       .safeAreaInset(edge: .bottom) {
         Button {
           focused = false
-          guard let user = app.auth.user else { return }
+          if app.interview.active { app.interview.cancel() }
+          let user = app.auth.user  // nil: a guest Moment, kept on this phone (v3.1)
           let recorder = app.recorder
           Task {
             _ = await CameraController.requestAccess()
@@ -78,10 +88,14 @@ struct RecordView: View {
             recorder.start(owner: user)
           }
         } label: {
-          Label("Start Moment", systemImage: "record.circle.fill")
-            .font(.title3.bold())
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+          VStack(spacing: 2) {
+            Label("Start Moment", systemImage: "record.circle.fill").font(.title3.bold())
+            if app.isGuest {
+              Text("as a guest · kept on this phone").font(.caption2.weight(.medium)).opacity(0.85)
+            }
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 8)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
@@ -98,20 +112,35 @@ private struct SubmittedBanner: View {
 
   var body: some View {
     let judging = app.judge.running.contains(done.id)
+    let stillLocal = done.guest && app.vault.guestMoments.contains { $0.id == done.id }
     HStack(alignment: .top, spacing: 12) {
-      Image(systemName: "paperplane.circle.fill").font(.title2).foregroundStyle(Theme.accent)
+      Image(systemName: stillLocal ? "iphone.circle.fill" : "paperplane.circle.fill").font(.title2)
+        .foregroundStyle(stillLocal ? .indigo : Theme.accent)
       VStack(alignment: .leading, spacing: 4) {
-        Text("Moment submitted").font(.subheadline.bold())
+        Text(stillLocal ? "Saved on this phone" : "Moment submitted").font(.subheadline.bold())
         Text(done.intention).font(.subheadline).lineLimit(2)
+        if stillLocal {
+          Text("Recorded as a guest: chained and kept on this device. Sign in to upload it and get it verified.")
+            .font(.caption).foregroundStyle(.secondary)
+          Button {
+            if let m = app.vault.guestMoments.first(where: { $0.id == done.id }) { app.upload(m) }
+          } label: {
+            Label("Sign in & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.small)
+          .padding(.top, 4)
+        } else {
         Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
              : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
              : "Offline: it will sync and be judged when you're back online.")
           .font(.caption).foregroundStyle(.secondary)
+        }
       }
       Spacer(minLength: 0)
     }
     .padding(14)
-    .background(Theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+    .background((stillLocal ? Color.indigo : Theme.accent).opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
   }
 }
 

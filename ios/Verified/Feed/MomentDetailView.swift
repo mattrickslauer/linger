@@ -24,6 +24,13 @@ struct MomentDetailView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
         header(m)
+        if let s = m.structured { section("Intention", icon: "text.quote") { IntentionDetails(intention: s) } }
+        if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
+          section("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
+        }
+        if LadderSection.visible(m, uid: app.auth.user?.uid) {
+          section("Verification ladder", icon: "chart.line.uptrend.xyaxis") { LadderSection(model: model) }
+        }
         section("Track", icon: "map") { TrackMap(track: model.track) }
         section("Proof frames", icon: "camera") { frameTimeline }
         section("Motion", icon: "waveform.path.ecg") { motionChart }
@@ -74,7 +81,7 @@ struct MomentDetailView: View {
         HeroImage(b64: m.heroJpegB64, category: m.category)
           .frame(height: 240).clipped()
           .clipShape(RoundedRectangle(cornerRadius: 18))
-        VerdictBadge(status: m.status).padding(10)
+        VerdictBadge(status: m.badgeStatus).padding(10)
       }
       Text(m.intention).font(.title3.bold())
       HStack(spacing: 8) {
@@ -96,6 +103,26 @@ struct MomentDetailView: View {
       }
       if let reason = m.sealReason, !reason.isEmpty {
         Text(reason).font(.footnote).foregroundStyle(m.isVerified ? Theme.accent : Theme.bad)
+      }
+      if m.local {
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: "iphone").font(.title3).foregroundStyle(.indigo)
+          VStack(alignment: .leading, spacing: 6) {
+            Text(m.status == "recording" ? "Recording on this device" : "On this device · sign in to verify")
+              .font(.subheadline.bold())
+            Text("Recorded as a guest. The hash chain is complete; the cloud judge, skeptic, scorer and the seal run after upload.")
+              .font(.caption).foregroundStyle(.secondary)
+            if m.status == "submitted" {
+              Button { app.upload(m) } label: {
+                Label("Upload & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+              }
+              .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+          }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
       }
     }
   }
@@ -282,17 +309,25 @@ struct SealChecklist: View {
   let chainVerified: Bool?
   let chunkCount: Int
 
-  static let rows: [(key: String, title: String)] = [
-    ("chain", "Hash chain intact"),
-    ("timing", "Timing consistent (≥ 20 s, in order)"),
-    ("physics", "Physics plausible (no GPS jumps)"),
-    ("frames", "Proof frames match their hashes"),
-    ("ai", "Judge consistent, skeptic found no fake, score ≥ 50%"),
-  ]
+  /// Seal v3 moves the score gate from `ai` to the new `bar` check (docs/ARCHITECTURE.md v3.5).
+  var rows: [(key: String, title: String)] {
+    let v3 = (card.sealVersion ?? 0) >= 3 || card.checks["bar"] != nil
+    var r: [(key: String, title: String)] = [
+      ("chain", "Hash chain intact"),
+      ("timing", "Timing consistent (≥ 20 s, in order)"),
+      ("physics", "Physics plausible (no GPS jumps)"),
+      ("frames", "Proof frames match their hashes"),
+      ("ai", v3 ? "Judge consistent, skeptic found no fake" : "Judge consistent, skeptic found no fake, score ≥ 50%"),
+    ]
+    if v3 || card.bar != nil {
+      r.append(("bar", "Score reaches the bar" + (card.bar.map { String(format: " (%.2f)", $0.value) } ?? "")))
+    }
+    return r
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      ForEach(Self.rows, id: \.key) { row in
+      ForEach(rows, id: \.key) { row in
         HStack(spacing: 10) {
           icon(card.checks[row.key])
           Text(row.title).font(.subheadline)
@@ -313,11 +348,12 @@ struct SealChecklist: View {
   }
 
   private var statusLine: String {
-    switch card.status {
+    if card.local { return "Kept on this device. The seal runs after you sign in and upload it." }
+    return switch card.status {
     case "recording": "Still recording."
     case "submitted":
       card.judge == nil ? "Waiting for the cloud judge, skeptic and scorer (runs when the owner's phone is online)."
-        : "Waiting for the seal function."
+        : card.bar == nil ? "Waiting for the cloud to set the bar, then the seal." : "Waiting for the seal function."
     default: ""
     }
   }
@@ -353,5 +389,92 @@ private struct FrameSheet: View {
     }
     .padding(20)
     .presentationDetents([.medium, .large])
+  }
+}
+
+/// The structured intention (v3.2): goal, numbers, place, conditions, what the AI assumed.
+struct IntentionDetails: View {
+  let intention: StructuredIntention
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !intention.activity.isEmpty {
+        Text(intention.activity.uppercased()).font(.caption.weight(.bold)).kerning(1).foregroundStyle(Theme.accent)
+      }
+      if !intention.goal.isEmpty { Text(intention.goal).font(.subheadline.weight(.semibold)) }
+      if let place = intention.place?.label {
+        Label(place, systemImage: "mappin.and.ellipse").font(.footnote).foregroundStyle(.secondary)
+      }
+      if !intention.quantities.isEmpty || !intention.conditions.isEmpty {
+        FlowChips {
+          ForEach(intention.quantities) { q in Chip(text: "\(q.label) · \(q.measuredBy)", systemImage: "ruler", color: Theme.accent) }
+          ForEach(intention.conditions, id: \.self) { Chip(text: $0, systemImage: "cloud.sun") }
+        }
+      }
+      if !intention.assumptions.isEmpty {
+        Text("Assumed: " + intention.assumptions.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+      }
+      if intention.mode != "typed" {
+        Label("\(intention.turns)-answer voice interview · \(intention.mode.replacingOccurrences(of: "_", with: "-"))",
+              systemImage: "waveform")
+          .font(.caption2).foregroundStyle(.tertiary)
+      }
+    }
+  }
+}
+
+/// Bar (set by the Cloud Function from the intention) vs the verification score (baseline → after the ladder).
+struct BarScoreCard: View {
+  let card: MomentCardData
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 18) {
+        if let s = card.displayScore {
+          metric(String(format: "%.2f", s), "score", color: card.bar.map { s >= $0.value ? Theme.accent : Theme.bad } ?? .primary)
+        }
+        if let b = card.bar { metric(String(format: "%.2f", b.value), "bar", color: Theme.warn) }
+        if let d = card.bar?.difficulty { metric(String(format: "%.2f", d), "difficulty", color: .secondary) }
+        Spacer()
+        if let v = card.verifiedByScore {
+          Chip(text: v ? "reaches the bar" : "below the bar", systemImage: v ? "checkmark" : "arrow.down", color: v ? Theme.accent : Theme.bad)
+        }
+      }
+      if let b = card.bar { BarGauge(score: card.displayScore, bar: b.value).frame(height: 10) }
+      if let base = card.baselineScore, let fin = card.finalScore, !card.ladder.isEmpty, abs(base - fin) > 0.0005 {
+        Text(String(format: "Baseline %.2f → %.2f after %d ladder %@", base, fin, card.ladder.count,
+                    card.ladder.count == 1 ? "module" : "modules"))
+          .font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+      }
+      if let b = card.bar {
+        if let r = b.rationale, !r.isEmpty { Text(r).font(.footnote) }
+        if !b.factors.isEmpty {
+          FlowChips { ForEach(b.factors, id: \.self) { Chip(text: $0, color: Theme.warn) } }
+        }
+        Text(b.source == "default" ? "Standard bar (the bar model was unavailable)."
+             : "Set in the cloud from the intention: harder or more tempting claims need a higher score.")
+          .font(.caption2).foregroundStyle(.tertiary)
+      } else if card.local || card.status == "recording" || card.status == "submitted" {
+        // Before the server sets the binding bar: the client's hybrid preview from the interview (v3.2 step 4).
+        if let p = card.structured?.preview {
+          HStack(spacing: 8) {
+            Text(String(format: "Bar ≈ %.2f", p.bar)).font(.title3.bold().monospacedDigit()).foregroundStyle(Theme.warn)
+            Text("preview").font(.caption).foregroundStyle(.secondary)
+            Chip(text: p.mode == "on_device" ? "on-device" : "cloud", systemImage: p.mode == "on_device" ? "cpu" : "cloud",
+                 color: p.mode == "on_device" ? Theme.accent : .blue)
+          }
+        }
+        Text(card.local ? "The cloud sets the binding bar after you upload this Moment."
+             : "The cloud sets the binding bar when the Moment is submitted.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func metric(_ v: String, _ label: String, color: Color) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(v).font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit()).foregroundStyle(color)
+      Text(label).font(.caption2).foregroundStyle(.secondary)
+    }
   }
 }

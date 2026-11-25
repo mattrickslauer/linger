@@ -24,9 +24,65 @@ struct MeView: View {
             }
             .padding(.vertical, 4)
             Text(rawData).font(.footnote).foregroundStyle(app.vault.held.isEmpty ? Theme.accent : Theme.warn)
+            if let c = app.credits.credits {
+              HStack {
+                Label("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits")", systemImage: "circle.hexagongrid.fill")
+                  .foregroundStyle(Theme.accent)
+                Spacer()
+                Text(c.justGranted ? "\(c.granted) free to start" : "free demo · \(c.spent) spent")
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+              .font(.subheadline.weight(.semibold))
+            }
+          }
+        } else {
+          Section {
+            HStack(spacing: 14) {
+              Image(systemName: "person.crop.circle.badge.questionmark")
+                .font(.system(size: 44)).foregroundStyle(.secondary)
+              VStack(alignment: .leading, spacing: 4) {
+                Text("Guest").font(.headline)
+                Text("Browse and record freely. Sign in to upload, verify and climb the ladder.")
+                  .font(.subheadline).foregroundStyle(.secondary)
+              }
+            }
+            .padding(.vertical, 4)
+            Button {
+              app.signIn()
+            } label: {
+              Label("Sign in", systemImage: "person.badge.key.fill").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
           }
         }
 
+        if !app.vault.guestMoments.isEmpty {
+          Section {
+            ForEach(app.vault.guestMoments) { m in
+              NavigationLink {
+                MomentDetailView(initial: m, fromMyMoments: true)
+              } label: {
+                MyMomentRow(item: m, judging: false)
+              }
+              .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if app.canDelete(m, fromMyMoments: true) {
+                  Button { pendingDelete = m } label: { Label("Delete", systemImage: "trash") }
+                    .tint(Theme.bad)
+                }
+                if m.status == "submitted" {
+                  Button { app.upload(m) } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
+                    .tint(Theme.accent)
+                }
+              }
+            }
+          } header: {
+            Text("On this device")
+          } footer: {
+            Text("Recorded as a guest and kept only on this phone. Swipe to upload one, or sign in to upload them all.")
+          }
+        }
+
+        if app.auth.user != nil {
         Section {
           if app.mine.items.isEmpty {
             Text("No Moments yet. Start one in Record.").foregroundStyle(.secondary)
@@ -60,6 +116,7 @@ struct MeView: View {
             }
           }
         }
+        }
 
         Section("Hybrid AI") {
           LabeledContent("Live coach", value: LiveCoach.onDeviceAvailable ? "On-device first" : "Cloud fallback")
@@ -83,8 +140,12 @@ struct MeView: View {
           Text("Emulator settings take effect the next time the app launches. Version \(AppConfig.appVersion).")
         }
 
-        Section {
-          Button("Sign out", role: .destructive) { app.auth.signOut() }
+        if app.auth.user != nil {
+          Section {
+            Button("Sign out", role: .destructive) { app.auth.signOut() }
+          } footer: {
+            Text("Signing out never touches Moments kept on this phone.")
+          }
         }
       }
       .navigationTitle("Me")
@@ -136,7 +197,7 @@ private struct MyMomentRow: View {
       HStack(alignment: .top) {
         Text(item.intention).font(.subheadline.weight(.semibold)).lineLimit(2)
         Spacer()
-        VerdictBadge(status: item.status).scaleEffect(0.85)
+        VerdictBadge(status: item.badgeStatus).scaleEffect(0.85)
       }
       HStack(spacing: 6) {
         if let s = item.summary {

@@ -22,7 +22,10 @@ final class Vault {
   static let shared = Vault()
 
   /// Moments still held on this phone, with why. Empty = everything is safely on the server.
+  /// Guest Moments (never uploaded, see `guestMoments`) are not in here.
   private(set) var held: [String: VaultState] = [:]
+  /// Moments recorded as a guest and kept only on this phone (docs/ARCHITECTURE.md v3.1), newest first.
+  private(set) var guestMoments: [MomentCardData] = []
   @ObservationIgnored private var running = false
   @ObservationIgnored private var again = false
   /// Moments the owner deleted while this process runs: an in-flight verify pass must not re-mark or re-create them.
@@ -30,14 +33,33 @@ final class Vault {
 
   private init() {
     try? FileManager.default.createDirectory(at: VaultIO.root, withIntermediateDirectories: true)
-    held = Dictionary(uniqueKeysWithValues: VaultIO.ids().map { ($0, VaultState.waiting) })
+    refreshLocal()
+  }
+
+  /// Re-reads the journal: which Moments are guest-only (shown in Me > On this device) and which wait for the server.
+  func refreshLocal() {
+    var guests: [MomentCardData] = []
+    var owned: [String: VaultState] = [:]
+    for id in VaultIO.ids() where !forgotten.contains(id) {
+      guard let m = try? VaultIO.readObject(VaultIO.momentFile(id)) else { continue }
+      if VaultIO.isGuest(m) {
+        var card = MomentCardData.fromMoment(id: id, m, pending: false)
+        card.local = true
+        card.ownerName = "You (guest)"
+        guests.append(card)
+      } else {
+        owned[id] = held[id] ?? .waiting
+      }
+    }
+    guestMoments = guests.sorted { $0.startedAt > $1.startedAt }
+    held = owned
   }
 
   // MARK: - Journal (called by MomentStore before each Firestore write; throws rather than silently skipping)
 
   func saveMoment(_ id: String, _ fields: [String: Any]) throws {
     try VaultIO.write(VaultIO.momentFile(id), VaultIO.plain(fields))
-    held[id] = .waiting
+    refreshLocal()
   }
 
   func updateMoment(_ id: String, _ fields: [String: Any]) throws {
@@ -45,7 +67,30 @@ final class Vault {
     var m: [String: Any] = FileManager.default.fileExists(atPath: url.path) ? try VaultIO.readObject(url) : [:]
     for (k, v) in VaultIO.plain(fields) { m[k] = v }
     try VaultIO.write(url, m)
-    held[id] = held[id] ?? .waiting
+    refreshLocal()
+  }
+
+  /// Claim a guest Moment for the signed-in user (v3.1 step 2): the journal gets the owner, `recordedAsGuest` and
+  /// `claimedAt`, and loses the guest marker. The chain binds only the momentId, so no chunk changes. The next
+  /// `verifyAll` finds it missing on the server and re-creates it (owner bound by the rules at upload).
+  func claim(_ id: String, owner: SignedInUser) throws {
+    let url = VaultIO.momentFile(id)
+    var m = try VaultIO.readObject(url)
+    guard VaultIO.isGuest(m) else { return }  // a Moment once owned by a uid is never re-assigned
+    m["ownerUid"] = owner.uid
+    m["owner"] = ["name": owner.name, "photoURL": owner.photoURL.map { $0 as Any } ?? NSNull()] as [String: Any]
+    m["recordedAsGuest"] = true
+    m["claimedAt"] = nowMs()
+    m["guest"] = false
+    try VaultIO.write(url, m)
+    refreshLocal()
+  }
+
+  /// Chunks of a journaled Moment, for the detail screen of a guest Moment.
+  nonisolated static func localChunks(_ id: String) -> [[String: Any]] {
+    let dir = VaultIO.chunksDir(id)
+    let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".json") }.sorted()
+    return names.compactMap { try? VaultIO.readObject(dir.appendingPathComponent($0)) }
   }
 
   func saveChunk(_ id: String, seq: Int, _ chunk: [String: Any]) throws {
@@ -60,6 +105,7 @@ final class Vault {
     if FileManager.default.fileExists(atPath: dir.path) { try FileManager.default.removeItem(at: dir) }
     forgotten.insert(id)
     held[id] = nil
+    guestMoments.removeAll { $0.id == id }
     print("[Verified] vault: Moment deleted, local copy removed: \(id)")
   }
 
@@ -76,8 +122,9 @@ final class Vault {
     defer { running = false }
     repeat {
       again = false
+      refreshLocal()
       guard let uid = Auth.auth().currentUser?.uid else { return }
-      for id in VaultIO.ids() where !forgotten.contains(id) {
+      for id in VaultIO.ids() where !forgotten.contains(id) && held[id] != nil {
         let result = await Task.detached { () -> VaultIO.Outcome in
           do {
             return try await VaultIO.verify(id, uid: uid) { s in await Vault.shared.mark(id, s) }
@@ -169,12 +216,20 @@ nonisolated enum VaultIO {
     return v
   }
 
-  static let submitFields = ["status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "submittedAtServer"]
+  static let submitFields = ["status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "witness", "submittedAtServer"]
+
+  /// Journal-only keys, never sent to Firestore.
+  static let journalOnlyKeys = ["guest"]
+
+  /// A guest Moment (v3.1): recorded without an account, kept only on this phone until claimed.
+  static func isGuest(_ m: [String: Any]) -> Bool {
+    (m["guest"] as? Bool) == true || !(m["ownerUid"] is String)
+  }
 
   /// The moment as first created, for when the server lost it: `recording`, nothing judged or sealed yet.
   static func recreateFields(_ momentJSON: Data) throws -> [String: Any] {
     var m = try object(momentJSON, "moment.json")
-    for k in submitFields { m[k] = nil }
+    for k in submitFields + journalOnlyKeys { m[k] = nil }
     m["status"] = "recording"
     m["seal"] = NSNull()
     m["judge"] = NSNull()
@@ -187,7 +242,10 @@ nonisolated enum VaultIO {
   static func submitUpdate(_ momentJSON: Data) throws -> [String: Any] {
     let m = try object(momentJSON, "moment.json")
     var out: [String: Any] = [:]
-    for k in submitFields { out[k] = k == "submittedAtServer" ? FieldValue.serverTimestamp() : (m[k] ?? NSNull()) }
+    for k in submitFields {
+      if k == "witness", m[k] == nil { continue }  // pre-v3 journals have no witness summary
+      out[k] = k == "submittedAtServer" ? FieldValue.serverTimestamp() : (m[k] ?? NSNull())
+    }
     return out
   }
 

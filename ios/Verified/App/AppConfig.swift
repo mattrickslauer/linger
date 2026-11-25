@@ -19,6 +19,8 @@ enum AppConfig {
 
   static let authEmulatorPort = 9099
   static let firestoreEmulatorPort = 8080
+  static let functionsEmulatorPort = 5001
+  static let storageEmulatorPort = 9199
 
   /// Remote Config key `cloud_model` (contract default).
   static let defaultCloudModel = "gemini-3.5-flash"

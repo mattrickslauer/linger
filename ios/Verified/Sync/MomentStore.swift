@@ -11,11 +11,16 @@ enum MomentStore {
   static func moment(_ id: String) -> DocumentReference { db.collection("moments").document(id) }
   static func chunks(_ id: String) -> CollectionReference { moment(id).collection("chunks") }
 
-  static func create(id: String, owner: SignedInUser, intention: String, category: Category, startedAt: Int64) throws {
-    let data: [String: Any] = [
-      "ownerUid": owner.uid,
-      "owner": ["name": owner.name, "photoURL": owner.photoURL.map { $0 as Any } ?? NSNull()] as [String: Any],
-      "intention": ["text": String(intention.prefix(200)), "category": category.rawValue],
+  /// `owner == nil` is a guest Moment (docs/ARCHITECTURE.md v3.1): journaled on the phone only, with the
+  /// journal-only markers `ownerUid: null, owner: null, guest: true`, and NO Firestore write at all. It reaches the
+  /// server only when claimed at sign-in (`Vault.claim` + `Vault.verifyAll`).
+  static func create(id: String, owner: SignedInUser?, intention: [String: Any], startedAt: Int64) throws {
+    var data: [String: Any] = [
+      "ownerUid": owner.map { $0.uid as Any } ?? NSNull(),
+      "owner": owner.map { o in
+        ["name": o.name, "photoURL": o.photoURL.map { $0 as Any } ?? NSNull()] as [String: Any] as Any
+      } ?? NSNull(),
+      "intention": intention,
       "platform": "ios",
       "device": ["model": deviceModel(), "os": "iOS \(UIDevice.current.systemVersion)", "appVersion": AppConfig.appVersion],
       "status": "recording",
@@ -31,24 +36,28 @@ enum MomentStore {
       "seal": NSNull(),
       "createdAtServer": FieldValue.serverTimestamp(),
     ]
+    if owner == nil { data["guest"] = true }
     try Vault.shared.saveMoment(id, data)  // raw copy on the phone first, kept until the server provably has it
+    guard owner != nil else { return }  // guest: local only
     moment(id).setData(data) { err in if let err { print("[Verified] create moment:", err) } }
   }
 
   struct Frame: Sendable { let jpegB64: String; let w: Int; let h: Int; let t: Int64 }
 
-  static func writeChunk(momentId: String, chunk: ChainedChunk, frame: Frame?) throws {
+  static func writeChunk(momentId: String, chunk: ChainedChunk, frame: Frame?, guest: Bool) throws {
     let frameData: Any = frame.map { ["jpegB64": $0.jpegB64, "w": $0.w, "h": $0.h, "t": $0.t] } ?? NSNull()
     let data: [String: Any] = [
       "seq": chunk.seq, "t0": chunk.t0, "t1": chunk.t1, "prevHash": chunk.prevHash,
       "payload": chunk.payload, "hash": chunk.hash, "frame": frameData,
     ]
     try Vault.shared.saveChunk(momentId, seq: chunk.seq, data)
+    guard !guest else { return }
     chunks(momentId).document(chunk.docId).setData(data) { err in if let err { print("[Verified] chunk \(chunk.seq):", err) } }
   }
 
   static func submit(momentId: String, endedAt: Int64, chunkCount: Int, headHash: String?,
-                     summary: MomentSummary, onDevice: (mode: String, checks: Int, retakes: Int)) throws {
+                     summary: MomentSummary, onDevice: (mode: String, checks: Int, retakes: Int),
+                     witness: [String: Any], guest: Bool) throws {
     let fields: [String: Any] = [
       "status": "submitted",
       "endedAt": endedAt,
@@ -56,9 +65,11 @@ enum MomentStore {
       "headHash": headHash ?? NSNull(),
       "summary": summary.firestoreData,
       "onDevice": ["mode": onDevice.mode, "checks": onDevice.checks, "retakes": onDevice.retakes],
+      "witness": witness,
       "submittedAtServer": FieldValue.serverTimestamp(),
     ]
     try Vault.shared.updateMoment(momentId, fields)
+    guard !guest else { return }
     moment(momentId).updateData(fields) { err in if let err { print("[Verified] submit:", err) } }
   }
 
