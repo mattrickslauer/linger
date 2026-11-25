@@ -45,21 +45,108 @@ export interface SealChecks {
   physics: boolean;
   frames: boolean;
   ai: boolean;
+  /** v3: final verification score >= the Moment's bar. */
+  bar?: boolean;
 }
 
 export interface Seal {
   sealed: boolean;
   at: unknown;
+  updatedAt?: unknown;
   checks: SealChecks;
   reason: string;
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  /** v3: integrity + AI checks passed and a score exists, so the owner may run ladder modules. */
+  ladderEligible?: boolean;
+}
+
+// ---------------------------------------------------------------- v3 (docs/ARCHITECTURE.md v3.2 - v3.8)
+
+export type MeasuredBy = "scale" | "ruler" | "photo" | "count" | "gps" | "motion" | "claim";
+export interface Quantity {
+  metric: string;
+  value: number;
+  unit: string;
+  measuredBy: MeasuredBy;
+}
+export interface Place {
+  name: string | null;
+  lat: number | null;
+  lng: number | null;
+  region: string | null;
+  country: string | null;
+}
+export type InterviewMode = "on_device" | "cloud" | "mixed" | "typed";
+
+/** v1 `{text, category}` stays valid; `v: 3` marks a structured intention. */
+export interface Intention {
+  text: string;
+  category: Category;
+  v?: 3;
+  activity?: string;
+  goal?: string;
+  quantities?: Quantity[];
+  place?: Place | null;
+  window?: { start: number; expectedMinutes: number | null };
+  conditions?: string[];
+  assumptions?: string[];
+  interview?: { turns: number; mode: InterviewMode };
+  preview?: { bar: number; difficulty: number; mode: "on_device" | "cloud" } | null;
+}
+
+/** Written only by the Cloud Function at submit. */
+export interface Bar {
+  value: number;
+  difficulty: number;
+  rationale: string;
+  factors: string[];
+  source: "ai" | "default";
+  model: string | null;
+  ranAt: number;
+}
+
+export type ModuleId = "second_look" | "place_time" | "witness_review" | "count_measure" | "full_video" | "human_review";
+
+export interface LadderResult {
+  runId: string;
+  module: ModuleId;
+  title: string;
+  cost: number;
+  strength: number;
+  passed: boolean;
+  confidence: number;
+  before: number;
+  after: number;
+  reasons: string[];
+  measured?: { metric: string; value: number; unit: string }[];
+  model: string;
+  ranAt: number;
+}
+
+/** Server-only: baseline score, the score after every ladder result, and whether it clears the bar. */
+export interface Verification {
+  version: 3;
+  baseline: number | null;
+  score: number | null;
+  bar: number;
+  verified: boolean;
+  modules: LadderResult[];
+  updatedAtServer?: unknown;
+}
+
+export interface WitnessSummary {
+  asked: number;
+  answered: number;
+  skipped: number;
+  mode?: "on_device" | "cloud" | "mixed" | "none";
 }
 
 export interface Moment {
   id: string;
-  ownerUid: string;
-  owner: { name: string; photoURL: string | null };
-  intention: { text: string; category: Category };
+  /** null only in the local journal, for a Moment recorded as a guest and not yet claimed. */
+  ownerUid: string | null;
+  owner: { name: string; photoURL: string | null } | null;
+  intention: Intention;
   platform: Platform;
   device: { model: string; os: string; appVersion: string };
   status: "recording" | "submitted" | "sealed" | "rejected";
@@ -74,6 +161,13 @@ export interface Moment {
   /** Absent on Moments recorded before the scorer existed. */
   score?: VerificationScore | null;
   seal: Seal | null;
+  bar?: Bar | null;
+  verification?: Verification | null;
+  witness?: WitnessSummary | null;
+  recordedAsGuest?: boolean;
+  claimedAt?: number | null;
+  /** journal-only: recorded as a guest, not yet claimed by an account. Never written to Firestore. */
+  guest?: boolean;
   /** client-only: Firestore metadata.hasPendingWrites */
   pending?: boolean;
 }
@@ -82,7 +176,20 @@ export type GpsRow = [number, number, number, number, number | null, number | nu
 export type MotionRow = [number, number, number, number, number, number, number];
 export interface AppEvent {
   t: number;
-  type: "start" | "frame" | "check" | "retake" | "pause" | "resume" | "stop";
+  type:
+    | "start"
+    | "frame"
+    | "check"
+    | "retake"
+    | "pause"
+    | "resume"
+    | "stop"
+    | "video_start"
+    | "video"
+    | "hr"
+    | "witness"
+    | "witness_answer"
+    | "witness_skip";
   [k: string]: unknown;
 }
 export interface LiveCheck {
@@ -117,10 +224,19 @@ export interface Chunk {
   frame: Frame | null;
 }
 
+export interface FeedLadderStep {
+  module: ModuleId;
+  title: string;
+  passed: boolean;
+  before: number;
+  after: number;
+  reasons: string[];
+}
+
 export interface FeedEntry {
   momentId: string;
   owner: { name: string; photoURL: string | null };
-  intention: { text: string; category: Category };
+  intention: Intention;
   platform: Platform;
   summary: Summary;
   onDeviceMode: CheckMode;
@@ -133,5 +249,14 @@ export interface FeedEntry {
   scoreReasons?: string[];
   heroJpegB64: string | null;
   track: [number, number][];
+  // v3 (absent on older entries)
+  bar?: number | null;
+  barRationale?: string | null;
+  difficulty?: number | null;
+  baselineScore?: number | null;
+  ladder?: FeedLadderStep[];
+  witness?: WitnessSummary | null;
+  recordedAsGuest?: boolean;
+  sealVersion?: number;
   sealedAtServer: number | null; // millis (converted from Timestamp on read)
 }

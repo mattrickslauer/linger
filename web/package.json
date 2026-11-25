@@ -12,7 +12,9 @@
     "check": "tsc --noEmit",
     "shots": "node scripts/shots.mjs",
     "e2e:emu": "node scripts/e2e-emu.mjs",
-    "vault:emu": "node scripts/vault-emu.mjs"
+    "vault:emu": "node scripts/vault-emu.mjs",
+    "check:guest": "node scripts/guest-check.mjs",
+    "check:ladder": "node scripts/ladder-check.mjs"
   },
   "dependencies": {
     "firebase": "13.4.0",

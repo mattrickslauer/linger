@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import type { User } from "firebase/auth";
-import { signInWithGoogle } from "../auth";
+import { claimAndVerify, markClaimPrompted } from "../claim";
 import { sha256hex } from "../chain";
 import { configured, db, loadCloudModel } from "../firebase";
+import { isDeclined, requireSignIn } from "../signin";
 import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
-import { CATEGORIES, type Category, type Moment } from "../types";
+import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
+import Interview, { RouteChip } from "../components/Interview";
+import { WitnessAgent } from "../witnessAgent";
+import { ClipRecorder, clipSupported, MAX_CLIP_MS, sha256Bytes } from "../clip";
+import { listen, stopSpeaking, sttSupported } from "../voice";
+import type { WitnessRequest } from "../witness";
 
 const EXAMPLES: Record<Category, string> = {
   fishing: "Catch and release a largemouth bass at Lake Mission Viejo",
@@ -29,24 +35,8 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-function SignInGate() {
-  const [err, setErr] = useState<string | null>(null);
-  return (
-    <div className="page gate">
-      <h1>Record a Moment</h1>
-      <p className="lede">Sign in so your Moments are yours. Watching the feed never needs an account.</p>
-      <button
-        className="btn btn-primary"
-        onClick={() => signInWithGoogle().catch((e) => setErr(e?.code === "auth/popup-closed-by-user" ? null : String(e?.message ?? e)))}
-      >
-        Sign in with Google
-      </button>
-      {err && <p className="notice notice-bad">Sign-in failed: {err}</p>}
-    </div>
-  );
-}
-
-function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) {
+/** v1 typed form: the "Skip, just type it" path (a plain {text, category} intention stays valid). */
+function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; guest: boolean; onVoice: () => void }) {
   const [cat, setCat] = useState<Category>("fishing");
   const [text, setText] = useState("");
   return (
@@ -54,7 +44,7 @@ function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) 
       className="page setup"
       onSubmit={(e) => {
         e.preventDefault();
-        onStart(text.trim() || EXAMPLES[cat], cat);
+        onStart({ text: text.trim() || EXAMPLES[cat], category: cat });
       }}
     >
       <h1>What are you about to do?</h1>
@@ -73,7 +63,13 @@ function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) 
       <button className="btn btn-primary btn-big" type="submit">
         Start Moment
       </button>
-      <p className="muted small">Uses your location, motion sensor and camera while recording. Works offline; it syncs when you're back online.</p>
+      <button type="button" className="btn btn-quiet" onClick={onVoice}>
+        Use the voice interview instead
+      </button>
+      <p className="muted small">
+        Uses your location, motion sensor and camera while recording. Works offline.{" "}
+        {guest ? "As a guest, the Moment stays on this device until you sign in to upload it." : "It syncs when you're back online."}
+      </p>
     </form>
   );
 }
@@ -94,6 +90,18 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   useEffect(() => {
     session.onChange = setS;
   }, [session]);
+
+  // The witness runs only while this screen records; recording never waits for it.
+  const [agent] = useState(() => new WitnessAgent(session));
+  const [witnessStatus, setWitnessStatus] = useState(agent.status);
+  useEffect(() => {
+    agent.onStatus = setWitnessStatus;
+    agent.start();
+    return () => {
+      agent.stop();
+      stopSpeaking();
+    };
+  }, [agent]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -133,17 +141,55 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
 
-  async function shoot() {
-    if (!video.current || shooting) return;
+  async function shoot(wid?: string) {
+    if (!video.current || shooting || clipRef.current) return; // a clip chains its own middle frame
     setShooting(true);
     try {
       const f = captureFrame(video.current);
       setLast(f.jpegB64);
-      await session.proofShot(f.jpegB64, await sha256hex(f.jpegB64), f.w, f.h);
+      await session.proofShot(f.jpegB64, await sha256hex(f.jpegB64), f.w, f.h, wid);
     } finally {
       setShooting(false);
     }
   }
+
+  // Video clip: chained by hash, kept in this browser, uploaded only for the full_video ladder check.
+  const clipRef = useRef<ClipRecorder | null>(null);
+  const [clipAt, setClipAt] = useState<number | null>(null);
+  const [clipErr, setClipErr] = useState<string | null>(null);
+  async function startClip() {
+    if (!video.current || clipRef.current || shooting) return;
+    setClipErr(null);
+    try {
+      const r = new ClipRecorder(video.current);
+      clipRef.current = r;
+      session.videoStart();
+      setClipAt(r.startedAt);
+      r.done.then(
+        () => clipRef.current === r && void stopClip(),
+        () => {},
+      );
+    } catch (e) {
+      setClipErr(String((e as Error)?.message ?? e));
+    }
+  }
+  async function stopClip() {
+    const r = clipRef.current;
+    if (!r) return;
+    clipRef.current = null;
+    setClipAt(null);
+    setShooting(true);
+    try {
+      const c = await r.stop();
+      setLast(c.middle.jpegB64);
+      await session.videoClip({ ...c, sha256: await sha256Bytes(c.blob) });
+    } catch (e) {
+      setClipErr(String((e as Error)?.message ?? e));
+    } finally {
+      setShooting(false);
+    }
+  }
+  useEffect(() => () => void clipRef.current?.stop(), []);
 
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
@@ -179,6 +225,11 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           </div>
           {camErr && <p className="cam-err">Camera unavailable: {camErr}</p>}
           {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
+          {s.witnessOpen?.kind === "show" && (
+            <p className="cam-ask" aria-hidden="true">
+              {s.witnessOpen.ask}
+            </p>
+          )}
           {coach && (
             <p className={`coach-banner ${coach.pending ? "pending" : coach.mode === "none" ? "none" : coach.ok ? "ok" : "bad"}`} role="status">
               {coach.pending
@@ -219,19 +270,64 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               {s.retakes ? <span className="g-small muted"> ({s.retakes} retake)</span> : null}
             </span>
           </div>
-          <p className={`sync ${s.online ? "" : "sync-off"}`} role="status">
-            {s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
+          <div className="gauge">
+            <span className="g-label">witness</span>
+            <span className="g-val g-small">
+              {!agent.available
+                ? "off (no model in this build)"
+                : witnessStatus === "thinking"
+                ? "thinking…"
+                : witnessStatus === "unavailable"
+                  ? "quiet (no model)"
+                  : s.witnessAsked
+                    ? `${s.witnessAnswered} of ${s.witnessAsked} answered`
+                    : s.elapsedMs < 30_000
+                      ? "listens from 0:30"
+                      : "watching"}
+            </span>
+          </div>
+          <p className={`sync ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
+            {session.guest
+              ? `On this device · ${s.chunks} chunk${s.chunks === 1 ? "" : "s"} chained`
+              : s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
           </p>
         </div>
       </div>
+      {s.witnessOpen && (
+        <WitnessToast
+          req={s.witnessOpen}
+          busy={shooting}
+          voice={agent.voice}
+          onVoice={(v) => {
+            agent.voice = v;
+            if (!v) stopSpeaking();
+          }}
+          onShow={() => void shoot(s.witnessOpen!.wid)}
+          onAnswer={(via, text) => session.witnessAnswer(via, text)}
+          onSkip={() => session.witnessSkip()}
+          canShoot={!camErr && clipAt == null}
+        />
+      )}
       <div className="live-actions">
-        <button className="btn btn-primary btn-big" onClick={shoot} disabled={shooting || !!camErr}>
+        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
           {shooting ? "Checking…" : "Proof shot"}
         </button>
+        {clipSupported() && (
+          <button
+            className={`btn btn-big btn-clip ${clipAt != null ? "on" : ""}`}
+            onClick={() => void (clipAt != null ? stopClip() : startClip())}
+            disabled={!!camErr || (shooting && clipAt == null)}
+            aria-pressed={clipAt != null}
+          >
+            <span className="rec-dot" aria-hidden="true" />
+            {clipAt != null ? `Stop clip ${fmtDuration(Math.min(MAX_CLIP_MS, s.elapsedMs - (clipAt - session.startedAt)))}` : "Clip"}
+          </button>
+        )}
         <button
           className="btn btn-big"
           onClick={async () => {
             try {
+              if (clipRef.current) await stopClip();
               await session.finish();
               onDone();
             } catch (e) {
@@ -248,7 +344,170 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           Couldn't save this Moment's raw data on this device ({s.vaultError}). Recording has stopped writing.
         </p>
       )}
+      {clipErr && <p className="notice notice-bad small">Clip: {clipErr}</p>}
       {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
+    </div>
+  );
+}
+
+/** The witness's open request: spoken already; Show / Answer / Done / Skip here. */
+function WitnessToast({
+  req,
+  busy,
+  canShoot,
+  voice,
+  onVoice,
+  onShow,
+  onAnswer,
+  onSkip,
+}: {
+  req: WitnessRequest;
+  busy: boolean;
+  canShoot: boolean;
+  voice: boolean;
+  onVoice: (v: boolean) => void;
+  onShow: () => void;
+  onAnswer: (via: "voice" | "text" | "done", text?: string) => void;
+  onSkip: () => void;
+}) {
+  const [typing, setTyping] = useState(false);
+  const [text, setText] = useState("");
+  const [heard, setHeard] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(voice);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setTyping(false);
+    setText("");
+    setHeard("");
+    setErr(null);
+  }, [req.wid]);
+  const talk = async () => {
+    setErr(null);
+    setListening(true);
+    try {
+      const said = await listen(setHeard).done;
+      setListening(false);
+      if (said) onAnswer("voice", said);
+    } catch (e) {
+      setListening(false);
+      setErr(String((e as Error)?.message ?? e));
+      setTyping(true);
+    }
+  };
+  return (
+    <section className="witness" role="alert" aria-labelledby={`w-${req.wid}`}>
+      <div className="witness-head">
+        <span className="witness-who">Witness</span>
+        <RouteChip mode={req.by} />
+        <button
+          type="button"
+          className="btn btn-quiet btn-small witness-voice"
+          aria-pressed={voiceOn}
+          onClick={() => {
+            onVoice(!voiceOn);
+            setVoiceOn(!voiceOn);
+          }}
+        >
+          voice {voiceOn ? "on" : "off"}
+        </button>
+      </div>
+      <p className="witness-ask" id={`w-${req.wid}`}>
+        {req.ask}
+      </p>
+      {req.why && <p className="muted small">Proves: {req.why}</p>}
+      {heard && listening && <p className="small">“{heard}”</p>}
+      {err && <p className="notice notice-bad small">{err}</p>}
+      {typing ? (
+        <form
+          className="talk-type"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) onAnswer("text", text.trim());
+          }}
+        >
+          <label className="sr-only" htmlFor={`wa-${req.wid}`}>
+            Your answer
+          </label>
+          <input id={`wa-${req.wid}`} value={text} maxLength={200} autoFocus onChange={(e) => setText(e.target.value)} placeholder="Type your answer" />
+          <button className="btn btn-small btn-primary" disabled={!text.trim()}>
+            Answer
+          </button>
+        </form>
+      ) : (
+        <div className="witness-actions">
+          {req.kind === "show" && (
+            <button className="btn btn-primary" onClick={onShow} disabled={busy || !canShoot}>
+              {busy ? "Checking…" : "Show"}
+            </button>
+          )}
+          {req.kind === "tell" &&
+            (sttSupported() ? (
+              <button className="btn btn-primary" onClick={() => void talk()} disabled={listening}>
+                {listening ? "Listening…" : "Answer"}
+              </button>
+            ) : null)}
+          {(req.kind === "tell" || req.kind === "show") && (
+            <button className="btn" onClick={() => setTyping(true)}>
+              Type it
+            </button>
+          )}
+          {req.kind === "do" && (
+            <button className="btn btn-primary" onClick={() => onAnswer("done")}>
+              Done
+            </button>
+          )}
+          <button className="btn btn-quiet" onClick={onSkip}>
+            Skip
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A guest's Moment is finished and chained in this browser; uploading it is the first thing that needs an account. */
+function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="page done">
+      <h1>Moment recorded.</h1>
+      <p className="lede">{session.intention}</p>
+      <ol className="steps">
+        <li className="step step-done">Recorded and chained on this device ({session.chunks.length} chunks)</li>
+        <li className="step step-now">On this device · sign in to verify</li>
+        <li className="step step-todo">Cloud judge, skeptic + scorer</li>
+        <li className="step step-todo">Deterministic seal by Cloud Function</li>
+      </ol>
+      {err && <p className="notice notice-bad small">{err}</p>}
+      <div className="hero-actions">
+        <button
+          className="btn btn-primary"
+          disabled={!!busy || !configured}
+          onClick={async () => {
+            setErr(null);
+            try {
+              markClaimPrompted(); // this action claims it; don't also pop the "recorded as a guest" sheet
+              const user = await requireSignIn("upload this Moment and get it verified");
+              await claimAndVerify([session.id], user, setBusy);
+              onClaimed();
+            } catch (e) {
+              setBusy(null);
+              if (!isDeclined(e)) setErr(`Upload failed: ${String((e as Error)?.message ?? e)}. It stays on this device.`);
+            }
+          }}
+        >
+          {busy ?? "Upload and verify"}
+        </button>
+        <Link to={`/m/${session.id}`} className="btn">
+          Open it
+        </Link>
+        <Link to="/me" className="btn btn-quiet">
+          Moments on this device
+        </Link>
+      </div>
+      {!configured && <p className="muted small">This sample-data build can't upload; the Moment stays in this browser.</p>}
     </div>
   );
 }
@@ -303,6 +562,13 @@ function Done({ session }: { session: Session }) {
       state: m?.judge ? "done" : review === "running" ? "now" : review === "failed" ? "bad" : "todo",
     },
     {
+      // v3.3: the binding bar, set by the Cloud Function from the claim once the Moment is submitted.
+      name: m?.bar
+        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
+        : "Cloud Function sets the bar for this claim",
+      state: m?.bar ? "done" : m?.status === "submitted" && !pending ? "now" : "todo",
+    },
+    {
       name: m?.seal ? (m.seal.sealed ? "Sealed: Verified ✓" : `Not verified: ${m.seal.reason}`) : "Deterministic seal by Cloud Function",
       state: m?.seal ? (m.seal.sealed ? "done" : "bad") : m?.judge ? "now" : "todo",
     },
@@ -346,38 +612,37 @@ function Done({ session }: { session: Session }) {
 export default function Record({ user, ready }: { user: User | null; ready: boolean }) {
   const [session, setSession] = useState<Session | null>(null);
   const [done, setDone] = useState(false);
+  const [claimed, setClaimed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [typed, setTyped] = useState(false);
   useEffect(() => () => session?.dispose(), [session]);
+  const begin = async (intention: Intention, transcript?: string[]) => {
+    try {
+      // iOS Safari gates motion behind a user gesture.
+      const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
+      await DME?.requestPermission?.().catch(() => "denied");
+      // Witness requests may arrive while the tab is in the background: ask once, on this gesture.
+      if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission().catch(() => {});
+      void loadCloudModel();
+      const s = new Session(user, intention, transcript);
+      await s.start(); // rejects if the raw vault can't be written: nothing is recorded
+      setSession(s);
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    }
+  };
 
-  if (!configured)
-    return (
-      <div className="page gate">
-        <h1>Record a Moment</h1>
-        <p className="notice">Recording needs Firebase. This build is showing sample data only (VITE_FIXTURES=true).</p>
-      </div>
-    );
-  if (!ready) return <div className="page" aria-busy="true" />;
-  if (!user) return <SignInGate />;
-  if (session && done) return <Done session={session} />;
+  if (configured && !ready) return <div className="page" aria-busy="true" />;
+  if (session && done) return session.guest && !claimed ? <GuestDone session={session} onClaimed={() => setClaimed(true)} /> : <Done session={session} />;
   if (session) return <Live session={session} onDone={() => setDone(true)} />;
   return (
     <>
       {err && <p className="notice notice-bad page">{err}</p>}
-      <Setup
-        onStart={async (text, cat) => {
-          try {
-            // iOS Safari gates motion behind a user gesture.
-            const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
-            await DME?.requestPermission?.().catch(() => "denied");
-            void loadCloudModel();
-            const s = new Session(user, text, cat);
-            await s.start(); // rejects if the raw vault can't be written: nothing is recorded
-            setSession(s);
-          } catch (e) {
-            setErr(String((e as Error)?.message ?? e));
-          }
-        }}
-      />
+      {typed ? (
+        <Setup guest={!user} onStart={(i) => void begin(i)} onVoice={() => setTyped(false)} />
+      ) : (
+        <Interview guest={!user} onStart={(i, t) => void begin(i, t)} onSkip={() => setTyped(true)} />
+      )}
     </>
   );
 }

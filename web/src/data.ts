@@ -104,3 +104,31 @@ export function subscribeMyMoments(uid: string, cb: (m: Moment[]) => void, onErr
     onError,
   );
 }
+
+/**
+ * Sample-data builds only (credits.ts `?ladder=demo`): apply a simulated ladder result to the in-memory fixtures the
+ * way runLadderModule would on the server (verification, seal.checks.bar, status, feed), so the page can re-read it.
+ */
+export async function applyFixtureLadder(id: string, r: import("./types").LadderResult & { score: number; verified: boolean; status: "sealed" | "rejected" }) {
+  if (!FIXTURES) return;
+  const f = await fixtures();
+  const m = f.moments[id];
+  if (!m?.verification || !m.seal) return;
+  const { score, verified, status, ...result } = r;
+  const modules = [...m.verification.modules, result];
+  m.verification = { ...m.verification, score, verified, modules };
+  const checks = { ...m.seal.checks, bar: verified };
+  const sealed = Object.values(checks).every(Boolean);
+  m.seal = { ...m.seal, checks, sealed, reason: sealed ? "Every check passed; the score now clears the bar." : m.seal.reason };
+  m.status = status;
+  const e = f.feed.find((x) => x.momentId === id);
+  if (e) {
+    Object.assign(e, {
+      verificationScore: score,
+      checks,
+      status: sealed ? "sealed" : "rejected",
+      sealReason: m.seal.reason,
+      ladder: modules.map((x) => ({ module: x.module, title: x.title, passed: x.passed, before: x.before, after: x.after, reasons: x.reasons.slice(0, 2) })),
+    });
+  }
+}

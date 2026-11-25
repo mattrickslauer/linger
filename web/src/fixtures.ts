@@ -5,7 +5,8 @@
 import { makeChunk, sha256hex } from "./chain";
 import { computeSummary, downsample } from "./geo";
 import { paintScene, type SceneKind } from "./scene";
-import type { AiOpinion, AppEvent, Category, Chunk, FeedEntry, GpsRow, LiveCheck, Moment, MotionRow, Platform, SealChecks } from "./types";
+import type { AiOpinion, AppEvent, Category, Chunk, FeedEntry, GpsRow, LadderResult, LiveCheck, ModuleId, Moment, MotionRow, Platform, SealChecks } from "./types";
+import { barFromDifficulty } from "./intention";
 
 export interface FixtureSet {
   feed: FeedEntry[];
@@ -36,7 +37,56 @@ interface Spec {
   teleportAt?: number;
 }
 
-const ALL_OK: SealChecks = { chain: true, timing: true, physics: true, frames: true, ai: true };
+const ALL_OK: SealChecks = { chain: true, timing: true, physics: true, frames: true, ai: true, bar: true };
+
+/** v3 sample data per Moment: the server's bar, and ladder results already run by the owner. */
+interface V3Fixture {
+  difficulty: number;
+  rationale: string;
+  factors: string[];
+  ladder: { module: ModuleId; title: string; cost: number; strength: number; passed: boolean; confidence: number; reasons: string[] }[];
+  witness: { asked: number; answered: number; skipped: number };
+}
+const V3: Record<string, V3Fixture> = {
+  "7c1e4f0a-2b9d-4c3e-8f61-5a0d9b7e2c14": {
+    difficulty: 0.4,
+    rationale: "A largemouth bass is common here, but a catch-and-release claim is easy to stage with an old photo.",
+    factors: ["common species locally", "autumn, good season", "release is hard to prove"],
+    ladder: [
+      {
+        module: "second_look",
+        title: "Second opinion",
+        cost: 1,
+        strength: 0.2,
+        passed: true,
+        confidence: 0.82,
+        reasons: ["The same fish, hand and shoreline appear in three frames taken minutes apart."],
+      },
+    ],
+    witness: { asked: 2, answered: 2, skipped: 0 },
+  },
+  "2e9b6d31-84a7-4f0c-b5d2-91c3e7a40f58": {
+    difficulty: 0.15,
+    rationale: "A popular day hike; the summit sign is a well-known photo spot.",
+    factors: ["popular trail", "clear weather", "summit sign photographed often"],
+    ladder: [],
+    witness: { asked: 1, answered: 1, skipped: 0 },
+  },
+  "b4d07a9e-3c51-4e26-a8f9-0d6e2b1c7f33": {
+    difficulty: 0.1,
+    rationale: "A first bowl is a modest, low-stakes claim with little reason to fake.",
+    factors: ["personal milestone", "no prize at stake"],
+    ladder: [],
+    witness: { asked: 0, answered: 0, skipped: 0 },
+  },
+  "e81f5c27-6a03-4b9d-9e44-c2a7d0b95f16": {
+    difficulty: 0.67,
+    rationale: "Summiting Whitney takes a long day at altitude; a 90-second session can't show it.",
+    factors: ["14,505 ft summit", "full-day effort", "permit season"],
+    ladder: [],
+    witness: { asked: 1, answered: 0, skipped: 1 },
+  },
+};
 
 const SPECS: Spec[] = [
   {
@@ -61,7 +111,7 @@ const SPECS: Spec[] = [
     mode: "on_device",
     agoH: 2,
     checks: ALL_OK,
-    sealReason: "All five checks passed: intact chain, plausible timing and movement, matching frames, AI agreed.",
+    sealReason: "All six checks passed: intact chain, plausible timing and movement, matching frames, AI agreed, score above the bar.",
     judge: {
       verdict: "consistent",
       confidence: 0.86,
@@ -102,7 +152,7 @@ const SPECS: Spec[] = [
     mode: "on_device",
     agoH: 5,
     checks: ALL_OK,
-    sealReason: "All five checks passed: intact chain, plausible timing and movement, matching frames, AI agreed.",
+    sealReason: "All six checks passed: intact chain, plausible timing and movement, matching frames, AI agreed, score above the bar.",
     judge: {
       verdict: "consistent",
       confidence: 0.81,
@@ -134,7 +184,7 @@ const SPECS: Spec[] = [
     mode: "cloud",
     agoH: 9,
     checks: ALL_OK,
-    sealReason: "All five checks passed: intact chain, plausible timing and movement, matching frames, AI agreed.",
+    sealReason: "All six checks passed: intact chain, plausible timing and movement, matching frames, AI agreed, score above the bar.",
     judge: {
       verdict: "consistent",
       confidence: 0.77,
@@ -256,7 +306,18 @@ async function buildOne(spec: Spec, seed: number) {
   }
 
   const summary = computeSummary(start, end, chunks, heroSeq);
-  const sealed = Object.values(spec.checks).every(Boolean);
+  const v3 = V3[spec.id];
+  const barValue = barFromDifficulty(v3.difficulty);
+  let score = spec.score.probability;
+  const modules: LadderResult[] = v3.ladder.map((l, k) => {
+    const before = score;
+    score = l.passed ? score + l.strength * (1 - score) : score * (1 - l.strength);
+    return { ...l, runId: `fixture-${seed}-${k}`, before, after: score, model: "gemini-3.5-pro", ranAt: end + 3_600_000 };
+  });
+  const sealChecks: SealChecks = { ...spec.checks, bar: score >= barValue };
+  const sealed = Object.values(sealChecks).every(Boolean);
+  const c5 = sealChecks;
+  const integrity = c5.chain && c5.timing && c5.physics && c5.frames && c5.ai;
   const op = (o: Spec["judge"]): AiOpinion => ({ ...o, model: "gemini-3.5-flash", ranAt: end + 40_000 });
   const moment: Moment = {
     id: spec.id,
@@ -275,21 +336,39 @@ async function buildOne(spec: Spec, seed: number) {
     judge: op(spec.judge),
     skeptic: op(spec.skeptic),
     score: { ...spec.score, model: "gemini-3.5-flash", ranAt: end + 40_000 },
-    seal: { sealed, at: end + 60_000, checks: spec.checks, reason: spec.sealReason, version: 2 },
+    seal: { sealed, at: end + 60_000, checks: sealChecks, reason: spec.sealReason, version: 3, ladderEligible: integrity },
+    bar: {
+      value: barValue,
+      difficulty: v3.difficulty,
+      rationale: v3.rationale,
+      factors: v3.factors,
+      source: "ai",
+      model: "gemini-3.5-flash",
+      ranAt: end + 20_000,
+    },
+    verification: { version: 3, baseline: spec.score.probability, score, bar: barValue, verified: score >= barValue, modules },
+    witness: { ...v3.witness, mode: "on_device" },
   };
   const hero = chunks.find((c) => c.seq === heroSeq)?.frame?.jpegB64 ?? null;
   const feed: FeedEntry = {
     momentId: spec.id,
-    owner: moment.owner,
+    owner: moment.owner!,
     intention: moment.intention,
     platform: spec.platform,
     summary,
     onDeviceMode: spec.mode,
     status: moment.status as FeedEntry["status"],
     sealReason: spec.sealReason,
-    checks: spec.checks,
+    checks: sealChecks,
     judgeReasons: spec.judge.reasons,
-    verificationScore: spec.score.probability,
+    verificationScore: score,
+    baselineScore: spec.score.probability,
+    bar: barValue,
+    barRationale: v3.rationale,
+    difficulty: v3.difficulty,
+    ladder: modules.map((m) => ({ module: m.module, title: m.title, passed: m.passed, before: m.before, after: m.after, reasons: m.reasons.slice(0, 2) })),
+    witness: v3.witness,
+    sealVersion: 3,
     scoreReasons: spec.score.reasons,
     heroJpegB64: hero,
     track: downsample(gps.map((g) => [g[1], g[2]] as [number, number]), 200),

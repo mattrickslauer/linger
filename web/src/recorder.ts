@@ -3,15 +3,18 @@
 // replays them in order when the network returns. Each one is first journaled (awaited) to the raw vault
 // (vault.ts), so this browser keeps its own copy until the server provably has every chunk. Order matters for the security rules: the last
 // chunk is queued before the moment flips to "submitted".
+// Guest mode (docs/ARCHITECTURE.md v3.1): with no signed-in user the session writes ONLY the raw-vault journal
+// (ownerUid: null, owner: null, guest: true). Nothing is queued for Firestore; claimMoments() uploads it later.
 
 import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { cloudReview, liveCheck } from "./ai";
-import { makeChunk } from "./chain";
+import { makeChunk, sha256hex } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
-import type { AppEvent, Category, CheckMode, Chunk, GpsRow, LiveCheck, MotionRow } from "./types";
-import { forgetMoment, journalChunk, journalMoment, journalMomentUpdate, verifyAll } from "./vault";
+import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, MotionRow } from "./types";
+import { answerEvent, frameEvent, nextWid, openRequest, skipEvent, witnessEvent, witnessSummary, type AnswerVia, type WitnessBy, type WitnessKind, type WitnessLog, type WitnessRequest } from "./witness";
+import { forgetMoment, journalChunk, journalClip, journalMoment, journalMomentUpdate, journalOk, verifyAll } from "./vault";
 
 export const CHUNK_MS = 5000;
 export const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -32,6 +35,9 @@ export interface LiveState {
   queued: number;
   online: boolean;
   vaultError: string | null; // a raw-vault journal write failed: nothing more is written
+  witnessOpen: WitnessRequest | null; // the witness's open request, if any (v3.4)
+  witnessAsked: number;
+  witnessAnswered: number;
 }
 
 function deviceInfo() {
@@ -76,14 +82,21 @@ export class Session {
   private lastMotionT = 0;
   private pending = new Set<number>();
   private heroSeq: number | null = null;
+  readonly witness: WitnessLog = { requests: [] };
+  /** Coach labels of the proof frames so far, for the witness's `{{session}}`. */
+  readonly labels: string[] = [];
+  gpsCount = 0;
   state: LiveState;
   onChange: (s: LiveState) => void = () => {};
 
+  readonly guest: boolean;
   constructor(
-    private user: User,
-    readonly intention: string,
-    readonly category: Category,
+    private user: User | null,
+    public intentionObj: Intention,
+    /** The interview transcript: journal-only, never sent to Firestore (contract v3.2). */
+    private transcript?: string[],
   ) {
+    this.guest = !user;
     this.state = {
       elapsedMs: 0,
       distanceM: 0,
@@ -100,6 +113,9 @@ export class Session {
       queued: 0,
       online: navigator.onLine,
       vaultError: null,
+      witnessOpen: null,
+      witnessAsked: 0,
+      witnessAnswered: 0,
     };
   }
 
@@ -108,14 +124,22 @@ export class Session {
     this.onChange(this.state);
   }
 
+  get intention(): string {
+    return this.intentionObj.text;
+  }
+  get category() {
+    return this.intentionObj.category;
+  }
+
   /** Journals and queues the moment create; rejects if the raw vault can't be written. */
   async start() {
-    if (!db) throw new Error("Firebase is not configured");
-    const ref = doc(db, "moments", this.id);
+    if (this.guest ? !journalOk() : !db) throw new Error(this.guest ? "This browser can't store Moments (IndexedDB is unavailable)." : "Firebase is not configured");
+    const u = this.user;
     const fields = {
-      ownerUid: this.user.uid,
-      owner: { name: this.user.displayName || "Anonymous", photoURL: this.user.photoURL ?? null },
-      intention: { text: this.intention.slice(0, 200), category: this.category },
+      ownerUid: u ? u.uid : null,
+      owner: u ? { name: u.displayName || "Anonymous", photoURL: u.photoURL ?? null } : null,
+      ...(u ? {} : { guest: true }),
+      intention: { ...this.intentionObj, text: this.intentionObj.text.slice(0, 200) },
       platform: "web",
       device: deviceInfo(),
       status: "recording",
@@ -135,8 +159,8 @@ export class Session {
     recordingId = this.id;
     // Journal first, inside the write queue so the create still precedes every chunk.
     const create = this.queue.then(async () => {
-      await journalMoment(this.id, fields);
-      setDoc(ref, fields).catch((e) => console.error("moment create failed", e));
+      await journalMoment(this.id, this.transcript?.length ? { ...fields, transcript: this.transcript } : fields);
+      if (!this.guest) setDoc(doc(db!, "moments", this.id), fields).catch((e) => console.error("moment create failed", e));
     });
     this.queue = create;
     await create;
@@ -151,6 +175,7 @@ export class Session {
           const row: GpsRow = [p.timestamp || Date.now(), c.latitude, c.longitude, c.accuracy, c.altitude ?? null, c.speed ?? null];
           this.gps.push(row);
           this.allGps.push(row);
+          this.gpsCount++;
           this.emit({ gps: row, gpsError: null, distanceM: trackDistanceM(this.allGps) });
         },
         (e) => this.emit({ gpsError: e.message || "Location unavailable" }),
@@ -204,6 +229,10 @@ export class Session {
       this.prevHash = c.hash;
       await journalChunk(this.id, c); // raw vault first; throws (and stops the queue) rather than skip
       this.chunks.push(c);
+      if (this.guest) {
+        this.emit({ chunks: this.chunks.length });
+        return;
+      }
       this.pending.add(seq);
       setDoc(doc(db!, "moments", this.id, "chunks", pad6(seq)), c).then(
         () => {
@@ -223,15 +252,73 @@ export class Session {
     return job;
   }
 
-  /** Proof shot: on-device coach first, then the frame and its verdict close a chunk together. */
-  async proofShot(jpegB64: string, frameSha: string, w: number, h: number): Promise<LiveCheck> {
+  // ---------------------------------------------------------------- witness (v3.4): events ride the next chunk
+
+  private emitWitness() {
+    const sum = witnessSummary(this.witness);
+    this.emit({ witnessOpen: openRequest(this.witness), witnessAsked: sum.asked, witnessAnswered: sum.answered });
+  }
+
+  /** Record a witness request in the chain and open it. */
+  witnessAsk(ask: string, kind: WitnessKind, why: string, by: WitnessBy): WitnessRequest {
+    const r: WitnessRequest = { wid: nextWid(this.witness), ask, kind, why, by, at: Date.now() };
+    this.witness.requests.push(r);
+    this.events.push(witnessEvent(r.at, r.wid, ask, kind, by));
+    this.emitWitness();
+    return r;
+  }
+
+  /** Answer the open request by voice, text or "done" (a frame answer goes through proofShot). */
+  witnessAnswer(via: Exclude<AnswerVia, "frame">, text?: string) {
+    const r = openRequest(this.witness);
+    if (!r) return;
     const t = Date.now();
+    Object.assign(r, { outcome: "answered", via, text: text?.slice(0, 200), closedAt: t });
+    this.events.push(answerEvent(t, r.wid, via, text));
+    this.emitWitness();
+  }
+
+  witnessSkip(reason?: string) {
+    const r = openRequest(this.witness);
+    if (!r) return;
+    const t = Date.now();
+    Object.assign(r, { outcome: "skipped", closedAt: t });
+    this.events.push(skipEvent(t, r.wid, reason));
+    this.emitWitness();
+  }
+
+  // ---------------------------------------------------------------- video clips (`video_start` / `video`)
+
+  videoStart() {
+    this.events.push({ t: Date.now(), type: "video_start" });
+  }
+
+  /**
+   * A finished clip: its bytes go into the vault (never the chain), the `video` event commits to their SHA-256, and
+   * the clip's middle frame is coached and chained as the proof frame of the same chunk.
+   */
+  async videoClip(c: { blob: Blob; mime: string; startedAt: number; durationMs: number; sha256: string; middle: { jpegB64: string; w: number; h: number } }) {
+    const ext = c.mime.includes("mp4") ? "mp4" : "webm";
+    const name = `verified-${this.id.slice(0, 8)}-${c.startedAt}.${ext}`;
+    await journalClip({ sha256: c.sha256, momentId: this.id, blob: c.blob, mime: c.mime, bytes: c.blob.size, durationMs: c.durationMs, name });
+    const ev: AppEvent = { t: Date.now(), type: "video", sha256: c.sha256, bytes: c.blob.size, durationMs: c.durationMs, startedAt: c.startedAt, name };
+    return this.proofShot(c.middle.jpegB64, await sha256hex(c.middle.jpegB64), c.middle.w, c.middle.h, undefined, [ev]);
+  }
+
+  /** Proof shot: on-device coach first, then the frame and its verdict close a chunk together. `wid` answers a witness "show". */
+  async proofShot(jpegB64: string, frameSha: string, w: number, h: number, wid?: string, extraEvents: AppEvent[] = []): Promise<LiveCheck> {
+    const t = Date.now();
+    const req = wid ? this.witness.requests.find((r) => r.wid === wid && !r.outcome) : undefined;
     this.checking = true;
     this.emit({ coach: { ok: true, reason: "Checking…", label: "", mode: "none", pending: true } });
-    const res = await liveCheck(this.intention, jpegB64);
+    // The coach checks a witness answer against what the witness asked for.
+    const res = await liveCheck(req ? `${this.intention} — witness asked: ${req.ask}` : this.intention, jpegB64);
     const check: LiveCheck = { ok: res.ok, reason: res.reason, mode: res.mode, label: res.label };
+    if (req) Object.assign(req, { outcome: "answered", via: "frame", closedAt: Date.now() });
     const events: AppEvent[] = [
-      { t, type: "frame" },
+      ...extraEvents,
+      frameEvent(t, req?.wid),
+      ...(req ? [answerEvent(t, req.wid, "frame")] : []),
       { t: Date.now(), type: "check", ok: check.ok, mode: check.mode },
     ];
     if (!check.ok) events.push({ t: Date.now(), type: "retake", reason: check.reason });
@@ -239,6 +326,8 @@ export class Session {
     const seqOfFrame = this.seq;
     await this.close({ frame: { jpegB64, w, h, t }, frameSha, check, events });
     if (check.ok) this.heroSeq = seqOfFrame;
+    this.labels.push(check.label);
+    if (req) this.emitWitness();
     this.emit({
       coach: check,
       frames: this.state.frames + 1,
@@ -266,6 +355,7 @@ export class Session {
   async finish(): Promise<void> {
     this.stopSensors();
     const end = Date.now();
+    if (openRequest(this.witness)) this.witnessSkip("stopped"); // open requests close with reason "stopped"
     await this.close({ events: [{ t: end, type: "stop" }] });
     await this.queue;
     const endedAt = Math.max(end, this.lastT);
@@ -278,9 +368,13 @@ export class Session {
       headHash: this.prevHash,
       summary: computeSummary(this.startedAt, endedAt, this.chunks, this.heroSeq),
       onDevice: { mode, checks: this.state.checks, retakes: this.state.retakes },
+      witness: witnessSummary(this.witness),
+      // Edits made on the claim card while recording ride the submit; frozen after (rules).
+      intention: this.intentionObj,
       submittedAtServer: serverTimestamp(),
     };
     await journalMomentUpdate(this.id, submit);
+    if (this.guest) return;
     updateDoc(doc(db!, "moments", this.id), submit).catch((e) => console.error("submit failed", e));
     void verifyAll();
   }
@@ -290,11 +384,22 @@ export class Session {
   }
 }
 
-/** Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update. */
-export async function runCloudReview(momentId: string, moment: Parameters<typeof cloudReview>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
-  const review = await cloudReview(moment, frames);
-  await updateDoc(doc(db!, "moments", momentId), review);
-  return review;
+const reviews = new Map<string, Promise<unknown>>();
+/**
+ * Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update.
+ * One run per Moment at a time: the Done screen and the guest-claim flow may both ask for the same one.
+ */
+export function runCloudReview(momentId: string, moment: Parameters<typeof cloudReview>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
+  const inFlight = reviews.get(momentId);
+  if (inFlight) return inFlight as ReturnType<typeof run>;
+  const run = async () => {
+    const review = await cloudReview(moment, frames);
+    await updateDoc(doc(db!, "moments", momentId), review);
+    return review;
+  };
+  const p = run().finally(() => reviews.delete(momentId));
+  reviews.set(momentId, p);
+  return p;
 }
 
 /** Grab a proof frame from a playing <video>: longest side 640 px, JPEG q0.6, under ~120 KB base64. */
