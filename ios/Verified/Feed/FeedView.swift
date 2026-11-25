@@ -114,6 +114,9 @@ struct MomentCard: View {
           Text("\(formatDuration(ms: s.durationMs)) · \(formatDistance(s.distanceM)) · \(s.frameCount) \(s.frameCount == 1 ? "frame" : "frames")")
             .font(.subheadline.monospacedDigit())
         }
+        if let bar = item.bar {
+          ScoreBarLine(score: item.displayScore, bar: bar.value, ladderCount: item.ladder.count, verified: item.isVerified)
+        }
         HStack(spacing: 6) {
           Chip(text: item.platform.isEmpty ? "?" : platformName(item.platform), systemImage: platformIcon(item.platform))
           if item.onDeviceMode == "on_device" {
@@ -127,6 +130,32 @@ struct MomentCard: View {
     .background(Theme.card)
     .clipShape(RoundedRectangle(cornerRadius: 18))
     .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+  }
+}
+
+/// "score 0.83 · bar 0.80" with a gauge and a ladder chip ("+2 checks") — v3.8 card line.
+struct ScoreBarLine: View {
+  let score: Double?
+  let bar: Double
+  var ladderCount = 0
+  var verified = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        if let score {
+          Text("score \(String(format: "%.2f", score))").foregroundStyle(score >= bar ? Theme.accent : Theme.bad)
+          Text("·").foregroundStyle(.tertiary)
+        }
+        Text("bar \(String(format: "%.2f", bar))").foregroundStyle(Theme.warn)
+        Spacer(minLength: 0)
+        if ladderCount > 0 {
+          Chip(text: "+\(ladderCount) \(ladderCount == 1 ? "check" : "checks")", systemImage: "stairs", color: .purple)
+        }
+      }
+      .font(.subheadline.weight(.semibold).monospacedDigit())
+      BarGauge(score: score, bar: bar).frame(height: 6)
+    }
   }
 }
 

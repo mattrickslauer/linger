@@ -44,6 +44,8 @@ targets:
         buildPhase: resources
       - path: ../shared/prompts.json
         buildPhase: resources
+      - path: ../shared/ladder.json
+        buildPhase: resources
     info:
       path: Verified/Info.plist
       properties:
