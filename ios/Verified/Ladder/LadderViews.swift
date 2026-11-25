@@ -1,14 +1,41 @@
 import SwiftUI
 import VerifiedCore
 
-/// Which ladder modules a Moment can run, from what its chain and intention hold (contract v3.6 `needs`).
-/// The function re-checks everything; this only disables offers that would fail.
+/// Which ladder modules a Moment can run, from what its chain and intention hold (contract v3.6 `needs`, v4.6
+/// `backs`). The function re-checks everything; this only disables offers that would fail.
 struct LadderNeeds {
   let card: MomentCardData
   let model: MomentDetailModel
 
+  /// v4: the claims this module would move (kind in `backs`; witness_review only the targeted ones).
+  func backedClaims(_ m: LadderCatalog.Module) -> [Claim] {
+    let ids = V4.claimsBacked(byModule: m.backKinds, targetedOnly: m.backsTargetedOnly ?? false, claims: card.claims,
+                              requirements: card.plan?.requirements ?? [], witness: model.witnessFacts)
+    return card.claims.filter { ids.contains($0.id) }
+  }
+
   /// nil when met, else why not ("Needs …").
   func unmet(_ m: LadderCatalog.Module) -> String? {
+    if card.isV4 {
+      for need in m.needs {
+        switch need {
+        case "frames" where max(card.summary?.frameCount ?? 0, model.frames.count) == 0:
+          return "Needs at least one proof frame"
+        case "gps" where model.track.isEmpty:
+          return "Needs GPS in the recording"
+        case "witness_answered" where max(model.witnessAnswers, card.witnessAnswered) == 0:
+          return "Needs an answered witness request"
+        case "quantities" where !card.claims.contains(where: { $0.kind.hasQuantity }):
+          return "Needs a count or measure claim"
+        case "video" where model.videos.isEmpty:
+          return "Needs a video clip in the recording"
+        case "video" where card.videoReview?.status == "expired":
+          return "The clip never arrived"
+        default: continue
+        }
+      }
+      return backedClaims(m).isEmpty ? "Backs none of this Moment's claims" : nil
+    }
     for need in m.needs {
       switch need {
       case "frames" where max(card.summary?.frameCount ?? 0, model.frames.count) == 0:
@@ -47,12 +74,29 @@ struct LadderSheet: View {
   private var score: Double? { card.finalScore ?? card.baselineScore ?? card.score?.probability }
   private var ran: Set<String> { Set(card.ladder.map(\.module)) }
 
+  /// The Moment score if this module passes / fails: v3 moves the one score; v4 moves only the claims it backs
+  /// (score = min over claims, v4.5).
+  private func preview(_ m: LadderCatalog.Module) -> (pass: Double, fail: Double)? {
+    guard let p = score else { return nil }
+    guard card.isV4, !card.claimScores.isEmpty else { return V4.preview(claimP: p, strength: m.strength) }
+    let backed = Set(LadderNeeds(card: card, model: model).backedClaims(m).map(\.id))
+    func total(_ passed: Bool) -> Double {
+      card.claims.compactMap { c -> Double? in
+        guard let cp = card.claimScores[c.id]?.p else { return nil }
+        return backed.contains(c.id) ? V3Math.step(cp, strength: m.strength, passed: passed) : cp
+      }.min() ?? p
+    }
+    return (total(true), total(false))
+  }
+
   var body: some View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           header
-          if let result { ResultBanner(result: result).transition(.scale.combined(with: .opacity)) }
+          if let result {
+            ResultBanner(result: result, claims: card.claims).transition(.scale.combined(with: .opacity))
+          }
           if let error {
             Label(error, systemImage: "exclamationmark.triangle.fill")
               .font(.footnote).foregroundStyle(Theme.bad)
@@ -78,9 +122,8 @@ struct LadderSheet: View {
         Button("Spend \(m.cost) \(m.cost == 1 ? "credit" : "credits")") { run(m) }
         Button("Cancel", role: .cancel) {}
       } message: { m in
-        if let p = score {
-          Text(String(format: "If it passes → %.2f · if it fails → %.2f. Credits are spent either way.",
-                      V3Math.step(p, strength: m.strength, passed: true), V3Math.step(p, strength: m.strength, passed: false)))
+        if let pv = preview(m) {
+          Text(String(format: "If it passes → %.2f · if it fails → %.2f. Credits are spent either way.", pv.pass, pv.fail))
         }
       }
     }
@@ -138,13 +181,18 @@ struct LadderSheet: View {
           .accessibilityLabel("\(m.cost) credits")
       }
       if let done {
-        LadderEntryRow(entry: done)
+        LadderEntryRow(entry: done, claims: card.claims)
       } else if !m.available {
         Chip(text: "Coming soon", systemImage: "clock")
       } else {
-        if let p = score {
-          Text(String(format: "if it passes → %.2f · if it fails → %.2f",
-                      V3Math.step(p, strength: m.strength, passed: true), V3Math.step(p, strength: m.strength, passed: false)))
+        if card.isV4 {
+          let backed = LadderNeeds(card: card, model: model).backedClaims(m)
+          if !backed.isEmpty {
+            FlowChips { ForEach(backed) { ClaimChip(claim: $0, tint: .purple) } }
+          }
+        }
+        if let pv = preview(m) {
+          Text(String(format: "if it passes → %.2f · if it fails → %.2f", pv.pass, pv.fail))
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
         HStack {
@@ -157,7 +205,8 @@ struct LadderSheet: View {
           if running == m.id {
             HStack(spacing: 6) {
               ProgressView().controlSize(.small)
-              Text(m.id == "full_video" ? "Uploading the clip, then reviewing…" : "Running in the cloud…").font(.caption)
+              Text(m.id == "full_video" && !card.isV4 ? "Uploading the clip, then reviewing…" : "Running in the cloud…")
+                .font(.caption)
             }
           } else {
             Button { confirm = m } label: {
@@ -185,7 +234,10 @@ struct LadderSheet: View {
       Task {
         defer { running = nil }
         do {
-          let clipSha = m.id == "full_video" ? try await ClipUpload.prepare(momentId: id, videos: model.videos) : nil
+          // v4: the clip was uploaded at submit; v3 Moments upload it now.
+          let clipSha: String? = m.id != "full_video" ? nil
+            : card.isV4 ? model.videos.last?.sha256
+            : try await ClipUpload.prepare(momentId: id, videos: model.videos)
           let r = try await LadderService.run(momentId: id, module: m.id, requestId: requestId, clipSha: clipSha)
           requestIds[m.id] = nil
           app.credits.set(balance: r.balance)
@@ -207,6 +259,7 @@ struct LadderSheet: View {
 /// The run that just finished: pass/fail, before → after, the model's reasons and anything it measured.
 private struct ResultBanner: View {
   let result: LadderService.RunResult
+  var claims: [Claim] = []
 
   var body: some View {
     let color = result.passed ? Theme.accent : Theme.bad
@@ -223,6 +276,7 @@ private struct ResultBanner: View {
       }
       .foregroundStyle(color)
       ForEach(result.reasons.prefix(4), id: \.self) { Text("• \($0)").font(.footnote) }
+      if !result.claims.isEmpty { ClaimOutcomeList(outcomes: result.claims, claims: claims) }
       if !result.measured.isEmpty {
         FlowChips {
           ForEach(result.measured, id: \.self) { m in
@@ -236,9 +290,33 @@ private struct ResultBanner: View {
   }
 }
 
+/// v4: per claim, how a module moved it: "✓ 50 claps 0.40 → 0.58".
+struct ClaimOutcomeList: View {
+  let outcomes: [LadderEntry.ClaimOutcome]
+  let claims: [Claim]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ForEach(outcomes) { o in
+        HStack(spacing: 6) {
+          Image(systemName: o.passed ? "checkmark.circle.fill" : "xmark.circle")
+            .foregroundStyle(o.passed ? Theme.accent : Theme.bad)
+          Text(claims.first { $0.id == o.id }?.text ?? o.id).lineLimit(1)
+          if o.verdict == "missing" { Text("no verdict").foregroundStyle(.secondary) }
+          Spacer(minLength: 4)
+          Text(String(format: "%.2f → %.2f", o.before, o.after)).monospacedDigit()
+            .foregroundStyle(o.after >= o.before ? Theme.accent : Theme.bad)
+        }
+        .font(.caption.weight(.medium))
+      }
+    }
+  }
+}
+
 /// One public ladder result (detail screen and the ladder sheet).
 struct LadderEntryRow: View {
   let entry: LadderEntry
+  var claims: [Claim] = []
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -251,6 +329,7 @@ struct LadderEntryRow: View {
           .font(.subheadline.monospacedDigit())
           .foregroundStyle(entry.after >= entry.before ? Theme.accent : Theme.bad)
       }
+      if !entry.claims.isEmpty { ClaimOutcomeList(outcomes: entry.claims, claims: claims) }
       ForEach(entry.reasons.prefix(3), id: \.self) {
         Text($0).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
@@ -278,7 +357,7 @@ struct LadderSection: View {
       if m.ladder.isEmpty {
         Text("No extra checks yet.").font(.footnote).foregroundStyle(.secondary)
       }
-      ForEach(m.ladder) { e in LadderEntryRow(entry: e) }
+      ForEach(m.ladder) { e in LadderEntryRow(entry: e, claims: m.claims) }
       if owner && m.ladderEligible {
         Button { showing = true } label: {
           Label(m.ladder.isEmpty ? "Raise the score" : "More checks", systemImage: "chart.line.uptrend.xyaxis")
@@ -296,6 +375,53 @@ struct LadderSection: View {
   /// Show the section when there is something to show or to do.
   static func visible(_ m: MomentCardData, uid: String?) -> Bool {
     !m.ladder.isEmpty || (m.ownerUid != nil && m.ownerUid == uid && m.ladderEligible)
+  }
+}
+
+/// v4.11 detail: under a claim, the modules that can still back it, with what its score would become
+/// ("Count & measure · if it passes → 0.58 · if it fails → 0.28"). Owner only, ladder-eligible v4 Moments.
+struct ModuleOffers: View {
+  @Environment(AppModel.self) private var app
+  let model: MomentDetailModel
+  let claim: Claim
+  @State private var showing = false
+
+  var body: some View {
+    let m = model.card
+    let owner = m.ownerUid != nil && m.ownerUid == app.auth.user?.uid
+    let needs = LadderNeeds(card: m, model: model)
+    let ran = Set(m.ladder.map(\.module))
+    let offers = LadderCatalog.shared.modules.filter { mod in
+      mod.available && !ran.contains(mod.id) && needs.unmet(mod) == nil
+        && needs.backedClaims(mod).contains { $0.id == claim.id }
+    }
+    if owner && m.isV4 && m.ladderEligible, let p = m.claimScores[claim.id]?.p, !offers.isEmpty {
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(offers) { mod in
+          let pv = V4.preview(claimP: p, strength: mod.strength)
+          Button { showing = true } label: {
+            HStack(spacing: 8) {
+              Image(systemName: "chart.line.uptrend.xyaxis").font(.caption).foregroundStyle(.purple)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(mod.title).font(.caption.weight(.semibold)).foregroundStyle(.primary)
+                Text(String(format: "if it passes → %.2f · if it fails → %.2f", pv.pass, pv.fail))
+                  .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+              }
+              Spacer(minLength: 4)
+              Text("\(mod.cost)").font(.caption.weight(.bold).monospacedDigit())
+                .frame(minWidth: 22, minHeight: 22)
+                .background(Color.purple.opacity(0.12), in: Circle()).foregroundStyle(.purple)
+                .accessibilityLabel("\(mod.cost) credits")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(Color.purple.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.leading, 26)
+      .sheet(isPresented: $showing) { LadderSheet(model: model).presentationDetents([.large]) }
+    }
   }
 }
 

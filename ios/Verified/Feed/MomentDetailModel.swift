@@ -32,6 +32,8 @@ final class MomentDetailModel {
   /// From the chain, for the ladder's `needs` (v3.6): answered witness requests and chained video clips.
   private(set) var witnessAnswers = 0
   private(set) var videos: [ChainVideo] = []
+  /// v4: every witness request in the chain with its plan `rid` and whether it was answered (for witness_review).
+  private(set) var witnessFacts: [V4.WitnessFact] = []
   private(set) var loading = false
   var error: String?
   @ObservationIgnored private var listener: ListenerRegistration?
@@ -102,6 +104,7 @@ final class MomentDetailModel {
       motion = parsed.motion
       witnessAnswers = parsed.witnessAnswers
       videos = parsed.videos
+      witnessFacts = parsed.witness
       if !parsed.track.isEmpty { track = parsed.track }
       if card.heroJpegB64 == nil, let hero = parsed.heroB64 { card.heroJpegB64 = hero }
     } catch {
@@ -139,6 +142,7 @@ final class MomentDetailModel {
   nonisolated struct Parsed: @unchecked Sendable {  // CGImage is immutable
     var witnessAnswers = 0
     var videos: [ChainVideo] = []
+    var witness: [V4.WitnessFact] = []
     var chunkCount = 0
     var chainOK = false
     var frames: [Frame] = []
@@ -157,6 +161,9 @@ final class MomentDetailModel {
     let t0 = startedAt > 0 ? startedAt : (docs.first?.t0 ?? 0)
 
     var rawMotion: [(Double, Double)] = []
+    var rids: [String: String?] = [:]
+    var widOrder: [String] = []
+    var answered = Set<String>()
     var okHero: String?
     var anyHero: String?
     for row in docs {
@@ -168,7 +175,15 @@ final class MomentDetailModel {
       }
       for e in (obj["events"] as? [[String: Any]]) ?? [] {
         switch e["type"] as? String {
-        case "witness_answer": out.witnessAnswers += 1
+        case "witness":
+          if let wid = e["wid"] as? String, rids[wid] == nil {
+            widOrder.append(wid)
+            let rid = (e["rid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            rids[wid] = .some(rid)
+          }
+        case "witness_answer":
+          out.witnessAnswers += 1
+          if let wid = e["wid"] as? String { answered.insert(wid) }
         case "video":
           if let sha = e["sha256"] as? String {
             out.videos.append(ChainVideo(sha256: sha, name: e["name"] as? String ?? "",
@@ -198,6 +213,7 @@ final class MomentDetailModel {
       }
     }
     out.heroB64 = okHero ?? anyHero
+    out.witness = widOrder.map { V4.WitnessFact(wid: $0, rid: rids[$0] ?? nil, answered: answered.contains($0)) }
     // Downsample motion to ≤ 400 points for the chart.
     let step = max(1, rawMotion.count / 400)
     out.motion = stride(from: 0, to: rawMotion.count, by: step).map {

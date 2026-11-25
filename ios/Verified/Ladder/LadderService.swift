@@ -27,6 +27,9 @@ nonisolated enum LadderService {
     var balance: Int
     var reasons: [String]
     var measured: [Measured]
+    /// v4 Moments: which claims the module moved (`claims: ModuleClaimOutcome[]`) and the new count backed.
+    var claims: [LadderEntry.ClaimOutcome] = []
+    var claimsBacked: Int?
   }
 
   struct Measured: Sendable, Equatable, Hashable { var metric: String; var value: Double; var unit: String }
@@ -49,7 +52,8 @@ nonisolated enum LadderService {
       case "needs_frames": "Needs at least one proof frame."
       case "needs_gps": "Needs GPS in the recording."
       case "needs_witness_answered": "Needs at least one answered witness request."
-      case "needs_quantities": "Needs a number in the intention (from the interview)."
+      case "needs_quantities": "Needs a count or measure claim."
+      case "no_claims_backed": "This module can't back any of this Moment's claims."
       case "needs_video", "clip_missing": "Upload the chained video clip first."
       case "clip_hash_mismatch": "The uploaded clip doesn't match the hash in the chain. No credits were spent."
       case "model_failed": "The model couldn't finish. Your credits were refunded."
@@ -82,7 +86,9 @@ nonisolated enum LadderService {
       measured: (d["measured"] as? [[String: Any]] ?? []).compactMap { m in
         guard let metric = m.str("metric"), let v = m.dbl("value") else { return nil }
         return Measured(metric: metric, value: v, unit: m.str("unit") ?? "")
-      })
+      },
+      claims: (d["claims"] as? [[String: Any]] ?? []).compactMap(LadderEntry.ClaimOutcome.init),
+      claimsBacked: d.int("claimsBacked"))
   }
 
   /// Completion-based call so no non-Sendable `[String: Any]` crosses an isolation boundary: the request goes in

@@ -156,6 +156,7 @@ struct ClaimRow: View {
         Text("No evidence plan for this claim: it can't reach the bar for free.")
           .font(.caption).foregroundStyle(.secondary).padding(.leading, 26)
       }
+      ModuleOffers(model: model, claim: claim)
     }
   }
 

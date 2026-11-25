@@ -213,7 +213,7 @@ struct LadderEntry: Sendable, Equatable, Identifiable {
   var claims: [ClaimOutcome] = []
   var id: String { runId.isEmpty ? module : runId }
 
-  struct ClaimOutcome: Sendable, Equatable, Identifiable {
+  nonisolated struct ClaimOutcome: Sendable, Equatable, Identifiable {
     var id: String
     var verdict: String
     var confidence: Double
