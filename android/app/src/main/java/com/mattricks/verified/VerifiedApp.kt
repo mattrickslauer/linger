@@ -14,6 +14,7 @@ import com.google.firebase.initialize
 import com.google.firebase.remoteconfig.remoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
 import com.mattricks.verified.ai.Ai
+import com.mattricks.verified.data.Claims
 import com.mattricks.verified.data.Prefs
 import com.mattricks.verified.data.Vault
 import com.mattricks.verified.devices.Devices
@@ -47,7 +48,9 @@ class VerifiedApp : Application() {
             val host = BuildConfig.EMULATOR_HOST
             db.useEmulator(host, 8080)
             Firebase.auth.useEmulator(host, 9099)
-            Log.i(TAG, "Using Firebase Emulator Suite at $host (firestore 8080, auth 9099)")
+            com.google.firebase.functions.FirebaseFunctions.getInstance("us-central1").useEmulator(host, 5001)
+            com.google.firebase.storage.FirebaseStorage.getInstance().useEmulator(host, 9199)
+            Log.i(TAG, "Using Firebase Emulator Suite at $host (firestore 8080, auth 9099, functions 5001, storage 9199)")
         }
 
         // Model name from Remote Config key `cloud_model` (contract default gemini-3.5-flash).
@@ -59,13 +62,18 @@ class VerifiedApp : Application() {
         }.onFailure { Log.w(TAG, "remote config", it) }
 
         Prefs.init(this)
+        com.mattricks.verified.voice.Voice.init(this)
+        com.mattricks.verified.witness.WitnessNotifier.init(this)
         Devices.init(this)
         if (BuildConfig.MAPBOX_TOKEN.isNotBlank()) MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
 
         Ai.warmUp(this)
+        com.mattricks.verified.data.Ladder.init(this)
         Judging.init(this)
         Vault.init(this)
-        Firebase.auth.addAuthStateListener { if (it.currentUser != null) { Judging.kick(); vaultScope.launch { Vault.verifyAll() } } }
+        Firebase.auth.addAuthStateListener {
+            if (it.currentUser != null) { Judging.kick(); vaultScope.launch { Vault.verifyAll() }; Claims.maybeOffer() }
+        }
         // Raw data leaves the phone only once the server provably has all of it; re-check while the app runs.
         vaultScope.launch {
             while (true) {

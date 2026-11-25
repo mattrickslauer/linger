@@ -187,6 +187,75 @@ object Ai {
     private fun reasonsOf(j: JSONObject) =
         j.optJSONArray("reasons")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty().take(4)
 
+    // ---------- v3 prompts (docs/ARCHITECTURE.md v3.2, v3.4, v3.10): interview, structuring, bar preview, witness ----------
+
+    /** A JSON reply plus where it ran: "on_device" | "cloud". */
+    data class Hybrid(val json: JSONObject, val mode: String)
+
+    /** Text-only model that prefers Gemini Nano; falls back to the cloud model (Firebase AI Logic hybrid). */
+    private val preferOnDeviceText by lazy {
+        Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+            modelName = cloudModel(),
+            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.PREFER_ON_DEVICE, maxOutputTokens = 512),
+        )
+    }
+
+    private fun fill(template: String, vars: Map<String, String>): String =
+        vars.entries.fold(template) { acc, (k, v) -> acc.replace("{{$k}}", v) }
+
+    /**
+     * PREFER_ON_DEVICE: the on-device model is single-turn and has no response schema, so the system text and the
+     * JSON shape are inlined and the reply is parsed leniently. Throws when nothing could run or the reply isn't JSON.
+     */
+    suspend fun preferOnDevice(key: String, vars: Map<String, String>, timeoutMs: Long = 20_000): Hybrid {
+        val schema = prompts?.optJSONObject(key)?.optJSONObject("schema")
+        val text = buildString {
+            append(prompt(key, "system")).append("\n\n")
+            append(fill(prompt(key, "user"), vars))
+            if (schema != null) append("\nRespond with only a JSON object matching this JSON schema: ").append(schema.toString())
+        }
+        val resp = withTimeout(timeoutMs) { preferOnDeviceText.generateContent(text) }
+        val mode = if (resp.inferenceSource == InferenceSource.ON_DEVICE) "on_device" else "cloud"
+        val j = extractJson(resp.text.orEmpty()) ?: throw IllegalStateException("$key: no JSON in reply")
+        return Hybrid(j, mode)
+    }
+
+    /** ONLY_IN_CLOUD with the shared JSON schema from prompts.json as responseSchema. */
+    suspend fun onlyInCloud(key: String, vars: Map<String, String>, images: List<Bitmap> = emptyList(), timeoutMs: Long = 30_000): Hybrid {
+        val schema = prompts?.optJSONObject(key)?.optJSONObject("schema")?.let(::schemaFrom)
+        val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+            modelName = cloudModel(),
+            generationConfig = generationConfig {
+                responseMimeType = "application/json"
+                if (schema != null) responseSchema = schema
+            },
+            systemInstruction = content { text(prompt(key, "system")) },
+            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
+        )
+        val resp = withTimeout(timeoutMs) {
+            model.generateContent(content { text(fill(prompt(key, "user"), vars)); images.forEach { image(it) } })
+        }
+        return Hybrid(extractJson(resp.text.orEmpty()) ?: throw IllegalStateException("$key: no JSON in reply"), "cloud")
+    }
+
+    /** shared/prompts.json JSON schema → Firebase AI Logic Schema (object, array, string, enum, number, integer, boolean). */
+    fun schemaFrom(j: JSONObject): Schema {
+        val desc = j.optString("description").takeIf { it.isNotBlank() }
+        return when (j.optString("type")) {
+            "object" -> {
+                val props = j.optJSONObject("properties") ?: JSONObject()
+                val req = j.optJSONArray("required")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
+                val map = props.keys().asSequence().associateWith { schemaFrom(props.getJSONObject(it)) }
+                Schema.obj(map, optionalProperties = map.keys.filter { it !in req }, description = desc)
+            }
+            "array" -> Schema.array(j.optJSONObject("items")?.let(::schemaFrom) ?: Schema.string(), description = desc)
+            "number" -> Schema.double(desc)
+            "integer" -> Schema.integer(desc)
+            "boolean" -> Schema.boolean(desc)
+            else -> j.optJSONArray("enum")?.let { a -> Schema.enumeration((0 until a.length()).map { a.getString(it) }, desc) } ?: Schema.string(desc)
+        }
+    }
+
     /** Lenient: handles ```json fences or prose around the object. */
     fun extractJson(s: String): JSONObject? {
         val start = s.indexOf('{'); val end = s.lastIndexOf('}')

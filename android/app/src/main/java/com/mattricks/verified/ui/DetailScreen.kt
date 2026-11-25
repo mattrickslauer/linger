@@ -84,8 +84,29 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
             onDismiss = { confirmDelete = false },
         )
         val d = detail
+        var ladderOpen by remember { mutableStateOf(false) }
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        // full_video: the chained clip must still be on this phone (it never left it).
+        val clipRef = d?.videos?.lastOrNull()
+        var clipUri by remember { mutableStateOf<android.net.Uri?>(null) }
+        LaunchedEffect(clipRef?.sha256, ladderOpen) { clipUri = clipRef?.let { com.mattricks.verified.data.Clips.find(ctx, it) } }
+        val runVideo: (suspend (String) -> com.mattricks.verified.data.Ladder.Run)? = clipRef?.let { ref ->
+            clipUri?.let { uri ->
+                { requestId: String ->
+                    val uid = Firebase.auth.currentUser?.uid ?: throw com.mattricks.verified.data.Ladder.RunError("sign_in", "Sign in first.")
+                    val sha = com.mattricks.verified.data.Clips.upload(ctx, uid, momentId, ref, uri)
+                    com.mattricks.verified.data.Ladder.run(momentId, "full_video", clipSha = sha, requestId = requestId)
+                }
+            }
+        }
+        if (ladderOpen && d != null) LadderSheet(
+            d, clipOnPhone = clipUri != null, runVideo = runVideo,
+            onDone = { refresh++ }, onDismiss = { ladderOpen = false; refresh++ },
+        )
         when {
-            d != null -> DetailBody(d, Modifier.padding(pad))
+            d != null -> DetailBody(d, Modifier.padding(pad)) {
+                com.mattricks.verified.auth.Gate.require("run a verification module") { ladderOpen = true }
+            }
             error != null -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text(error ?: "", color = Red) }
             else -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
@@ -93,18 +114,19 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
 }
 
 @Composable
-private fun DetailBody(d: MomentDetail, modifier: Modifier) {
+private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> Unit) {
     var selected by remember(d.frames.size) { mutableIntStateOf((d.frames.size - 1).coerceAtLeast(0)) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(d.card.intention, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            StatusBadge(d.card.status)
+            StatusBadge(d.card.status, d.local)
         }
         Text(
             "${d.card.ownerName} · ${d.card.category} · ${d.card.platform} · ${fmtDuration(d.card.summary.durationMs)} · ${fmtDistance(d.card.summary.distanceM)}",
             color = Color.Gray, style = MaterialTheme.typography.bodySmall,
         )
-        Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        if (d.local) LocalBanner(d)
+        else Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
 
         if (d.frames.isNotEmpty()) {
             val f = d.frames[selected.coerceIn(0, d.frames.size - 1)]
@@ -115,6 +137,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
                     style = MaterialTheme.typography.bodySmall, color = if (c.ok) Green else Red,
                 )
             }
+            f.witnessAsk?.let { Pill("Witness asked: $it", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) }
             Section("Frame timeline")
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(d.frames.indices.toList()) { i ->
@@ -131,6 +154,8 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
             }
         }
 
+        if (d.witness.isNotEmpty()) WitnessSection(d)
+
         Section("Track")
         TrackMap(d.track, Modifier.fillMaxWidth().height(260.dp))
         Text("${d.track.size} GPS fixes", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -141,16 +166,22 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
             Text("|acceleration| m/s² · ${d.motion.size} samples · amber = proof shot", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
 
+        d.intention?.takeIf { it.structured }?.let { IntentionSection(it, d.card.summary.distanceM) }
+
         Section("AI opinions")
         OpinionCard("Judge", d.judge, d.judgeReasons)
         OpinionCard("Skeptic", d.skeptic, emptyList())
-        ScoreCard(d.score)
+        ScoreCard(d.score, d.bar?.value ?: 0.5, baseline = d.verification?.modules?.isNotEmpty() == true)
+        BarCard(d)
+        LadderSection(d, isOwner = d.ownerUid.isNotEmpty() && d.ownerUid == Firebase.auth.currentUser?.uid, onOpenLadder = onOpenLadder)
 
         Section("Seal")
         val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
         val labels = linkedMapOf(
             "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
-            "frames" to "Proof frames match", "ai" to "Judge consistent, skeptic found nothing, score ≥ 50%",
+            "frames" to "Proof frames match",
+            "ai" to if (d.sealVersion >= 3) "Judge consistent, skeptic found nothing" else "Judge consistent, skeptic found nothing, score ≥ 50%",
+            "bar" to "Score reaches the bar" + (d.bar?.let { " (${com.mattricks.verified.data.V3Math.fmt(it.value)})" } ?: ""),
         )
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -167,6 +198,158 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** A guest Moment on this phone only (v3.1): nothing is on the server yet. */
+@Composable
+private fun LocalBanner(d: MomentDetail) {
+    val uploading by com.mattricks.verified.data.Claims.uploading.collectAsState()
+    val guest = remember(d.card.id, uploading) { com.mattricks.verified.data.Vault.isGuest(d.card.id) }
+    if (!guest) {
+        // A signed-in Moment the server doesn't have yet: the raw vault uploads it by itself, no claim needed.
+        Pill("Kept on this phone · syncs when online", Amber)
+        return
+    }
+    Card(Modifier.fillMaxWidth(), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("On this device · sign in to verify", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                "Recorded as a guest. The hash chain binds only this Moment's id, so it uploads unchanged to your account.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            when {
+                d.card.id in uploading -> Text("Uploading…", color = Green)
+                d.card.status == "submitted" -> androidx.compose.material3.Button(onClick = {
+                    com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(d.card.id)) }
+                }) { Text("Upload & verify") }
+            }
+        }
+    }
+}
+
+/** v3.4 witness requests read back from the hash chain, with how each was answered. */
+@Composable
+private fun WitnessSection(d: MomentDetail) {
+    Section("Witness")
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val answered = d.witness.count { it.outcome != null && it.outcome != "skipped" }
+            Text("${d.witness.size} asked · $answered answered · all in the hash chain", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            d.witness.forEach { w ->
+                Row(verticalAlignment = Alignment.Top) {
+                    val (mark, color) = when (w.outcome) {
+                        null -> "…" to Color.Gray
+                        "skipped" -> "–" to Amber
+                        else -> "✓" to Green
+                    }
+                    Text(mark, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(w.ask, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            buildString {
+                                append(w.kind).append(" · ").append(modeChip(w.by))
+                                when (w.outcome) {
+                                    "frame" -> append(" · answered with a proof shot")
+                                    "voice" -> append(" · answered by voice")
+                                    "text" -> append(" · answered in text")
+                                    "done" -> append(" · done")
+                                    "skipped" -> append(" · skipped")
+                                }
+                            },
+                            fontSize = 11.sp, color = Color.Gray,
+                        )
+                        w.answer?.let { Text("“$it”", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** v3.2 structured intention as recorded (frozen once the Moment is submitted). */
+@Composable
+private fun IntentionSection(i: com.mattricks.verified.data.Intention, distanceM: Double) {
+    Section("Intention")
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (i.goal.isNotBlank()) Text(i.goal, fontWeight = FontWeight.SemiBold)
+            listOfNotNull(
+                i.activity.takeIf { it.isNotBlank() },
+                i.place?.label()?.takeIf { it.isNotBlank() },
+                i.expectedMinutes?.let { "~${it.toInt()} min" },
+            ).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+            i.quantities.forEach { q -> Text("• ${q.metric}: ${fmtNum(q.value)} ${q.unit} (by ${q.measuredBy})", style = MaterialTheme.typography.bodyMedium) }
+            measuredHint(i, distanceM)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
+            if (i.conditions.isNotEmpty()) Text("Conditions: " + i.conditions.joinToString(", "), style = MaterialTheme.typography.bodySmall)
+            if (i.assumptions.isNotEmpty()) Text("Assumed: " + i.assumptions.joinToString("; "), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Interview: ${i.interviewTurns} answer(s) · ${modeChip(i.interviewMode)}", fontSize = 11.sp, color = Color.Gray)
+        }
+    }
+}
+
+/**
+ * Sensor-countable numbers measured deterministically on this phone (distance from GPS). The count_measure module
+ * re-measures them server-side; this is only a preview next to the claim.
+ */
+fun measuredHint(i: com.mattricks.verified.data.Intention, distanceM: Double): String? {
+    val q = i.quantities.firstOrNull { it.metric.equals("distance", true) } ?: return null
+    if (distanceM <= 0) return null
+    val claimedM = when (q.unit.lowercase()) {
+        "km", "kilometers", "kilometres" -> q.value * 1000
+        "mi", "mile", "miles" -> q.value * 1609.344
+        "m", "meters", "metres" -> q.value
+        else -> return "GPS measured ${fmtDistance(distanceM)}"
+    }
+    val pct = (100 * distanceM / claimedM).toInt()
+    return "GPS measured ${fmtDistance(distanceM)} · $pct% of the claimed ${fmtNum(q.value)} ${q.unit}"
+}
+
+/** The AI-set bar (v3.3, server-side) against the final score (v3.5). Public on sealed posts. */
+@Composable
+private fun BarCard(d: MomentDetail) {
+    val bar = d.bar
+    val preview = d.intention?.preview
+    val score = d.verification?.score ?: d.score?.probability
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("The bar", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                when {
+                    bar != null -> Pill(if (bar.source == "default") "standard bar" else "set by AI · cloud", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                    preview != null -> Pill("preview · ${modeChip(preview.mode)}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            when {
+                bar != null -> {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        if (score != null) {
+                            Text(com.mattricks.verified.data.V3Math.fmt(score), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = if (score >= bar.value) Green else Amber)
+                            Text("  score", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+                            Spacer(Modifier.width(16.dp))
+                        }
+                        Text(com.mattricks.verified.data.V3Math.fmt(bar.value), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        Text("  bar", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+                    }
+                    BarMeter(score, bar.value, Modifier.fillMaxWidth())
+                    if (bar.rationale.isNotBlank()) Text(bar.rationale, style = MaterialTheme.typography.bodyMedium)
+                    bar.factors.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    Text(
+                        "Difficulty ${com.mattricks.verified.data.V3Math.fmt(bar.difficulty)} → bar = 0.5 + 0.45 × difficulty. The score must reach it to be Verified.",
+                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                    )
+                }
+                preview != null -> {
+                    Text("Bar ≈ ${com.mattricks.verified.data.V3Math.fmt(preview.bar)} (preview)", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    BarMeter(null, preview.bar, Modifier.fillMaxWidth())
+                    Text("The binding bar is set in the cloud once the Moment is submitted.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+                else -> Text(
+                    if (d.local) "Set in the cloud once you sign in and upload." else "Set in the cloud once the Moment is submitted.",
+                    color = Color.Gray,
+                )
+            }
+        }
     }
 }
 
@@ -199,16 +382,16 @@ private fun OpinionCard(title: String, o: Opinion?, fallbackReasons: List<String
 }
 
 @Composable
-private fun ScoreCard(s: Score?) {
+private fun ScoreCard(s: Score?, bar: Double, baseline: Boolean) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Verification score", fontWeight = FontWeight.Bold)
+            Text(if (baseline) "Baseline score (before the ladder)" else "Verification score", fontWeight = FontWeight.Bold)
             if (s == null) {
                 Text("Not scored", color = Color.Gray)
             } else {
                 Text(
                     "${(s.probability * 100).toInt()}%", fontSize = 36.sp, fontWeight = FontWeight.Bold,
-                    color = if (s.probability >= 0.5) Green else Red,
+                    color = if (s.probability >= bar) Green else Red,
                 )
                 Text(
                     "Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%).",

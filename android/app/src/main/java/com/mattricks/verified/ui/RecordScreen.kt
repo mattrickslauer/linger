@@ -68,6 +68,8 @@ import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,6 +80,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -109,46 +112,13 @@ import kotlin.math.roundToInt
 
 @Composable
 fun RecordScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
-    if (user == null) { SignInCard(); return }
+    // Guests record too (v3.1): the Moment stays in this phone's journal until they sign in and claim it.
     val vm: RecordViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     when (ui.phase) {
         RecUi.Phase.Idle -> SetupView(ui, vm)
         RecUi.Phase.Recording -> LiveView(ui, vm)
-        RecUi.Phase.Finished -> FinishedView(ui, vm, onOpen)
-    }
-}
-
-@Composable
-private fun SetupView(ui: RecUi, vm: RecordViewModel) {
-    val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.start() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Declare your intention", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(
-            value = ui.intention, onValueChange = vm::setIntention, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Catch and release a largemouth bass at Lake Mission Viejo") }, minLines = 2,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            CATEGORIES.take(3).forEach { c -> FilterChip(selected = ui.category == c, onClick = { vm.setCategory(c) }, label = { Text(c) }) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CATEGORIES.drop(3).forEach { c -> FilterChip(selected = ui.category == c, onClick = { vm.setCategory(c) }, label = { Text(c) }) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                val want = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                if (Prefs.videoAudio.value) want += Manifest.permission.RECORD_AUDIO
-                if (Devices.state.value.savedAddress != null) want += Devices.permissions()
-                perms.launch(want.distinct().toTypedArray())
-            },
-            enabled = ui.intention.isNotBlank(), modifier = Modifier.fillMaxWidth().height(64.dp),
-            shape = RoundedCornerShape(32.dp),
-        ) { Text("Start Moment", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Text(
-            "GPS, motion and proof shots are hash-chained as you go. Works offline — it syncs when you're back online.",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-        )
+        RecUi.Phase.Finished -> FinishedView(ui, vm, user, onOpen)
     }
 }
 
@@ -194,6 +164,13 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             Box(miniPos.zIndex(3f).clickable { mapBig = !mapBig })
 
             CoachBanner(ui, Modifier.align(Alignment.TopCenter).padding(8.dp).zIndex(4f))
+            ui.witness?.let { w ->
+                WitnessToast(
+                    w, ui, vm,
+                    onShow = { mode = Prefs.CaptureMode.Photo; mapBig = false; vm.armWitnessShot() },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 10.dp, end = 10.dp, bottom = 62.dp).zIndex(6f),
+                )
+            }
             cam.recordingSince?.let { since ->
                 Pill(
                     "● REC ${fmtDuration(max(0L, ui.elapsedMs - (since - ui.startedAt)))}", Red,
@@ -213,6 +190,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
                     buildString {
                         append("${ui.frameCount} frames")
                         if (ui.videoCount > 0) append(" · ${ui.videoCount} clips")
+                        if (ui.witnessAsked > 0) append(" · witness ${ui.witnessAnswered}/${ui.witnessAsked}")
                         append(" · ").append(ui.accuracyM?.let { "GPS ±${it.roundToInt()} m" } ?: "GPS…")
                     },
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 2,
@@ -251,6 +229,49 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             "Moments shorter than 20 s can't be sealed.", style = MaterialTheme.typography.bodySmall, color = Color.Gray,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
         )
+    }
+}
+
+/** The witness's open request (v3.4): spoken + this toast. Show → next proof shot answers it; Answer → voice/typed; Done; Skip. */
+@Composable
+private fun WitnessToast(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, vm: RecordViewModel, onShow: () -> Unit, modifier: Modifier) {
+    var typing by remember(w.wid) { mutableStateOf(false) }
+    var text by remember(w.wid) { mutableStateOf("") }
+    Surface(modifier.fillMaxWidth(), color = Color(0xEE10241A), shape = RoundedCornerShape(18.dp), shadowElevation = 6.dp) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Visibility, null, tint = Color(0xFF6FD3A0), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("WITNESS", color = Color(0xFF6FD3A0), fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.5.sp, modifier = Modifier.weight(1f))
+                Text(modeChip(w.by), color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+            }
+            Text(w.ask, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            if (w.why.isNotBlank()) Text(w.why, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            if (ui.witnessArmed) Text("Take the proof shot now — it will be tagged with this request.", color = Color(0xFFFFD27A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (typing) Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it.take(200) }, singleLine = true, modifier = Modifier.weight(1f),
+                    placeholder = { Text("Type your answer", color = Color.White.copy(alpha = 0.5f)) },
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                )
+                TextButton(enabled = text.isNotBlank(), onClick = { vm.answerWitnessText(text) }) { Text("Send", color = Color.White) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val btn = ButtonDefaults.buttonColors(containerColor = Color(0xFF6FD3A0), contentColor = Color(0xFF0B2A1B))
+                when (w.kind) {
+                    "show" -> if (!ui.witnessArmed) Button(onClick = onShow, colors = btn) { Icon(Icons.Filled.CameraAlt, null, Modifier.size(16.dp)); Text(" Show") }
+                    "tell" -> {
+                        Button(onClick = { vm.answerWitnessByVoice() }, enabled = !ui.witnessListening, colors = btn) {
+                            Icon(Icons.Filled.Mic, null, Modifier.size(16.dp)); Text(if (ui.witnessListening) " Listening…" else " Answer")
+                        }
+                        if (!typing) TextButton(onClick = { typing = true }) { Text("Type", color = Color.White) }
+                    }
+                    else -> Button(onClick = { vm.witnessDone() }, colors = btn) { Text("Done") }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { vm.skipWitness() }) { Text("Skip", color = Color.White.copy(alpha = 0.8f)) }
+            }
+        }
     }
 }
 
@@ -325,6 +346,7 @@ private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, 
 @Composable
 private fun SyncBadge(ui: RecUi) {
     val (text, color) = when {
+        ui.guest -> "On this phone · ${ui.chunksTotal} chunks" to Color(0xFF3D5A4C)
         ui.chunksPending > 0 -> "Offline · ${ui.chunksPending} chunks queued" to Amber
         ui.chunksTotal > 0 -> "Synced · ${ui.chunksTotal} chunks" to Green
         else -> "Recording · first chunk in 5 s" to Color.DarkGray
@@ -520,14 +542,26 @@ private fun takeProof(ctx: Context, capture: ImageCapture, done: (Bitmap?, Strin
 }
 
 @Composable
-private fun FinishedView(ui: RecUi, vm: RecordViewModel, onOpen: (String) -> Unit) {
+private fun FinishedView(ui: RecUi, vm: RecordViewModel, user: FirebaseUser?, onOpen: (String) -> Unit) {
     val judging by Judging.status.collectAsState()
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(24.dp))
-        Text("Moment submitted", style = MaterialTheme.typography.headlineSmall)
+        Text(if (ui.guest) "Moment saved" else "Moment submitted", style = MaterialTheme.typography.headlineSmall)
         Text("${fmtDuration(ui.elapsedMs)} · ${fmtDistance(ui.distanceM)} · ${ui.frameCount} frames")
         SyncBadge(ui)
-        Text(
+        if (ui.guest) {
+            val guests by com.mattricks.verified.data.Vault.guests.collectAsState()
+            val stillLocal = guests.any { it.id == ui.momentId }
+            Text(
+                if (stillLocal) "Saved on this phone, hash chain and all. Sign in to upload it, run the cloud review and get it sealed."
+                else "Uploading to your account — the cloud review runs next.",
+                color = Color.Gray, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            if (stillLocal) Button(onClick = {
+                val id = ui.momentId ?: return@Button
+                com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(id)) }
+            }) { Text(if (user == null) "Sign in to verify" else "Upload & verify") }
+        } else Text(
             judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
             color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
         )

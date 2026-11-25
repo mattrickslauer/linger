@@ -94,7 +94,14 @@ fun Pill(text: String, bg: Color, fg: Color = Color.White, modifier: Modifier = 
 }
 
 @Composable
-fun StatusBadge(status: String) = when (status) {
+fun StatusBadge(status: String, local: Boolean = false) = when {
+    local && status == "recording" -> Pill("Recording · on this phone", Color.DarkGray)
+    local -> Pill("On this device", Color(0xFF3D5A4C))
+    else -> StatusBadgeServer(status)
+}
+
+@Composable
+private fun StatusBadgeServer(status: String) = when (status) {
     "sealed" -> Pill("Verified ✓", Green)
     "rejected" -> Pill("Not verified", Red)
     "submitted" -> Pill("Sealing…", Amber)
@@ -108,14 +115,14 @@ fun onDeviceLabel(mode: String) = when (mode) {
 }
 
 @Composable
-fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
+fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onUpload: (() -> Unit)? = null, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         if (c.heroJpegB64 != null) B64Image(c.heroJpegB64, Modifier.fillMaxWidth().aspectRatio(16f / 10f))
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.intention, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                StatusBadge(c.status)
+                StatusBadge(c.status, c.local)
             }
             Spacer(Modifier.height(4.dp))
             Text(c.ownerName.ifBlank { "Someone" } + " · " + c.category, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -124,18 +131,42 @@ fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onClick: () ->
                 "${fmtDuration(c.summary.durationMs)} · ${fmtDistance(c.summary.distanceM)} · ${c.summary.frameCount} frames",
                 style = MaterialTheme.typography.bodyMedium,
             )
+            ScoreBarLine(c)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                if (c.pendingWrites) Pill("Offline · queued", Amber)
-                if (onDelete != null) {
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDelete) { Text("Delete", color = Red) }
+                if (c.local) Pill("sign in to verify", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                else {
+                    Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                    Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
                 }
+                if (c.pendingWrites) Pill("Offline · queued", Amber)
+                if (onDelete != null || onUpload != null) Spacer(Modifier.weight(1f))
+                if (onUpload != null) TextButton(onClick = onUpload) { Text("Upload") }
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", color = Red) }
             }
         }
     }
+}
+
+/** v3.8 card line: "score 0.83 · bar 0.80" over the meter, a ladder chip, or the client's bar preview for local Moments. */
+@Composable
+private fun ScoreBarLine(c: MomentCard) {
+    val bar = c.bar ?: c.previewBar ?: return
+    val preview = c.bar == null
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            buildString {
+                if (!preview && c.score != null) append("score ${com.mattricks.verified.data.V3Math.fmt(c.score)} · ")
+                append(if (preview) "bar ≈ ${com.mattricks.verified.data.V3Math.fmt(bar)} (preview)" else "bar ${com.mattricks.verified.data.V3Math.fmt(bar)}")
+            },
+            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
+        )
+        if (c.ladderCount > 0) Pill("+${c.ladderCount} check${if (c.ladderCount == 1) "" else "s"}", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        if (c.witnessAsked > 0) { Spacer(Modifier.width(6.dp)); Pill("witness ${c.witnessAsked}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    Spacer(Modifier.height(4.dp))
+    BarMeter(if (preview) null else c.score, bar, Modifier.fillMaxWidth(), height = 8.dp)
 }
 
 /** GPS track on a light grid, equirectangular projection fitted to the box. No Maps API key needed. */
@@ -216,4 +247,26 @@ fun DeleteMomentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 
 /** Delete is offered only for the signed-in user's own Moment, and never for the one being recorded right now. */
 fun canDeleteMoment(c: MomentCard, uid: String?, recordingId: String?): Boolean =
-    uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId
+    (c.local && c.id != recordingId) || uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId
+
+/**
+ * Score vs bar on one 0..1 track (v3.3/v3.5): the fill is the score, the tick is the bar the score must reach.
+ * [score] null = not scored yet (only the bar tick is drawn).
+ */
+@Composable
+fun BarMeter(score: Double?, bar: Double, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 10.dp) {
+    val track = MaterialTheme.colorScheme.outlineVariant
+    val tick = MaterialTheme.colorScheme.onSurface // readable in light and dark themes
+    val ok = score != null && score >= bar
+    Canvas(modifier.height(height + 6.dp)) {
+        val h = height.toPx(); val y = (size.height - h) / 2
+        drawRoundRect(track, Offset(0f, y), androidx.compose.ui.geometry.Size(size.width, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
+        if (score != null) drawRoundRect(
+            if (ok) Green else Amber, Offset(0f, y),
+            androidx.compose.ui.geometry.Size((size.width * score.coerceIn(0.0, 1.0)).toFloat().coerceAtLeast(h), h),
+            androidx.compose.ui.geometry.CornerRadius(h / 2),
+        )
+        val x = (size.width * bar.coerceIn(0.0, 1.0)).toFloat()
+        drawLine(tick.copy(alpha = 0.8f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+    }
+}
