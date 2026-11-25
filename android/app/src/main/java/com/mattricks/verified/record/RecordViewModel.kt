@@ -23,8 +23,10 @@ import com.mattricks.verified.chain.ChainLink
 import com.mattricks.verified.chain.Check
 import com.mattricks.verified.chain.Event
 import com.mattricks.verified.chain.Payload
+import com.mattricks.verified.data.Checklist
 import com.mattricks.verified.data.Claims
 import com.mattricks.verified.data.Intention
+import com.mattricks.verified.data.Plan
 import com.mattricks.verified.data.LatLng
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Summary
@@ -76,6 +78,9 @@ data class RecUi(
     val witnessListening: Boolean = false,
     val witnessAsked: Int = 0,
     val witnessAnswered: Int = 0,
+    /** v4.2: the evidence plan from the interview and which requirements this phone has captured (never "verified"). */
+    val plan: Plan? = null,
+    val captured: Map<String, Boolean> = emptyMap(),
 ) {
     enum class Phase { Idle, Recording, Finished }
 }
@@ -130,6 +135,27 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     private val witnessLog = ArrayList<JSONObject>()
     private val recentFrames = ArrayDeque<Pair<Long, Bitmap>>()
 
+    // v4.2 checklist facts (what this phone has captured)
+    private val clipDurations = ArrayList<Long>()
+    @Volatile private var goodFixes = 0
+    @Volatile private var motionFirstT = 0L
+    @Volatile private var motionLastT = 0L
+    private val answeredRids = ArrayList<String>()
+
+    private fun checklistFacts() = Checklist.Facts(
+        clipsMs = synchronized(clipDurations) { clipDurations.toList() }, frames = _ui.value.frameCount, goodFixes = goodFixes,
+        motionSeconds = if (motionFirstT > 0) (motionLastT - motionFirstT) / 1000.0 else 0.0,
+        answeredRids = synchronized(answeredRids) { answeredRids.toList() },
+    )
+
+    /** Ticks plan requirements off as local evidence arrives ("captured"; the server decides "met", v4.5). */
+    private fun refreshChecklist() {
+        val plan = _ui.value.plan ?: return
+        val f = checklistFacts()
+        val now = plan.requirements.associate { it.id to Checklist.captured(it, f) }
+        if (now != _ui.value.captured) _ui.update { it.copy(captured = now) }
+    }
+
     fun setIntention(s: String) = _ui.update { it.copy(intention = s.take(200)) }
     fun setCategory(s: String) = _ui.update { it.copy(category = s) }
 
@@ -148,6 +174,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         seq = 0; prevHash = Chain.genesis(momentId); t0 = now; holdForFrame = false
         gpsBuf.clear(); motionBuf.clear(); events.clear(); track.clear(); frameSeqs.clear(); checks.clear(); motionCount = 0
         witnessN = 0; lastWitnessAt = 0; witnessAnswered = 0; witnessSkipped = 0; witnessBy.clear(); witnessLog.clear(); recentFrames.clear()
+        synchronized(clipDurations) { clipDurations.clear() }; synchronized(answeredRids) { answeredRids.clear() }
+        goodFixes = 0; motionFirstT = 0; motionLastT = 0
+        val plan = s.structured?.plan?.takeIf { it.requirements.isNotEmpty() }
         events += Event(now, "start")
         _recording.value = momentId
         val intention = s.structured?.copy(text = s.intention.trim(), category = s.category)?.toMap(now)
@@ -157,7 +186,8 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(phase = RecUi.Phase.Recording, momentId = momentId, startedAt = now, elapsedMs = 0, distanceM = 0.0,
                 lastFix = null, track = emptyList(), accuracyM = null, gpsCount = 0, sparkline = emptyList(), frameCount = 0, coach = null,
                 checking = false, chunksTotal = 0, chunksPending = 0, guest = guest, videoCount = 0,
-                witness = null, witnessArmed = false, witnessListening = false, witnessAsked = 0, witnessAnswered = 0)
+                witness = null, witnessArmed = false, witnessListening = false, witnessAsked = 0, witnessAnswered = 0,
+                plan = plan, captured = plan?.requirements?.associate { r -> r.id to false }.orEmpty())
         }
         jobs += viewModelScope.launch { witnessLoop() }
         startSensors()
@@ -180,6 +210,8 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 Geo.round(a[0].toDouble(), 3), Geo.round(a[1].toDouble(), 3), Geo.round(a[2].toDouble(), 3),
                 Geo.round(g[0].toDouble(), 4), Geo.round(g[1].toDouble(), 4), Geo.round(g[2].toDouble(), 4))
             lock.withLock { motionBuf += row; motionCount++ }
+            if (motionFirstT == 0L) motionFirstT = t
+            motionLastT = t
             val mag = Math.sqrt((a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).toDouble()).toFloat()
             _ui.update { it.copy(sparkline = (it.sparkline + mag).takeLast(80), elapsedMs = t - it.startedAt) }
         }
@@ -192,6 +224,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val bpm = Devices.state.value.bpm
             if (bpm != null) lock.withLock { events += Event(System.currentTimeMillis(), "hr", mapOf("bpm" to bpm)) }
             if (bpm != _ui.value.heartRate) _ui.update { it.copy(heartRate = bpm) }
+            refreshChecklist() // 1 Hz is plenty for motion seconds and GPS fixes
         }
     }
 
@@ -247,6 +280,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 while (recentFrames.size > 3) recentFrames.removeFirst()
             }
             _ui.update { it.copy(checking = false, coach = check, frameCount = it.frameCount + 1) }
+            refreshChecklist()
         }
         return true
     }
@@ -269,6 +303,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 "intention" to JSONObject(s.structured?.toMap(s.startedAt) ?: mapOf("text" to s.intention, "category" to s.category)).toString(),
                 "session" to sessionJson(s).toString(),
                 "asked" to JSONArray(witnessLog).toString(),
+                // v4.10: the witness asks for unmet plan requirements first.
+                "plan" to (s.plan?.toJson()?.toString() ?: "null"),
+                "unmet" to JSONArray(Checklist.unmet(s.plan, checklistFacts()).map { it.toJson() }).toString(),
             )
             val draft = runCatching { Ai.preferOnDevice("witnessDraft", vars, timeoutMs = 15_000) }
                 .onFailure { Log.i("VerifiedWitness", "draft: ${it.message}") }.getOrNull() ?: continue
@@ -288,12 +325,18 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val gain = j.optDouble("gain", 0.0).let { if (it.isNaN()) 0.0 else it }
             if (!WitnessPacing.worthShowing(ask, gain) || _ui.value.phase != RecUi.Phase.Recording || _ui.value.witness != null) continue
             witnessN++
-            val req = WitnessAsk("w$witnessN", ask, j.optString("kind").takeIf { it in setOf("show", "tell", "do") } ?: "show", j.optString("why").take(90), by, gain)
+            val rid = j.optString("requirementId").trim().takeIf { r -> s.plan?.requirements?.any { it.id == r } == true }
+            val req = WitnessAsk("w$witnessN", ask, j.optString("kind").takeIf { it in setOf("show", "tell", "do") } ?: "show", j.optString("why").take(90), by, gain, rid)
             val t = System.currentTimeMillis()
-            lock.withLock { events += Event(t, "witness", linkedMapOf("wid" to req.wid, "ask" to req.ask, "kind" to req.kind, "by" to req.by)) }
+            lock.withLock {
+                // v4.10: optional trailing `rid` (omitted when the request serves no plan requirement).
+                val ev = linkedMapOf<String, Any?>("wid" to req.wid, "ask" to req.ask, "kind" to req.kind, "by" to req.by)
+                if (rid != null) ev["rid"] = rid
+                events += Event(t, "witness", ev)
+            }
             lastWitnessAt = t
             witnessBy += by
-            witnessLog += JSONObject().put("wid", req.wid).put("ask", req.ask).put("kind", req.kind).put("outcome", "open")
+            witnessLog += JSONObject().put("wid", req.wid).put("ask", req.ask).put("kind", req.kind).put("outcome", "open").put("requirementId", rid ?: "")
             _ui.update { it.copy(witness = req, witnessArmed = false, witnessAsked = witnessN) }
             WitnessNotifier.notifyIfBackground(getApplication(), req.ask, req.why)
             Voice.speak(req.ask)
@@ -356,11 +399,15 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun closeWitness(req: WitnessAsk, outcome: String, answer: String?) {
         if (_ui.value.witness?.wid != req.wid) return
-        if (outcome == "skipped") witnessSkipped++ else witnessAnswered++
+        if (outcome == "skipped") witnessSkipped++ else {
+            witnessAnswered++
+            synchronized(answeredRids) { answeredRids += req.rid.orEmpty() }
+        }
         witnessLog.lastOrNull { it.optString("wid") == req.wid }?.apply { put("outcome", outcome); answer?.let { put("answer", it) } }
         WitnessNotifier.cancel(getApplication())
         val answered = witnessAnswered
         _ui.update { it.copy(witness = null, witnessArmed = false, witnessListening = false, witnessAnswered = answered) }
+        refreshChecklist()
     }
 
     fun videoStarted() {
@@ -381,7 +428,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val t = System.currentTimeMillis()
             viewModelScope.launch { lock.withLock { events += Event(t, "video", extra) } }
         }
+        synchronized(clipDurations) { clipDurations += clip.durationMs }
         _ui.update { it.copy(videoCount = it.videoCount + 1) }
+        refreshChecklist()
     }
 
     fun finish() {
@@ -463,6 +512,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             for (loc in r.locations) {
                 val t = System.currentTimeMillis()
                 val p = LatLng(Geo.round(loc.latitude, 6), Geo.round(loc.longitude, 6))
+                if (loc.hasAccuracy() && loc.accuracy <= Checklist.GPS_MAX_ACCURACY_M) goodFixes++
                 val row = doubleArrayOf(t.toDouble(), p.lat, p.lng, Geo.round(loc.accuracy.toDouble(), 1),
                     if (loc.hasAltitude()) Geo.round(loc.altitude, 1) else Double.NaN,
                     if (loc.hasSpeed()) Geo.round(loc.speed.toDouble(), 2) else Double.NaN)
@@ -496,6 +546,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() { stopSensors(); _recording.compareAndSet(momentId, null); super.onCleared() }
 }
 
-data class WitnessAsk(val wid: String, val ask: String, val kind: String, val why: String, val by: String, val gain: Double)
+/** [rid] = the plan requirement this request serves (v4.10), null when none. */
+data class WitnessAsk(val wid: String, val ask: String, val kind: String, val why: String, val by: String, val gain: Double, val rid: String? = null)
 
 data class VideoClip(val name: String, val sha256: String, val bytes: Long, val durationMs: Long, val startedAt: Long)

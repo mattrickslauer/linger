@@ -130,7 +130,16 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     val scope = rememberCoroutineScope()
     val cam = remember { CaptureController() }
     val defaultMode by Prefs.captureMode.collectAsState()
-    var mode by remember { mutableStateOf(defaultMode) }
+    // v4.11: the record screen opens in the plan's recordMode ("Video" / "Photo"); no plan → the Settings default.
+    var mode by remember {
+        mutableStateOf(
+            when (ui.plan?.recordMode) {
+                "video" -> Prefs.CaptureMode.Video
+                "photo" -> Prefs.CaptureMode.Photo
+                else -> defaultMode
+            },
+        )
+    }
     var shooting by remember { mutableStateOf(false) }
     var mapBig by remember { mutableStateOf(false) }
     val recording = cam.recordingSince != null
@@ -152,6 +161,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
                 ui.heartRate?.let { Pill("♥ $it bpm", Red) }
             }
         }
+        ui.plan?.let { EvidenceChecklist(it, ui.captured, Modifier.padding(horizontal = 12.dp).padding(bottom = 6.dp)) }
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black)) {
             val miniPos = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 10.dp).size(width = 116.dp, height = 150.dp)
@@ -232,6 +242,40 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     }
 }
 
+/**
+ * v4.2/v4.11 live checklist under the timer: `○ ask` → `● captured` when the local evidence exists. "Captured" only:
+ * the server decides "met". Collapsed it shows the tally and the next missing item; tap to see every requirement.
+ */
+@Composable
+private fun EvidenceChecklist(plan: com.mattricks.verified.data.Plan, captured: Map<String, Boolean>, modifier: Modifier) {
+    var open by remember { mutableStateOf(false) }
+    val done = plan.requirements.count { captured[it.id] == true }
+    val next = plan.requirements.firstOrNull { captured[it.id] != true }
+    Surface(modifier.fillMaxWidth().clickable { open = !open }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("To get this verified", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("$done/${plan.requirements.size} captured", fontSize = 12.sp, color = if (next == null) Green else Color.Gray, fontWeight = FontWeight.SemiBold)
+                Text(if (open) "  ▴" else "  ▾", fontSize = 12.sp, color = Color.Gray)
+            }
+            val rows = if (open) plan.requirements else listOfNotNull(next)
+            rows.forEach { r ->
+                val ok = captured[r.id] == true
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (ok) "●" else "○", color = if (ok) Green else Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
+                    Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp), tint = Color.Gray)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        r.ask + (r.minSeconds?.let { " (≥ ${fmtNum(it)} s)" } ?: ""), fontSize = 13.sp, maxLines = if (open) 2 else 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    if (ok) Text(" captured", fontSize = 11.sp, color = Green, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
 /** The witness's open request (v3.4): spoken + this toast. Show → next proof shot answers it; Answer → voice/typed; Done; Skip. */
 @Composable
 private fun WitnessToast(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, vm: RecordViewModel, onShow: () -> Unit, modifier: Modifier) {
@@ -247,6 +291,9 @@ private fun WitnessToast(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi,
             }
             Text(w.ask, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             if (w.why.isNotBlank()) Text(w.why, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            ui.plan?.requirements?.firstOrNull { it.id == w.rid }?.let { r ->
+                Text("For: ${r.ask}", color = Color(0xFF6FD3A0).copy(alpha = 0.85f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             if (ui.witnessArmed) Text("Take the proof shot now — it will be tagged with this request.", color = Color(0xFFFFD27A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             if (typing) Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
