@@ -391,7 +391,9 @@ export const onClipUploaded = onObjectFinalized({ timeoutSeconds: 60 }, async (e
     const m = snap.data() as MomentDoc | undefined;
     if (!m || m.ownerUid !== p.uid || m.status !== "submitted" || m.seal) return false;
     const vr = m.videoReview as Partial<VideoReview> | undefined;
-    if (vr && TERMINAL_REVIEW.includes(String(vr.status))) return false;
+    // No review yet: the pipeline (claims write / last chunk) will run it and find the clip. Touching now would
+    // leave a videoReview without a status, which clients cannot render.
+    if (!vr || TERMINAL_REVIEW.includes(String(vr.status))) return false;
     tx.update(ref, { "videoReview.updatedAtServer": FieldValue.serverTimestamp() });
     return true;
   });
