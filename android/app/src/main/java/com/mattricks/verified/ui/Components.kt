@@ -162,6 +162,13 @@ private fun ScoreBarLine(c: MomentCard) {
             },
             style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
         )
+        // v4.8: badge unchanged + "2/2 claims backed"; cheating → "Not verified · cheating detected".
+        if (c.cheating) { Pill("Not verified · cheating detected", Red); Spacer(Modifier.width(6.dp)) }
+        else if (c.claimsTotal != null && c.claimsTotal > 0 && c.claimsBacked != null) {
+            Pill("${c.claimsBacked}/${c.claimsTotal} claims backed", if (c.claimsBacked == c.claimsTotal) Green else MaterialTheme.colorScheme.surfaceVariant,
+                if (c.claimsBacked == c.claimsTotal) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+        }
         if (c.ladderCount > 0) Pill("+${c.ladderCount} check${if (c.ladderCount == 1) "" else "s"}", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
         if (c.witnessAsked > 0) { Spacer(Modifier.width(6.dp)); Pill("witness ${c.witnessAsked}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant) }
     }

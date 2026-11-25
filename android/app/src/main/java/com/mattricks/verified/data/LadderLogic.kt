@@ -2,13 +2,21 @@ package com.mattricks.verified.data
 
 /** Pure ladder helpers (docs/ARCHITECTURE.md v3.6), unit-tested; the Cloud Function is the authority. */
 object LadderLogic {
+    /** [backs] = claim kinds the module can back (v4.6); [backsTargetedOnly] = witness_review: only targeted claims. */
     data class Module(
         val id: String, val title: String, val blurb: String, val cost: Int, val strength: Double,
         val available: Boolean, val needs: List<String>,
+        val backs: List<String> = emptyList(), val backsTargetedOnly: Boolean = false,
     )
 
-    /** What the Moment has, for the `needs` check. */
-    data class Evidence(val frames: Int, val gps: Int, val witnessAnswered: Int, val quantities: Int, val video: Boolean, val clipOnPhone: Boolean)
+    /**
+     * What the Moment has, for the `needs` check. v4 ([v4] = true): `quantities` = server count/measure claims, and
+     * `video` is met by the clip uploaded at submit ([clipUploaded]) or, failing that, the clip still on this phone.
+     */
+    data class Evidence(
+        val frames: Int, val gps: Int, val witnessAnswered: Int, val quantities: Int, val video: Boolean, val clipOnPhone: Boolean,
+        val v4: Boolean = false, val clipUploaded: Boolean = false,
+    )
 
     /** null = runnable; else the reason shown on the disabled row. */
     fun unmet(m: Module, e: Evidence, needsText: Map<String, String>): String? {
@@ -19,18 +27,35 @@ object LadderLogic {
                 "gps" -> e.gps > 0
                 "witness_answered" -> e.witnessAnswered > 0
                 "quantities" -> e.quantities > 0
-                "video" -> e.video && e.clipOnPhone
+                "video" -> e.video && (e.clipOnPhone || (e.v4 && e.clipUploaded))
                 else -> true
             }
             if (!ok) return when {
                 n == "video" && e.video -> "The clip isn't on this phone"
                 n == "video" -> "Needs a video clip in the chain"
                 n == "witness_answered" -> "Needs an answered witness request"
+                n == "quantities" && e.v4 -> "Needs a count or measure claim"
                 n == "quantities" -> "Needs a number in the intention"
                 else -> "Needs " + (needsText[n] ?: n)
             }
         }
         return null
+    }
+
+    /** v4.6: claim ids this module moves (kind in backs; witness_review only claims an answered request targeted). */
+    fun backedClaims(m: Module, claims: List<Claim>, requirements: List<Requirement>, answeredRids: List<String?>): List<String> =
+        V4Score.claimsBackedByModule(claims, requirements, answeredRids.map { V4Score.WitnessFact(it, true) }, m.backs, m.backsTargetedOnly)
+
+    /** v4: null = offered; else why not (needs unmet, or it backs none of the claims). */
+    fun unmetV4(m: Module, e: Evidence, needsText: Map<String, String>, backed: List<String>): String? =
+        unmet(m, e, needsText) ?: if (backed.isEmpty()) "Backs none of this Moment's claims" else null
+
+    /** Moment score if the module passes / fails on every claim it backs (each claim moves on its own, v4.5 step 4). */
+    fun previewsV4(scores: List<ClaimScore>, backed: List<String>, s: Double): Pair<Double, Double>? {
+        if (scores.isEmpty() || backed.isEmpty()) return null
+        val up = scores.minOf { if (it.id in backed) V3Math.pass(it.p, s) else it.p }
+        val down = scores.minOf { if (it.id in backed) V3Math.fail(it.p, s) else it.p }
+        return up to down
     }
 
     /** "if it passes → 0.79 · if it fails → 0.50" */
@@ -48,7 +73,8 @@ object LadderLogic {
         "needs_frames" -> "Needs at least one proof frame."
         "needs_gps" -> "Needs GPS in the recording."
         "needs_witness_answered" -> "Needs an answered witness request."
-        "needs_quantities" -> "Needs a number in the intention."
+        "needs_quantities" -> "Needs a count or measure claim."
+        "no_claims_backed" -> "This module backs none of this Moment's claims. No credits were spent."
         "needs_video" -> "Needs a video clip in the chain."
         "clip_missing" -> "The clip didn't reach the server. Try again."
         "clip_hash_mismatch" -> "The uploaded clip doesn't match the chained hash. No credits were spent."

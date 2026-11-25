@@ -9,6 +9,9 @@ import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.storageMetadata
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -32,6 +35,82 @@ object Clips {
                 "${MediaStore.Video.Media.DISPLAY_NAME} = ? OR ${MediaStore.Video.Media.DISPLAY_NAME} = ?", arrayOf(ref.name, "$base.mp4"), null,
             )?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, c.getLong(0)) else null }
         }.onFailure { Log.w(TAG, "find ${ref.name}", it) }.getOrNull()
+    }
+
+    // ───────── v4.4: every chained clip is uploaded at submit, before `status = "submitted"`
+
+    /** Live upload state per Moment, for "Uploading video · 34 MB" → "Video uploaded". */
+    data class Upload(val sentBytes: Long, val totalBytes: Long, val clips: Int, val done: Int, val finished: Boolean = false, val error: String? = null)
+
+    private val _uploads = MutableStateFlow<Map<String, Upload>>(emptyMap())
+    val uploads: StateFlow<Map<String, Upload>> = _uploads
+
+    /** Storage extension from the gallery name ("…mp4"); CameraX records MPEG-4. */
+    fun ext(ref: VideoRef): String = ref.name.substringAfterLast('.', "mp4").lowercase().takeIf { it in setOf("mp4", "mov", "webm") } ?: "mp4"
+
+    private fun contentType(ext: String) = when (ext) { "mov" -> "video/quicktime"; "webm" -> "video/webm"; else -> "video/mp4" }
+
+    /** `video` events in a chunk payload (the journal's exact hashed bytes). */
+    fun refsIn(payload: String): List<VideoRef> = runCatching {
+        val a = org.json.JSONObject(payload).optJSONArray("events") ?: return@runCatching emptyList()
+        (0 until a.length()).mapNotNull { i ->
+            val e = a.optJSONObject(i)?.takeIf { it.optString("type") == "video" } ?: return@mapNotNull null
+            VideoRef(e.optString("sha256"), e.optString("name"), e.optLong("bytes"), e.optLong("durationMs"))
+        }
+    }.getOrDefault(emptyList())
+
+    /**
+     * Uploads every chained clip of a Moment to `clips/{uid}/{momentId}/{sha256}.{ext}`, sequentially. Idempotent:
+     * `getMetadata` first and skip what is already there (create-only path, v4.9). Skipped for good (the submit goes
+     * ahead, those video requirements stay unmet): 200 MB or more (storage.rules: `size < 200 MB`), gone from this
+     * phone or unreadable, changed since it was chained, or refused by the rules (create-only: already there, or a
+     * permanent rejection — retrying would block the submit forever).
+     * Throws when offline or an upload fails, so the caller keeps the Moment `recording` and retries later.
+     */
+    suspend fun uploadForSubmit(ctx: Context, uid: String, momentId: String, refs: List<VideoRef>) {
+        val todo = refs.filter { it.sha256.length == 64 }.distinctBy { it.sha256 }
+        if (todo.isEmpty()) return
+        val total = todo.filter { it.bytes < MAX_BYTES }.sumOf { it.bytes }
+        var sentBefore = 0L
+        fun publish(u: Upload) = _uploads.update { it + (momentId to u) }
+        publish(Upload(0, total, todo.size, 0))
+        try {
+            todo.forEachIndexed { i, ref ->
+                if (ref.bytes >= MAX_BYTES) { Log.w(TAG, "$momentId: clip ${ref.sha256} is 200 MB or more, not uploaded"); return@forEachIndexed }
+                val ext = ext(ref)
+                val obj = FirebaseStorage.getInstance().reference.child("clips/$uid/$momentId/${ref.sha256}.$ext")
+                val exists = try { obj.metadata.await(); true } catch (e: StorageException) {
+                    when (e.errorCode) {
+                        StorageException.ERROR_OBJECT_NOT_FOUND -> false
+                        // Rules without the v4 owner `get`: can't tell, try the create-only upload below.
+                        StorageException.ERROR_NOT_AUTHORIZED -> false
+                        else -> throw e
+                    }
+                }
+                if (!exists) {
+                    val uri = find(ctx, ref)
+                    if (uri == null) { Log.w(TAG, "$momentId: clip ${ref.name} is no longer on this phone, not uploaded"); return@forEachIndexed }
+                    val sha = runCatching { sha256(ctx, uri) }.onFailure { Log.w(TAG, "$momentId: can't read clip ${ref.name}", it) }.getOrNull()
+                    if (sha == null) { Log.w(TAG, "$momentId: clip ${ref.name} can't be read on this phone, not uploaded"); return@forEachIndexed }
+                    if (sha != ref.sha256) { Log.w(TAG, "$momentId: clip ${ref.name} changed after it was chained, not uploaded"); return@forEachIndexed }
+                    try {
+                        obj.putFile(uri, storageMetadata { contentType = contentType(ext) })
+                            .addOnProgressListener { s -> publish(Upload(sentBefore + s.bytesTransferred, total, todo.size, i)) }
+                            .await()
+                        Log.i(TAG, "$momentId: uploaded clip ${ref.sha256}.$ext (${ref.bytes} bytes)")
+                    } catch (e: StorageException) {
+                        if (e.errorCode != StorageException.ERROR_NOT_AUTHORIZED) throw e
+                        Log.w(TAG, "$momentId: clip ${ref.sha256}.$ext refused by the rules (already uploaded or not allowed); submit goes ahead")
+                    }
+                }
+                sentBefore += ref.bytes
+                publish(Upload(sentBefore, total, todo.size, i + 1))
+            }
+            publish(Upload(total, total, todo.size, todo.size, finished = true))
+        } catch (t: Throwable) {
+            publish(Upload(sentBefore, total, todo.size, 0, error = t.message ?: "upload failed"))
+            throw t
+        }
     }
 
     suspend fun sha256(ctx: Context, uri: Uri): String = withContext(Dispatchers.IO) {

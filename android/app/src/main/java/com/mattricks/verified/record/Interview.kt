@@ -15,6 +15,7 @@ import com.mattricks.verified.data.IntentionPreview
 import com.mattricks.verified.data.Place
 import com.mattricks.verified.data.Quantity
 import com.mattricks.verified.data.V3Math
+import com.mattricks.verified.data.V4Norm
 import com.mattricks.verified.judge.Judging
 import com.mattricks.verified.voice.Voice
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,25 @@ class InterviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun edit(f: (Intention) -> Intention) = _ui.update { s -> s.copy(intention = s.intention?.let(f)) }
+
+    /** Tap a claim chip to drop it; its requirements go with it (ids renumber, v4.1). */
+    fun removeClaim(id: String) = edit { i ->
+        val (c, p) = V4Norm.without(i.claims, i.plan, id)
+        i.copy(claims = c, plan = p?.takeIf { c.isNotEmpty() })
+    }
+
+    /**
+     * Typed intention → claims + plan before Start (v4.1: optional, `structureIntention` in the cloud). The typed
+     * sentence becomes the one answer of an interview, so the same card (claims, "To get this verified", bar) shows.
+     */
+    fun structureTyped(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        job?.cancel(); Voice.stopSpeaking()
+        draft = JSONObject().put("text", t.take(200)); questions = 0
+        _ui.value = InterviewUi(turns = listOf(Turn(false, OPENER, null), Turn(true, t)))
+        job = viewModelScope.launch { ensureContext(); finalize() }
+    }
 
     private suspend fun listenLoop() {
         while (true) {
@@ -207,10 +227,14 @@ class InterviewViewModel(app: Application) : AndroidViewModel(app) {
         ).takeIf { it.name != null || it.lat != null || it.region != null || it.country != null }
         val goal = j.optString("goal").trim()
         val text = j.optString("text").trim().ifBlank { goal }.ifBlank { _ui.value.turns.firstOrNull { it.me }?.text.orEmpty() }
+        // v4.1/v4.2: draft claims + evidence plan (normalized like the server does; the server's copy is binding).
+        val (claims, plan) = V4Norm.fromModel(j)
         return Intention(
             text = text.take(200),
             category = j.optString("category").takeIf { it in CATEGORIES } ?: "other",
-            v = 3,
+            v = 4,
+            claims = claims,
+            plan = plan?.takeIf { claims.isNotEmpty() },
             activity = j.optString("activity").trim().take(40),
             goal = goal.take(120),
             quantities = quantities,

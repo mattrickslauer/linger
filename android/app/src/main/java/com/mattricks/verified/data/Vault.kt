@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -55,7 +56,10 @@ object Vault {
         val summary: Summary, val heroB64: String?, val bar: Double?,
     )
 
+    private lateinit var appContext: Context
+
     fun init(context: Context) {
+        appContext = context.applicationContext
         root = File(context.filesDir, "vault").apply { mkdirs() }
         _held.value = ids().filter { !isGuest(it) }.associateWith { State.Waiting }
         refreshGuests()
@@ -161,6 +165,11 @@ object Vault {
 
     // ── verification
 
+    private val kickScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /** Run a pass now (e.g. right after Finish of a Moment with video, whose submit goes through the clip upload). */
+    fun kick() { kickScope.launch { runCatching { verifyAll() }.onFailure { Log.w(TAG, "vault kick", it) } } }
+
     /** Checks every held Moment against the server. Safe to call often; one pass at a time. */
     suspend fun verifyAll() = lock.withLock {
         val uid = Firebase.auth.currentUser?.uid ?: return@withLock
@@ -218,8 +227,24 @@ object Vault {
             // Chunks may be added while recording, or after submit when seq < chunkCount (firestore.rules).
             for (c in missing) ref.collection("chunks").document(Store.chunkId(c.getInt("seq"))).set(fromJson(c)).await()
         }
+        val clips = localChunks.flatMap { Clips.refsIn(it.optString("payload")) }
+        @Suppress("UNCHECKED_CAST")
+        val reviewStatus = (server.get("videoReview") as? Map<String, Any?>)?.get("status") as? String
+        if (server.getString("status") != "recording" && clips.isNotEmpty() && reviewStatus == "waiting") {
+            // Submitted without its clip (an older build, or a clip chained after a submit that raced it): the server
+            // waits up to 24 h for it, so upload it now. Idempotent; throws to keep the journal and retry.
+            _held.update { it + (id to State.Repairing) }
+            Clips.uploadForSubmit(appContext, uid, id, clips)
+        }
         if (server.getString("status") == "recording") {
+            // v4.4: every chained clip goes up BEFORE status = "submitted" (the free video review needs it). Throws
+            // when offline or failing: the Moment stays `recording` on the server and this loop retries.
+            if (clips.isNotEmpty()) {
+                _held.update { it + (id to State.Repairing) }
+                Clips.uploadForSubmit(appContext, uid, id, clips)
+            }
             ref.update(SUBMIT_FIELDS.associateWith { k -> if (k == "submittedAtServer") FieldValue.serverTimestamp() else fromJsonValue(local.opt(k)) }).await()
+            com.mattricks.verified.judge.Judging.kick() // submitted now: the cloud review can run
         }
 
         // Read everything back from the server and compare with the journal, byte for byte where it matters.
