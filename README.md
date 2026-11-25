@@ -14,6 +14,7 @@ through **Firebase AI Logic hybrid inference**.
 | iOS | TestFlight public link *(added at submission)* |
 | Android | APK on the Releases page *(added at submission)* |
 | Architecture contract | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Embed Verified into your app (SDK, coming soon) | [`/embed`](https://verified-99e74.web.app/embed) · plan in [`docs/SDK.md`](docs/SDK.md) |
 
 ## The problem
 

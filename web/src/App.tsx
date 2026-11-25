@@ -9,6 +9,7 @@ import { Link } from "./ui";
 const Detail = lazy(() => import("./pages/Detail"));
 const Record = lazy(() => import("./pages/Record"));
 const Me = lazy(() => import("./pages/Me"));
+const Embed = lazy(() => import("./pages/Embed"));
 const ClaimSheet = lazy(() => import("./components/ClaimSheet"));
 
 type Theme = "system" | "light" | "dark";
@@ -49,6 +50,9 @@ export default function App() {
   const { user, ready } = useUser();
   const [theme, cycleTheme] = useTheme();
   const tab = route.name === "moment" ? "feed" : route.name;
+  useEffect(() => {
+    document.title = route.name === "embed" ? "Embed Verified into your app" : "Verified";
+  }, [route.name]);
   // Raw vault: verify on start, on sign-in and every 30 s (no-op in fixture mode).
   useEffect(() => {
     if (configured) void import("./vault").then((v) => v.startVault());
@@ -101,6 +105,7 @@ export default function App() {
           {route.name === "moment" && <Detail id={route.id} />}
           {route.name === "record" && <Record user={user} ready={ready} />}
           {route.name === "me" && <Me user={user} ready={ready} />}
+          {route.name === "embed" && <Embed />}
           {route.name === "missing" && (
             <div className="page empty">
               <p>There's nothing at this address.</p>
@@ -114,7 +119,8 @@ export default function App() {
       <footer className="foot">
         <p>
           Built for the Firebase #BuildHybridAI hackathon. On-device and cloud AI through Firebase AI Logic; data in Firestore; seals by Cloud
-          Functions.
+          Functions.{" "}
+          <Link to="/embed">Embed Verified into your app</Link> (coming soon).
         </p>
       </footer>
     </>
