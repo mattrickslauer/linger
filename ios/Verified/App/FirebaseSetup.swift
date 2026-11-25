@@ -3,6 +3,8 @@
 import DeviceCheck
 import FirebaseCore
 @preconcurrency import FirebaseFirestore
+@preconcurrency import FirebaseFunctions
+@preconcurrency import FirebaseStorage
 @preconcurrency import FirebaseRemoteConfig
 
 enum FirebaseSetup {
@@ -25,6 +27,8 @@ enum FirebaseSetup {
       let host = AppConfig.emulatorHost
       Auth.auth().useEmulator(withHost: host, port: AppConfig.authEmulatorPort)
       db.useEmulator(withHost: host, port: AppConfig.firestoreEmulatorPort)
+      Functions.functions(region: "us-central1").useEmulator(withHost: host, port: AppConfig.functionsEmulatorPort)
+      Storage.storage().useEmulator(withHost: host, port: AppConfig.storageEmulatorPort)
     }
     // Offline-first: persistent local cache; writes queue while offline and sync later.
     let settings = db.settings

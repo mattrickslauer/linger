@@ -8,6 +8,10 @@ plugins {
 }
 
 val useEmulator = (findProperty("verified.emulator") as String? ?: "false").toBoolean()
+val appCheckDebugToken = (findProperty("verified.appCheckDebugToken") as String?)
+    ?: rootProject.file("local.properties").takeIf { it.exists() }?.readLines()
+        ?.firstOrNull { it.startsWith("verified.appCheckDebugToken=") }?.substringAfter("=")?.trim()
+    ?: ""
 val emulatorHost = findProperty("verified.emulatorHost") as String? ?: "10.0.2.2"
 
 // Mapbox public token (pk.…): -PMAPBOX_ACCESS_TOKEN, ~/.gradle/gradle.properties, env, or android/local.properties.
@@ -19,9 +23,9 @@ val mapboxToken: String = (findProperty("MAPBOX_ACCESS_TOKEN") as String?)
     }
     ?: ""
 
-// shared/prompts.json is the single source of truth for prompts: copy it into assets at build time.
+// shared/prompts.json (prompts) and shared/ladder.json (ladder catalog) are the single source of truth: copied into assets.
 val copySharedAssets by tasks.registering(Copy::class) {
-    from(rootProject.file("../shared/prompts.json"))
+    from(rootProject.file("../shared/prompts.json"), rootProject.file("../shared/ladder.json"))
     into(layout.buildDirectory.dir("generated/sharedAssets"))
 }
 
@@ -42,6 +46,9 @@ android {
         buildConfigField("String", "ACCOUNTS_ISSUER", "\"https://accounts.mattrickslauer.com/t/mattricks\"")
         buildConfigField("String", "ACCOUNTS_CLIENT_ID", "\"verified-app\"")
         buildConfigField("String", "MAPBOX_TOKEN", "\"$mapboxToken\"")
+        // Judge builds: one fixed, registered, revocable App Check debug token (verified.appCheckDebugToken in
+        // android/local.properties or -P), so every sideloaded install passes App Check. Empty = per-install token.
+        buildConfigField("String", "APPCHECK_DEBUG_TOKEN", "\"$appCheckDebugToken\"")
     }
 
     buildTypes {
@@ -92,6 +99,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-config")
     implementation("com.google.firebase:firebase-ai")
+    implementation("com.google.firebase:firebase-functions") // v3 callables: getCredits, runLadderModule
+    implementation("com.google.firebase:firebase-storage")   // v3 full_video: clip upload
     // On-device SDK is not in the BoM yet (Firebase docs, hybrid/android/get-started)
     implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta08")
     implementation("com.google.firebase:firebase-appcheck-debug")

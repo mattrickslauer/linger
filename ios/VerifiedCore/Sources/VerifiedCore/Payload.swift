@@ -26,6 +26,10 @@ public struct MomentEvent: Sendable, Equatable {
     case videoStart = "video_start"
     /// A finished video clip: extras from `VideoClip.extras`, placed next to the clip's poster `frame` event.
     case video
+    /// v3.4 witness agent: a request, its answer, or a skip (see `WitnessEvents`).
+    case witness
+    case witnessAnswer = "witness_answer"
+    case witnessSkip = "witness_skip"
   }
   public var t: Int64
   public var type: Kind

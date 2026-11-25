@@ -5,12 +5,14 @@ import {
   MomentDoc,
   chunkHash,
   checkAi,
+  checkBar,
   checkChain,
   checkPhysics,
   downsample,
   evaluateSeal,
   genesis,
   isReadyToSeal,
+  needsBar,
   parsePayload,
   sha256hex,
 } from "../src/seal";
@@ -42,7 +44,7 @@ describe("test vectors (shared/test-vectors.json)", () => {
       frame: i === 1 ? { jpegB64: "aGVsbG8=", w: 1, h: 1, t: c.t1 } : null,
     }));
     const r = evaluateSeal(ID, moment({ chunkCount: 2, headHash: chunks[1].hash, startedAt: chunks[0].t0, endedAt: chunks[1].t1 }), chunks);
-    expect(r.checks).toEqual({ chain: true, timing: false, physics: true, frames: true, ai: true });
+    expect(r.checks).toEqual({ chain: true, timing: false, physics: true, frames: true, ai: true, bar: true });
     expect(r.sealed).toBe(false);
     expect(r.reason).toMatch(/too short/);
   });
@@ -60,6 +62,7 @@ function moment(over: Partial<MomentDoc> = {}): MomentDoc {
     headHash: null,
     judge: { verdict: "consistent", confidence: 0.9, reasons: ["Bass visible"] },
     skeptic: { verdict: "consistent", confidence: 0.8, reasons: ["No staging"] },
+    bar: { value: 0.5, difficulty: 0, rationale: "Standard bar", factors: [], source: "default", model: null, ranAt: 0 },
     seal: null,
     ...over,
   };
@@ -209,16 +212,50 @@ describe("checkAi", () => {
   it("missing opinions fail", () => {
     expect(checkAi(null, undefined)).toHaveLength(2);
   });
-  it("verification score must reach 0.5 when present", () => {
-    expect(checkAi(ok, ok, { probability: 0.5, reasons: [] })).toEqual([]);
-    const f = checkAi(ok, ok, { probability: 0.31, reasons: ["Fish could be a stock photo"] });
+  it("v3: the score is no longer part of the ai check", () => {
+    expect(checkAi(ok, ok)).toEqual([]);
+  });
+});
+
+describe("seal v3: bar check", () => {
+  it("score must reach the Moment's bar", () => {
+    expect(checkBar(0.73, 0.73, true)).toEqual([]);
+    const f = checkBar(0.72, 0.73, true, "Fish could be a stock photo");
     expect(f).toHaveLength(1);
-    expect(f[0]).toMatch(/31%.*stock photo/);
-    expect(checkAi(ok, ok, { probability: NaN, reasons: [] })[0]).toMatch(/invalid/);
+    expect(f[0]).toMatch(/0\.72 is below the bar 0\.73.*stock photo/);
+    expect(checkBar(null, 0.5, true)[0]).toMatch(/invalid/);
   });
   it("missing verification score does not block (older app builds)", () => {
-    expect(checkAi(ok, ok, null)).toEqual([]);
-    expect(checkAi(ok, ok)).toEqual([]);
+    expect(checkBar(null, 0.95, false)).toEqual([]);
+  });
+  it("evaluateSeal compares the score to the AI-set bar, not a fixed 0.5", () => {
+    const { m, chunks } = build();
+    m.score = { probability: 0.62, reasons: ["ok"] };
+    m.bar = { ...m.bar!, value: 0.8, difficulty: 0.67, source: "ai" };
+    const r = evaluateSeal(ID, m, chunks);
+    expect(r.checks).toEqual({ chain: true, timing: true, physics: true, frames: true, ai: true, bar: false });
+    expect(r.sealed).toBe(false);
+    expect(r.reason).toMatch(/^Bar: verification score 0\.62 is below the bar 0\.80/);
+    expect(r.baseline).toBe(0.62);
+    expect(r.barValue).toBe(0.8);
+    expect(r.ladderEligible).toBe(true); // below the bar but honest: the ladder can lift it
+    m.bar = { ...m.bar!, value: 0.59 };
+    const ok = evaluateSeal(ID, m, chunks);
+    expect(ok.sealed).toBe(true);
+    expect(ok.reason).toMatch(/score 0\.62 reaches the bar 0\.59/);
+  });
+  it("ladderEligible needs integrity + ai + a baseline score", () => {
+    const { m, chunks } = build();
+    expect(evaluateSeal(ID, m, chunks).ladderEligible).toBe(false); // no score
+    m.score = { probability: 0.9, reasons: [] };
+    expect(evaluateSeal(ID, m, chunks).ladderEligible).toBe(true);
+    m.skeptic = { verdict: "inconsistent", confidence: 0.9, reasons: ["screen"] };
+    expect(evaluateSeal(ID, m, chunks).ladderEligible).toBe(false);
+  });
+  it("a score above 1 is clamped for the baseline", () => {
+    const { m, chunks } = build();
+    m.score = { probability: 1.7, reasons: [] };
+    expect(evaluateSeal(ID, m, chunks).baseline).toBe(1);
   });
 });
 
@@ -240,6 +277,14 @@ describe("helpers", () => {
     expect(isReadyToSeal(moment({ judge: null }))).toBe(false);
     expect(isReadyToSeal(moment({ status: "recording" }))).toBe(false);
     expect(isReadyToSeal(moment({ seal: { sealed: true } }))).toBe(false);
+    expect(isReadyToSeal(moment({ bar: null }))).toBe(false); // v3: the bar comes first
+  });
+  it("needsBar: once, at submit, before the seal", () => {
+    expect(needsBar(moment({ bar: null, judge: null }))).toBe(true);
+    expect(needsBar(moment({ bar: null }))).toBe(true);
+    expect(needsBar(moment())).toBe(false);
+    expect(needsBar(moment({ bar: null, status: "recording" }))).toBe(false);
+    expect(needsBar(moment({ bar: null, seal: { sealed: true } }))).toBe(false);
   });
   it("checkPhysics ignores jitter within accuracy", () => {
     const p = parsePayload(JSON.stringify({ gps: [[0, 33.6, -117.6, 30, null, null], [100, 33.6002, -117.6, 30, null, null]] }))!;

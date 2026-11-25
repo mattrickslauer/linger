@@ -1,5 +1,10 @@
-# Witness agent, structured intentions and the verification ladder — design (DRAFT)
+# Witness agent, structured intentions and the verification ladder — design (APPROVED)
 
+Status: **APPROVED 2026-11-25, including every *(proposal)*.** The buildable contract is `docs/ARCHITECTURE.md`
+section "v3"; where this design and that section differ, the contract wins. Owner answers to the open questions:
+free demo credits only (10, granted server-side; no Stripe); bar, final score and ladder results are public on sealed
+posts, buying modules is owner-only; voice out uses platform TTS (not Gemini TTS); local notifications, no FCM;
+guest mode everywhere (no sign-in wall, guest Moments stay local until claimed at sign-in). Original status line:
 Status: **draft, not approved for build.** Captures the product conversation of 2026-11-24/25. Items marked
 *(proposal)* are Claude's calls awaiting the owner's confirmation; everything else was decided by the owner.
 Already shipped and not repeated here: the scorer agent (P(claim true | evidence) from a 0.2 prior, seal v2 gate at

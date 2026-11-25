@@ -39,13 +39,81 @@ object Vault {
 
     enum class State { Waiting, Repairing, Conflict }
 
-    /** Moments still held on this phone, with why. Empty map = everything is safely on the server. */
+    /** Moments still held on this phone, with why. Empty map = everything is safely on the server. Guest Moments are not here. */
     private val _held = MutableStateFlow<Map<String, State>>(emptyMap())
     val held: StateFlow<Map<String, State>> = _held
 
+    /**
+     * Guest Moments (docs/ARCHITECTURE.md v3.1): recorded while signed out, journal-only (`guest: true`, `ownerUid: null`),
+     * never written to Firestore until claimed at sign-in. Newest first.
+     */
+    private val _guests = MutableStateFlow<List<LocalMoment>>(emptyList())
+    val guests: StateFlow<List<LocalMoment>> = _guests
+
+    data class LocalMoment(
+        val id: String, val text: String, val category: String, val status: String, val startedAt: Long,
+        val summary: Summary, val heroB64: String?, val bar: Double?,
+    )
+
     fun init(context: Context) {
         root = File(context.filesDir, "vault").apply { mkdirs() }
-        _held.value = ids().associateWith { State.Waiting }
+        _held.value = ids().filter { !isGuest(it) }.associateWith { State.Waiting }
+        refreshGuests()
+    }
+
+    private fun readMoment(id: String): JSONObject? = runCatching { JSONObject(File(dir(id), "moment.json").readText()) }.getOrNull()
+
+    fun isGuest(id: String): Boolean = readMoment(id)?.optBoolean("guest", false) == true
+
+    /** Rebuilds [guests] from the journal (cheap: a handful of small files). */
+    fun refreshGuests() {
+        _guests.value = ids().mapNotNull { id ->
+            val m = readMoment(id) ?: return@mapNotNull null
+            if (!m.optBoolean("guest", false)) return@mapNotNull null
+            val intention = m.optJSONObject("intention")
+            @Suppress("UNCHECKED_CAST")
+            val summary = Summary.from(fromJsonValue(m.opt("summary")) as? Map<String, Any?>)
+            val hero = summary.heroFrameSeq?.let { seq ->
+                runCatching { JSONObject(File(dir(id), "chunks/${Store.chunkId(seq)}.json").readText()).optJSONObject("frame")?.optString("jpegB64") }.getOrNull()
+            }
+            LocalMoment(
+                id, intention?.optString("text").orEmpty(), intention?.optString("category") ?: "other",
+                m.optString("status", "recording"), m.optLong("startedAt"), summary, hero,
+                intention?.optJSONObject("preview")?.optDouble("bar")?.takeIf { !it.isNaN() },
+            )
+        }.sortedByDescending { it.startedAt }
+    }
+
+    /** The journal as Firestore-like maps (moment fields, chunks in seq order), for the detail screen. Null if absent. */
+    fun load(id: String): Pair<Map<String, Any?>, List<Map<String, Any?>>>? {
+        val m = readMoment(id) ?: return null
+        val chunks = File(dir(id), "chunks").listFiles()?.filter { it.name.endsWith(".json") }?.sortedBy { it.name }
+            ?.mapNotNull { f -> runCatching { fromJson(JSONObject(f.readText())) }.getOrNull() }.orEmpty()
+        return fromJson(m) to chunks
+    }
+
+    /**
+     * Claim a guest Moment for the signed-in user (v3.1 step 2): the journal gets the owner first, then the normal
+     * [verifyAll] re-creates it on the server (it is missing there), uploads every chunk and the submit fields.
+     * The chain binds only the momentId, so nothing hashed changes. A Moment once owned is never re-assigned.
+     */
+    suspend fun claim(id: String, uid: String, name: String, photoURL: String?): Boolean = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val m = readMoment(id) ?: return@withContext false
+            if (!m.optBoolean("guest", false) || (m.opt("ownerUid") != null && m.opt("ownerUid") != JSONObject.NULL)) return@withContext false
+            if (m.optString("status") != "submitted") return@withContext false // still recording: offered when it finishes
+            updateMoment(id, mapOf(
+                "ownerUid" to uid,
+                "owner" to mapOf("name" to name, "photoURL" to photoURL),
+                "recordedAsGuest" to true,
+                "claimedAt" to System.currentTimeMillis(),
+                "guest" to false,
+            ))
+            _held.update { it + (id to State.Waiting) }
+            refreshGuests()
+            Log.i(TAG, "claimed guest Moment $id for $uid")
+            true
+        }
     }
 
     private fun ids(): List<String> = root.listFiles()?.filter { File(it, "moment.json").exists() }?.map { it.name } ?: emptyList()
@@ -62,7 +130,7 @@ object Vault {
 
     fun saveMoment(id: String, fields: Map<String, Any?>) {
         writeAtomic(File(dir(id), "moment.json"), toJson(fields).toString())
-        _held.update { it + (id to State.Waiting) }
+        if (fields["guest"] == true) refreshGuests() else _held.update { it + (id to State.Waiting) }
     }
 
     fun updateMoment(id: String, fields: Map<String, Any?>) {
@@ -70,6 +138,7 @@ object Vault {
         val j = if (f.exists()) JSONObject(f.readText()) else JSONObject()
         for ((k, v) in fields) j.put(k, wrap(v))
         writeAtomic(f, j.toString())
+        if (j.optBoolean("guest", false)) refreshGuests()
     }
 
     fun saveChunk(id: String, chunk: Map<String, Any?>) {
@@ -86,6 +155,7 @@ object Vault {
             if (d.exists() && !d.deleteRecursively()) error("vault: could not delete ${d.path}")
         }
         _held.update { it - id }
+        refreshGuests()
         Log.i(TAG, "deleted by owner, local copy removed: $id")
     }
 
@@ -133,6 +203,8 @@ object Vault {
             for (k in SUBMIT_FIELDS) create.remove(k)
             create["status"] = "recording"
             create["seal"] = null; create["judge"] = null; create["skeptic"] = null; create["score"] = null
+            create["bar"] = null; create["verification"] = null
+            for (k in JOURNAL_ONLY) create.remove(k)
             create["createdAtServer"] = FieldValue.serverTimestamp()
             ref.set(create).await()
             server = ref.get(Source.SERVER).await()
@@ -170,7 +242,10 @@ object Vault {
         true
     }
 
-    private val SUBMIT_FIELDS = listOf("status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "submittedAtServer")
+    private val SUBMIT_FIELDS = listOf("status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "witness", "submittedAtServer")
+
+    /** Journal markers never sent to Firestore (v3.1 guest marker, v3.2 local interview transcript). */
+    private val JOURNAL_ONLY = listOf("guest", "transcript")
 
     // ── JSON <-> Firestore values (maps, lists, numbers, strings, booleans, null)
 

@@ -3,12 +3,20 @@ import { useUser } from "../auth";
 import { cameFromMe, canDeleteMoment } from "../canDelete";
 import ChainViewer from "../components/ChainViewer";
 import DeleteMoment from "../components/DeleteMoment";
+import Ladder from "../components/Ladder";
+import LocalClips from "../components/LocalClips";
+import { evidenceOf } from "../ladder";
+import { LADDER_DEMO } from "../credits";
 import MotionChart from "../components/MotionChart";
 import { getChunks, getMomentBundle, type MomentBundle } from "../data";
 import { FIXTURES } from "../firebase";
 import { decodeChunks, downsample, fmtDistance, fmtDuration } from "../geo";
 import { recordingMomentId } from "../recorder";
-import type { AiOpinion, Chunk, SealChecks } from "../types";
+import type { AiOpinion, Chunk, Moment, SealChecks } from "../types";
+import { localChunks, localMoment } from "../vault";
+import { claimAndVerify, markClaimPrompted } from "../claim";
+import { configured } from "../firebase";
+import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
 
 const TrackMap = lazy(() => import("../components/TrackMap"));
@@ -20,6 +28,88 @@ const CHECKS: { key: keyof SealChecks; name: string; ok: string; bad: string }[]
   { key: "frames", name: "Proof frames", ok: "At least one frame, each matching its fingerprint in the chain.", bad: "Missing frames, or a frame does not match its fingerprint." },
   { key: "ai", name: "AI review", ok: "Judge found it consistent, the skeptic found no fake signal, and the verification score is at least 50%.", bad: "The judge was not convinced, the skeptic found a fake signal, or the verification score is under 50%." },
 ];
+// Seal v3 moved the score gate out of `ai` into its own `bar` check.
+const CHECKS_V3: typeof CHECKS = [
+  ...CHECKS.slice(0, 4),
+  { key: "ai", name: "AI review", ok: "The judge found it consistent and the skeptic found no fake signal.", bad: "The judge was not convinced, or the skeptic found a fake signal." },
+  { key: "bar", name: "Score clears the bar", ok: "The final verification score is at or above the bar the AI set for this claim.", bad: "The final verification score is below the bar the AI set for this claim." },
+];
+
+/**
+ * v3: the final score against the AI-set bar (docs/ARCHITECTURE.md v3.3/v3.5). The bar is public: how hard the claim
+ * is, why, and the line the evidence had to clear. The score is the scorer's baseline after any ladder checks.
+ */
+function ScoreVsBar({
+  score,
+  baseline,
+  bar,
+  rationale,
+  factors,
+  source,
+  model,
+  reasons,
+  difficulty,
+}: {
+  score: number | null;
+  baseline: number | null;
+  bar: number;
+  rationale: string | null;
+  factors: string[];
+  source: "ai" | "default" | null;
+  model: string | null;
+  reasons: string[];
+  difficulty: number | null;
+}) {
+  const clears = score != null && score >= bar;
+  const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
+  return (
+    <article className={`opinion scorebar opinion-${score == null ? "meh" : clears ? "ok" : "bad"}`}>
+      <header>
+        <h3>Verification score vs the bar</h3>
+        <p className="verdict">
+          {score == null ? "not scored" : score.toFixed(2)}
+          <span className="muted small"> needs {bar.toFixed(2)}</span>
+        </p>
+      </header>
+      <div className="sb-meter" role="img" aria-label={`score ${score?.toFixed(2) ?? "none"}, bar ${bar.toFixed(2)}`}>
+        {score != null && <span className="sb-fill" style={{ width: pct(score) }} />}
+        {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && <span className="sb-base" style={{ left: pct(baseline) }} title={`baseline ${baseline.toFixed(2)}`} />}
+        <span className="sb-bar" style={{ left: pct(bar) }}>
+          <span>bar</span>
+        </span>
+      </div>
+      <p className="small">
+        {source === "default" ? "Standard bar: no claim-specific bar was set." : rationale || "Set by AI from the structured claim."}
+        {difficulty != null && source !== "default" && <span className="muted"> Difficulty {difficulty.toFixed(2)}.</span>}
+      </p>
+      {factors.length > 0 && (
+        <ul className="tagrow" aria-label="What set the bar">
+          {factors.map((f) => (
+            <li key={f} className="tag tag-static">
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && (
+        <p className="muted small">
+          Baseline {baseline.toFixed(2)} from the scorer, {score > baseline ? "raised" : "lowered"} by the extra checks below.
+        </p>
+      )}
+      {reasons.length > 0 && (
+        <ul>
+          {reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small">
+        Score: P(claim true | evidence), assuming most submissions cheat (prior 0.2).{" "}
+        {source === "ai" && model ? `Bar set by ${model} in a Cloud Function; code maps difficulty to 0.50–0.95.` : ""}
+      </p>
+    </article>
+  );
+}
 
 /** The scorer: P(claim true | evidence), starting from the assumption that most submissions cheat. */
 function ScoreCard({ probability, reasons }: { probability: number | null; reasons: string[] }) {
@@ -96,6 +186,46 @@ function Opinion({ who, o, fallback }: { who: "Judge" | "Skeptic"; o: AiOpinion 
   );
 }
 
+/** A Moment that exists only in this browser: say so, and offer the one thing that needs an account. */
+function LocalBanner({ id, guest, finished, onUploaded }: { id: string; guest: boolean; finished: boolean; onUploaded: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="local-banner" role="status">
+      <div>
+        <strong>{guest ? "On this device · sign in to verify" : "On this device · waiting to sync"}</strong>
+        <p className="muted small">
+          {guest
+            ? "Recorded as a guest. Nobody else can see it until you upload it; then the cloud review and the seal run as usual."
+            : "This browser keeps the raw copy until the server confirms every chunk."}
+        </p>
+        {err && <p className="notice notice-bad small">{err}</p>}
+      </div>
+      {guest && finished && configured && (
+        <button
+          className="btn btn-primary btn-small"
+          disabled={!!busy}
+          onClick={async () => {
+            setErr(null);
+            try {
+              markClaimPrompted();
+              const u = await requireSignIn("upload this Moment and get it verified");
+              await claimAndVerify([id], u, setBusy);
+              onUploaded();
+            } catch (e) {
+              if (!isDeclined(e)) setErr(`Upload failed: ${String((e as Error)?.message ?? e)}`);
+            } finally {
+              setBusy(null);
+            }
+          }}
+        >
+          {busy ?? "Upload and verify"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Detail({ id }: { id: string }) {
   const [bundle, setBundle] = useState<MomentBundle | null>(null);
   const [chunks, setChunks] = useState<Chunk[] | null>(null);
@@ -105,17 +235,39 @@ export default function Detail({ id }: { id: string }) {
   const { user } = useUser();
   const fromMe = cameFromMe(location.search);
 
+  const [local, setLocal] = useState(false);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let live = true;
-    getMomentBundle(id).then((b) => live && setBundle(b), (e) => live && setErr(String(e?.message ?? e)));
-    getChunks(id).then(
-      (c) => live && setChunks(c),
-      () => live && setChunks([]),
-    );
+    // Server (or fixtures) first; a Moment only this browser holds (a guest's, or one not yet synced) comes from the
+    // raw-vault journal instead, chunks included.
+    const fromVault = async () => {
+      const lm = await localMoment(id).catch(() => null);
+      if (!lm) return false;
+      const lc = await localChunks(id);
+      if (!live) return true;
+      setLocal(true);
+      setBundle({ feed: null, moment: lm as Moment });
+      setChunks(lc);
+      return true;
+    };
+    getMomentBundle(id)
+      .catch(() => ({ feed: null, moment: null }) as MomentBundle)
+      .then(async (b) => {
+        if (!live) return;
+        if (!b.feed && !b.moment && (await fromVault())) return;
+        setLocal(false);
+        setBundle(b);
+        getChunks(id).then(
+          (c) => live && setChunks(c),
+          () => live && setChunks([]),
+        );
+      })
+      .catch((e) => live && setErr(String(e?.message ?? e)));
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, reload]);
 
   const decoded = useMemo(() => decodeChunks(chunks ?? []), [chunks]);
   const feed = bundle?.feed ?? null;
@@ -171,12 +323,16 @@ export default function Detail({ id }: { id: string }) {
     );
 
   const intention = moment?.intention ?? feed!.intention;
-  const owner = moment?.owner ?? feed!.owner;
+  const guestLocal = local && moment?.ownerUid == null;
+  const owner = moment ? moment.owner : feed!.owner;
   const platform = moment?.platform ?? feed!.platform;
   const mode = moment?.onDevice.mode ?? feed!.onDeviceMode;
   const checks = moment?.seal?.checks ?? feed?.checks ?? null;
   const sealed = moment?.seal ? moment.seal.sealed : feed?.status === "sealed";
   const pending = !moment?.seal && !feed;
+  const barValue = moment?.bar?.value ?? moment?.verification?.bar ?? feed?.bar ?? null;
+  const finalScore = moment?.verification?.score ?? feed?.verificationScore ?? moment?.score?.probability ?? null;
+  const sealV3 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 3 || checks?.bar !== undefined;
   const sealReason = moment?.seal?.reason ?? feed?.sealReason ?? "Waiting for the seal.";
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
@@ -189,12 +345,20 @@ export default function Detail({ id }: { id: string }) {
         </Link>
         {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet" />}
       </div>
+      {local && (
+        <LocalBanner
+          id={id}
+          guest={guestLocal}
+          finished={moment?.status === "submitted"}
+          onUploaded={() => setReload((n) => n + 1)}
+        />
+      )}
       <header className="detail-head">
         <div>
           <p className="cat">{intention.category}</p>
           <h1>{intention.text}</h1>
           <p className="muted">
-            {owner?.name}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
+            {owner?.name ?? "You, as a guest"}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
             {moment?.device ? `, ${moment.device.model}` : ""}
           </p>
           <Chips platform={platform} mode={mode} />
@@ -224,6 +388,15 @@ export default function Detail({ id }: { id: string }) {
             <dt>motion samples</dt>
             <dd>{summary.motionCount.toLocaleString()}</dd>
           </div>
+          {barValue != null && finalScore != null && (
+            <div>
+              <dt>score / bar</dt>
+              <dd>
+                {finalScore.toFixed(2)}
+                <span className="dd-sub"> / {barValue.toFixed(2)}</span>
+              </dd>
+            </div>
+          )}
           {moment && (
             <div>
               <dt>live checks</dt>
@@ -311,17 +484,50 @@ export default function Detail({ id }: { id: string }) {
         </aside>
       </section>
 
+      {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
+
       <section className="review" aria-labelledby="ai-h">
         <h2 id="ai-h">What the AIs said</h2>
         <div className="opinions">
           <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
           <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
-          <ScoreCard
-            probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
-            reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
-          />
+          {barValue != null ? (
+            <ScoreVsBar
+              score={finalScore}
+              baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
+              bar={barValue}
+              rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
+              factors={moment?.bar?.factors ?? []}
+              source={moment?.bar?.source ?? (feed?.bar != null ? "ai" : null)}
+              model={moment?.bar?.model ?? null}
+              difficulty={moment?.bar?.difficulty ?? feed?.difficulty ?? null}
+              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+            />
+          ) : (
+            <ScoreCard
+              probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
+              reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+            />
+          )}
         </div>
       </section>
+
+      {!local && (
+        <Ladder
+          momentId={id}
+          ownerUid={moment?.ownerUid ?? null}
+          isOwner={LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid)}
+          eligible={!!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected")}
+          score={finalScore}
+          baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? null}
+          bar={barValue}
+          modules={moment?.verification?.modules ?? null}
+          feedLadder={feed?.ladder}
+          chunks={chunks}
+          intention={intention}
+          onRan={() => setReload((n) => n + 1)}
+        />
+      )}
 
       <section className="seal" aria-labelledby="seal-h">
         <div className="section-head">
@@ -331,7 +537,7 @@ export default function Detail({ id }: { id: string }) {
         <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
         {checks ? (
           <ul className="checklist">
-            {CHECKS.map((c) => (
+            {(sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
               <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
                 <span className="mark" aria-hidden="true">
                   {checks[c.key] ? "✓" : "✗"}

@@ -29,6 +29,9 @@ final class MomentDetailModel {
   private(set) var motion: [MotionPoint] = []
   private(set) var chunkCount = 0
   private(set) var chainVerified: Bool?
+  /// From the chain, for the ladder's `needs` (v3.6): answered witness requests and chained video clips.
+  private(set) var witnessAnswers = 0
+  private(set) var videos: [ChainVideo] = []
   private(set) var loading = false
   var error: String?
   @ObservationIgnored private var listener: ListenerRegistration?
@@ -40,6 +43,14 @@ final class MomentDetailModel {
   }
 
   func start() {
+    if card.local {
+      // Guest Moment: everything comes from the raw-vault journal on this phone (v3.1).
+      if loadedStatus == nil {
+        loadedStatus = card.status
+        Task { await loadChunks() }
+      }
+      return
+    }
     guard listener == nil else { return }
     listener = MomentStore.moment(card.id).addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, err in
       MainActor.assumeIsolated { self?.apply(snap, err) }
@@ -75,14 +86,22 @@ final class MomentDetailModel {
     loading = true
     defer { loading = false }
     do {
-      let snap = try await MomentStore.chunks(card.id).order(by: "seq").getDocuments()
-      let rows = snap.documents.map { ChunkRow($0.data()) }
+      let rows: [ChunkRow]
+      if card.local {
+        let id = card.id
+        rows = await Task.detached { Vault.localChunks(id).map { ChunkRow($0) } }.value
+      } else {
+        let snap = try await MomentStore.chunks(card.id).order(by: "seq").getDocuments()
+        rows = snap.documents.map { ChunkRow($0.data()) }
+      }
       let startedAt = card.startedAt, momentId = card.id
       let parsed = await Task.detached { Self.parse(momentId: momentId, docs: rows, startedAt: startedAt) }.value
       chunkCount = parsed.chunkCount
       chainVerified = parsed.chainOK
       frames = parsed.frames
       motion = parsed.motion
+      witnessAnswers = parsed.witnessAnswers
+      videos = parsed.videos
       if !parsed.track.isEmpty { track = parsed.track }
       if card.heroJpegB64 == nil, let hero = parsed.heroB64 { card.heroJpegB64 = hero }
     } catch {
@@ -110,7 +129,16 @@ final class MomentDetailModel {
     }
   }
 
+  /// A `video` event in the chain: the clip itself stays on the phone that recorded it.
+  nonisolated struct ChainVideo: Sendable, Equatable {
+    let sha256: String
+    let name: String
+    let bytes: Int64
+  }
+
   nonisolated struct Parsed: @unchecked Sendable {  // CGImage is immutable
+    var witnessAnswers = 0
+    var videos: [ChainVideo] = []
     var chunkCount = 0
     var chainOK = false
     var frames: [Frame] = []
@@ -136,6 +164,17 @@ final class MomentDetailModel {
       for g in (obj["gps"] as? [[Any]]) ?? [] where g.count >= 3 {
         if let lat = (g[1] as? NSNumber)?.doubleValue, let lng = (g[2] as? NSNumber)?.doubleValue {
           out.track.append(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
+      }
+      for e in (obj["events"] as? [[String: Any]]) ?? [] {
+        switch e["type"] as? String {
+        case "witness_answer": out.witnessAnswers += 1
+        case "video":
+          if let sha = e["sha256"] as? String {
+            out.videos.append(ChainVideo(sha256: sha, name: e["name"] as? String ?? "",
+                                         bytes: (e["bytes"] as? NSNumber)?.int64Value ?? 0))
+          }
+        default: break
         }
       }
       for m in (obj["motion"] as? [[Any]]) ?? [] where m.count >= 4 {

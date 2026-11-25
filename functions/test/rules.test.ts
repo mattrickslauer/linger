@@ -164,6 +164,91 @@ describe("chunks", () => {
   });
 });
 
+describe("v3: server-only fields, frozen intention, guest claim", () => {
+  const structured = {
+    text: "Catch a 10 lb largemouth bass at Lake Mission Viejo",
+    category: "fishing",
+    v: 3,
+    activity: "fishing",
+    goal: "catch a largemouth bass",
+    quantities: [{ metric: "weight", value: 10, unit: "lb", measuredBy: "scale" }],
+    place: { name: "Lake Mission Viejo", lat: 33.6, lng: -117.6, region: "California", country: "US" },
+    window: { start: 1, expectedMinutes: 120 },
+    conditions: ["autumn"],
+    assumptions: ["species from local lake"],
+    interview: { turns: 2, mode: "on_device" },
+    preview: { bar: 0.73, difficulty: 0.5, mode: "on_device" },
+  };
+  it("create may carry bar/verification only as null; a structured intention is fine", async () => {
+    await assertSucceeds(setDoc(doc(alice(), "moments/m1"), newMoment("alice", { intention: structured, bar: null, verification: null })));
+    await assertFails(setDoc(doc(alice(), "moments/m2"), newMoment("alice", { bar: { value: 0.5 } })));
+    await assertFails(setDoc(doc(alice(), "moments/m3"), newMoment("alice", { verification: { score: 1 } })));
+  });
+  it("owner can never write bar or verification", async () => {
+    await admin("moments/m1", newMoment());
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { bar: { value: 0.5, difficulty: 0 } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { verification: { score: 0.99 } }));
+    await admin("moments/m2", newMoment("alice", { status: "submitted", bar: { value: 0.8 } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m2"), { bar: { value: 0.5 } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m2"), { bar: null }));
+  });
+  it("intention is editable while recording, may ride the submit update, then is frozen", async () => {
+    await admin("moments/m1", newMoment());
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m1"), { intention: structured }));
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m1"), { status: "submitted", chunkCount: 1, headHash: "h", intention: { ...structured, conditions: ["dusk"] } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { intention: { text: "x", category: "other" } }));
+    // judge/skeptic/score after submit still work
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m1"), { judge: { verdict: "consistent" }, skeptic: { verdict: "consistent" }, score: { probability: 0.6, reasons: [] } }));
+  });
+  it("guests (signed out) cannot write moments or chunks, but can read the public feed and sealed posts", async () => {
+    await assertFails(setDoc(doc(anon(), "moments/g1"), newMoment("guest")));
+    await admin("moments/m1", newMoment("alice", { status: "sealed", bar: { value: 0.8 }, verification: { score: 0.83 } }));
+    await admin("moments/m1/chunks/000000", chunk(0));
+    await admin("feed/m1", { status: "sealed", bar: 0.8, finalScore: 0.83 });
+    await assertSucceeds(getDoc(doc(anon(), "moments/m1")));
+    await assertSucceeds(getDocs(collection(anon(), "moments/m1/chunks")));
+    await assertSucceeds(getDoc(doc(anon(), "feed/m1")));
+  });
+  it("claim on upload: a guest Moment recorded earlier uploads through the normal path under the new uid", async () => {
+    const claimed = newMoment("alice", { startedAt: 1000, recordedAsGuest: true, claimedAt: 999999, intention: structured });
+    await assertSucceeds(setDoc(doc(alice(), "moments/g1"), claimed));
+    await assertSucceeds(setDoc(doc(alice(), "moments/g1/chunks/000000"), chunk(0)));
+    await assertSucceeds(setDoc(doc(alice(), "moments/g1/chunks/000001"), chunk(1)));
+    await assertSucceeds(updateDoc(doc(alice(), "moments/g1"), { status: "submitted", chunkCount: 2, headHash: "h", endedAt: 2000 }));
+    await assertFails(setDoc(doc(bob(), "moments/g2"), newMoment("alice", { recordedAsGuest: true })));
+  });
+});
+
+describe("v3: credits", () => {
+  it("owner reads their balance and ledger; nobody else; nobody writes", async () => {
+    await admin("credits/alice", { balance: 10, granted: 10, spent: 0 });
+    await admin("credits/alice/ledger/e1", { delta: 10, kind: "grant", reason: "free demo credits", balanceAfter: 10 });
+    await assertSucceeds(getDoc(doc(alice(), "credits/alice")));
+    await assertSucceeds(getDocs(collection(alice(), "credits/alice/ledger")));
+    await assertFails(getDoc(doc(bob(), "credits/alice")));
+    await assertFails(getDocs(collection(bob(), "credits/alice/ledger")));
+    await assertFails(getDoc(doc(anon(), "credits/alice")));
+    await assertFails(setDoc(doc(alice(), "credits/alice"), { balance: 1000 }));
+    await assertFails(updateDoc(doc(alice(), "credits/alice"), { balance: 1000 }));
+    await assertFails(setDoc(doc(alice(), "credits/alice/ledger/e2"), { delta: 1000, kind: "grant" }));
+    await assertFails(deleteDoc(doc(alice(), "credits/alice/ledger/e1")));
+    await assertFails(setDoc(doc(alice(), "credits/bob"), { balance: 10 }));
+  });
+  it("barLeases (server-only bar-agent lease): no client reads or writes, guests included", async () => {
+    await admin("barLeases/m1", { at: 1 });
+    await assertFails(getDoc(doc(alice(), "barLeases/m1")));
+    await assertFails(getDoc(doc(anon(), "barLeases/m1")));
+    await assertFails(setDoc(doc(alice(), "barLeases/m2"), { at: 1 }));
+    await assertFails(deleteDoc(doc(alice(), "barLeases/m1")));
+  });
+  it("guests write nothing anywhere a signed-in user could", async () => {
+    await assertFails(setDoc(doc(anon(), "credits/x"), { balance: 10 }));
+    await assertFails(setDoc(doc(anon(), "users/x"), { displayName: "Guest" }));
+    await assertFails(setDoc(doc(anon(), "moments/g1"), { ownerUid: null, status: "recording", guest: true }));
+    await assertFails(setDoc(doc(anon(), "feed/g1"), { status: "sealed" }));
+  });
+});
+
 describe("feed and users", () => {
   it("public can read the feed; nobody can write it", async () => {
     await admin("feed/m1", { status: "sealed" });

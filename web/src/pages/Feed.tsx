@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { subscribeFeed } from "../data";
 import { FIXTURES } from "../firebase";
 import { fmtDistance, fmtDuration } from "../geo";
+import type { User } from "firebase/auth";
 import type { FeedEntry } from "../types";
 import { ago, Chips, jpegSrc, Link, Stamp, TrackSketch } from "../ui";
 
@@ -31,69 +32,57 @@ function contours(): string[] {
   return out;
 }
 
-const TRACK = "M60,330 C110,300 130,340 170,300 S230,250 250,262 S300,230 290,200 S330,170 360,184 S420,150 430,120";
-const FRAMES = [
-  { x: 170, y: 300 },
-  { x: 290, y: 200 },
-  { x: 430, y: 120 },
-];
+const TRACK = "M-20,250 C80,210 150,260 230,214 S360,150 420,170 S560,120 640,96 S820,60 900,70 S1080,30 1220,44";
 
-function HeroArt() {
+/**
+ * The landing IS the app (docs/ARCHITECTURE.md v3.1): one line of pitch, one big way in, then the live feed.
+ * Behind it, survey contours and a recorded track that draws itself once: the single orchestrated motion.
+ */
+function Pitch({ user }: { user: User | null }) {
   const lines = useMemo(contours, []);
   return (
-    <svg className="hero-art" viewBox="0 0 640 400" role="img" aria-label="A recorded track crossing contour lines, with three proof shots and a seal at the end">
-      <g className="contours">
-        {lines.map((d, i) => (
-          <path key={i} d={d} />
-        ))}
-      </g>
-      <path className="hero-track-shadow" d={TRACK} />
-      <path className="hero-track" d={TRACK} pathLength={1} />
-      {FRAMES.map((f, i) => (
-        <g key={i} className="hero-frame" style={{ animationDelay: `${0.5 + i * 0.55}s` }} transform={`translate(${f.x} ${f.y})`}>
-          <rect x="-15" y="-34" width="30" height="24" rx="3" />
-          <circle cx="0" cy="0" r="5" />
-          <line x1="0" y1="-10" x2="0" y2="-5" />
+    <section className="pitch" aria-labelledby="pitch-h">
+      <svg className="pitch-art" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <g className="contours" transform="translate(240 -40) scale(1.1)">
+          {lines.map((d, i) => (
+            <path key={i} d={d} />
+          ))}
         </g>
-      ))}
-      <g className="hero-seal" transform="translate(470 92) rotate(-8)">
-        <rect x="-4" y="-22" width="128" height="44" rx="6" />
-        <rect className="inner" x="1" y="-17" width="118" height="34" rx="4" />
-        <text x="60" y="6" textAnchor="middle">
-          Verified ✓
-        </text>
-      </g>
-    </svg>
+        <path className="hero-track" d={TRACK} pathLength={1} />
+      </svg>
+      <div className="pitch-in">
+        <div className="pitch-copy">
+          <h1 id="pitch-h">Proof that it really happened.</h1>
+          <p className="pitch-sub">Recorded, chained and checked by AI.</p>
+        </div>
+        <div className="pitch-cta">
+          <Link to="/record" className="btn btn-record">
+            <span className="rec-dot" aria-hidden="true" />
+            Record a Moment
+          </Link>
+          <p className="pitch-note">
+            {user
+              ? `Recording as ${user.displayName?.split(" ")[0] ?? "you"}. It syncs when there's signal.`
+              : "No account needed. It stays on this device until you choose to upload it."}
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
 const STEPS = [
-  { title: "On-device coach", text: "Gemini Nano looks at each proof shot on your device and says keep going or retake. It can never verify." },
-  { title: "Offline sync", text: "No signal at the lake? Every 5-second chunk is hashed and queued on the phone, then syncs itself." },
-  { title: "Cloud judge, skeptic + scorer", text: "One model weighs the evidence, a second hunts for screens, stock photos and staging, and a third scores how likely the claim is true assuming most people cheat." },
-  { title: "Deterministic seal", text: "A Cloud Function re-hashes the chain, checks timing and physics, and alone writes the seal." },
+  { title: "Say what you're about to do", text: "A short voice interview turns \"going fishing\" into a claim with a place, a goal and numbers, on your device." },
+  { title: "Record it live", text: "GPS, motion and proof shots close into SHA-256-chained chunks every 5 seconds. A witness asks for the evidence that matters." },
+  { title: "Three cloud reads", text: "A judge, a skeptic hunting for fakes, and a scorer that assumes most people cheat. AI sets the bar the score must clear." },
+  { title: "Code seals it", text: "A Cloud Function re-checks the chain, timing and physics and alone writes the seal. Owners can add stricter checks after." },
 ];
 
-function Hero() {
+function How() {
   return (
-    <section className="hero">
-      <div className="hero-copy">
-        <h1>Proof it happened.</h1>
-        <p className="lede">
-          Record a moment as it happens. An AI on your phone coaches the proof, two AIs in the cloud argue about it, and plain code
-          seals it so nothing can be changed afterwards.
-        </p>
-        <div className="hero-actions">
-          <Link to="/record" className="btn btn-primary">
-            Record a Moment
-          </Link>
-          <a href="#feed" className="btn btn-quiet">
-            Browse sealed Moments
-          </a>
-        </div>
-      </div>
-      <HeroArt />
-      <ol className="how" aria-label="How it works">
+    <section className="how-wrap" aria-labelledby="how-h">
+      <h2 id="how-h">How a Moment gets verified</h2>
+      <ol className="how">
         {STEPS.map((s, i) => (
           <li key={s.title}>
             <span className="how-n">{i + 1}</span>
@@ -108,10 +97,29 @@ function Hero() {
 
 // ------------------------------------------------------------------ feed
 
-function Card({ e }: { e: FeedEntry }) {
-  const sealed = e.status === "sealed";
+/** "score 0.83 · bar 0.80": the final score against the bar the AI set for this claim (v3.8). */
+export function ScoreLine({ score, bar, sealed }: { score: number | null | undefined; bar: number | null | undefined; sealed: boolean }) {
+  if (score == null) return null;
+  const has = bar != null;
   return (
-    <Link to={`/m/${e.momentId}`} className={`card ${sealed ? "" : "card-rejected"}`}>
+    <span className={`scoreline ${sealed ? "" : "scoreline-low"}`}>
+      <span className="scoreline-meter" aria-hidden="true">
+        <span className="scoreline-fill" style={{ width: `${Math.round(score * 100)}%` }} />
+        {has && <span className="scoreline-bar" style={{ left: `${Math.round(bar! * 100)}%` }} />}
+      </span>
+      <span className="scoreline-text">
+        score {score.toFixed(2)}
+        {has && <> · bar {bar!.toFixed(2)}</>}
+      </span>
+    </span>
+  );
+}
+
+function Card({ e, lead }: { e: FeedEntry; lead?: boolean }) {
+  const sealed = e.status === "sealed";
+  const extra = e.ladder?.length ?? 0;
+  return (
+    <Link to={`/m/${e.momentId}`} className={`card ${sealed ? "" : "card-rejected"} ${lead ? "card-lead" : ""}`}>
       <div className="card-media">
         {e.heroJpegB64 ? <img src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} /> : <div className="card-noimg" />}
         <Stamp sealed={sealed} />
@@ -126,6 +134,7 @@ function Card({ e }: { e: FeedEntry }) {
         <p className="card-meta">
           {e.owner?.name ?? "Someone"}, {ago(e.sealedAtServer)}
         </p>
+        <ScoreLine score={e.verificationScore} bar={e.bar} sealed={sealed} />
         <dl className="stats">
           <div>
             <dt>time</dt>
@@ -140,15 +149,27 @@ function Card({ e }: { e: FeedEntry }) {
             <dd>{e.summary.frameCount}</dd>
           </div>
         </dl>
-        <Chips platform={e.platform} mode={e.onDeviceMode} />
+        <span className="chips">
+          <Chips platform={e.platform} mode={e.onDeviceMode} />
+          {extra > 0 && <span className="chip chip-ladder">+{extra} check{extra > 1 ? "s" : ""}</span>}
+          {e.witness && e.witness.answered > 0 && <span className="chip">witness {e.witness.answered}/{e.witness.asked}</span>}
+        </span>
       </div>
     </Link>
   );
 }
 
-export default function Feed() {
+type Filter = "all" | "sealed" | "rejected";
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "sealed", label: "Verified" },
+  { id: "rejected", label: "Not verified" },
+];
+
+export default function Feed({ user }: { user: User | null }) {
   const [entries, setEntries] = useState<FeedEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
   useEffect(
     () =>
       subscribeFeed(
@@ -161,17 +182,25 @@ export default function Feed() {
     [],
   );
   const sealedCount = entries?.filter((e) => e.status === "sealed").length ?? 0;
+  const shown = entries?.filter((e) => filter === "all" || e.status === filter) ?? null;
   return (
     <>
-      <Hero />
-      <section id="feed" className="feed">
+      <Pitch user={user} />
+      <section id="feed" className="feed" aria-labelledby="feed-h">
         <header className="feed-head">
-          <h2>Sealed Moments</h2>
+          <h2 id="feed-h">Latest Moments</h2>
           <p className="live">
             <span className="live-dot" aria-hidden="true" />
             {entries ? `${sealedCount} verified, ${entries.length - sealedCount} not` : "Connecting"}
             {FIXTURES ? " (sample data)" : ", updating live"}
           </p>
+          <div className="filters" role="group" aria-label="Show">
+            {FILTERS.map((f) => (
+              <button key={f.id} className={`cat-chip ${filter === f.id ? "on" : ""}`} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                {f.label}
+              </button>
+            ))}
+          </div>
         </header>
         {error && <p className="notice notice-bad">Couldn't load the feed: {error}</p>}
         {entries && entries.length === 0 && (
@@ -183,14 +212,20 @@ export default function Feed() {
           </div>
         )}
         {!entries && !error && <div className="grid">{[0, 1, 2].map((i) => <div key={i} className="card card-skeleton" />)}</div>}
-        {entries && entries.length > 0 && (
+        {shown && shown.length > 0 && (
           <div className="grid">
-            {entries.map((e) => (
-              <Card key={e.momentId} e={e} />
+            {shown.map((e, i) => (
+              <Card key={e.momentId} e={e} lead={i === 0 && filter === "all"} />
             ))}
           </div>
         )}
+        {shown && shown.length === 0 && entries && entries.length > 0 && <p className="muted">No Moments match this filter yet.</p>}
       </section>
+      <How />
+      <Link to="/record" className="fab">
+        <span className="rec-dot" aria-hidden="true" />
+        Record
+      </Link>
     </>
   );
 }

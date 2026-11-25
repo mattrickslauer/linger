@@ -3,11 +3,13 @@ import { useUser } from "./auth";
 import { configured, FIXTURES, USE_EMULATORS } from "./firebase";
 import Feed from "./pages/Feed";
 import { useRoute } from "./router";
+import { requireSignIn, SignInSheet } from "./signin";
 import { Link } from "./ui";
 
 const Detail = lazy(() => import("./pages/Detail"));
 const Record = lazy(() => import("./pages/Record"));
 const Me = lazy(() => import("./pages/Me"));
+const ClaimSheet = lazy(() => import("./components/ClaimSheet"));
 
 type Theme = "system" | "light" | "dark";
 function useTheme(): [Theme, () => void] {
@@ -74,6 +76,11 @@ export default function App() {
             Me
           </Link>
         </nav>
+        {ready && !user && configured && (
+          <button className="btn btn-quiet btn-small signin-top" onClick={() => requireSignIn("sync your Moments").catch(() => {})}>
+            Sign in
+          </button>
+        )}
         <button className="theme" onClick={cycleTheme} aria-label={`Theme: ${theme}. Switch theme`} title={`Theme: ${theme}`}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="8" />
@@ -82,9 +89,15 @@ export default function App() {
         </button>
       </header>
       {(FIXTURES || USE_EMULATORS) && <p className="modebar">{FIXTURES ? "Sample data mode: nothing here touches Firebase." : "Emulator mode: local Auth and Firestore."}</p>}
+      <SignInSheet />
+      {configured && (
+        <Suspense fallback={null}>
+          <ClaimSheet user={user} />
+        </Suspense>
+      )}
       <main id="main">
         <Suspense fallback={<div className="page" aria-busy="true" />}>
-          {route.name === "feed" && <Feed />}
+          {route.name === "feed" && <Feed user={user} />}
           {route.name === "moment" && <Detail id={route.id} />}
           {route.name === "record" && <Record user={user} ready={ready} />}
           {route.name === "me" && <Me user={user} ready={ready} />}
