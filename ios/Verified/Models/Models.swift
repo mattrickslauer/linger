@@ -118,8 +118,12 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var skeptic: AiOpinion?
   var score: VerificationScore?
   var hasPendingWrites = false
+  /// A guest Moment kept only on this phone (raw-vault journal), not on the server (v3.1).
+  var local = false
 
   var isVerified: Bool { status == "sealed" }
+  /// The badge: a finished guest Moment reads "On this device" (it has not been judged).
+  var badgeStatus: String { local && status == "submitted" ? "local" : status }
 
   /// `feed/{momentId}` (public, written by the Cloud Function).
   static func fromFeed(id: String, _ d: [String: Any]) -> MomentCardData {

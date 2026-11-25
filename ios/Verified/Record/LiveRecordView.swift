@@ -60,7 +60,11 @@ struct LiveRecordView: View {
         }
       }
       Spacer(minLength: 0)
-      SyncBadge(online: app.network.isOnline, pending: rec.sync.pending, total: max(rec.sync.total, rec.chunkCount))
+      if rec.isGuest {
+        Chip(text: "On this device · \(rec.chunkCount) chunks", systemImage: "iphone", color: .indigo)
+      } else {
+        SyncBadge(online: app.network.isOnline, pending: rec.sync.pending, total: max(rec.sync.total, rec.chunkCount))
+      }
     }
     .padding(.horizontal, 16).padding(.vertical, 8)
   }
@@ -190,7 +194,11 @@ struct LiveRecordView: View {
           .disabled(rec.phase != .recording)
 
           Button {
-            Task { await rec.finish() }
+            Task {
+              await rec.finish()
+              // A guest Moment finished while signed in (signed in mid-recording): offer it for upload now.
+              if rec.lastSubmitted?.guest == true { app.offerClaimIfNeeded(force: true) }
+            }
           } label: {
             Label("Finish", systemImage: "stop.fill").font(.headline).padding(.vertical, 6)
           }

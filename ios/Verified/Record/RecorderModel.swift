@@ -48,7 +48,9 @@ final class RecorderModel {
   var error: String?
   /// Set after Finish so the Record tab can say what happens next.
   private(set) var lastSubmitted: Submitted?
-  struct Submitted: Equatable { let id: String; let intention: String }
+  struct Submitted: Equatable { let id: String; let intention: String; let guest: Bool }
+  /// Recording as a guest: everything goes to the local raw vault only, nothing to Firestore (v3.1).
+  private(set) var isGuest = false
 
   let sync = ChunkSyncMonitor()
   let camera = CameraController()
@@ -99,7 +101,13 @@ final class RecorderModel {
 
   // MARK: - Start
 
-  func start(owner: SignedInUser) {
+  /// The intention as written on `moments/{id}.intention` (v1 `{text, category}`; v3 adds the structured keys).
+  var intentionData: [String: Any] {
+    ["text": String(intention.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)), "category": category.rawValue]
+  }
+
+  /// `owner == nil`: a guest Moment, kept on this phone until it is claimed at sign-in.
+  func start(owner: SignedInUser?) {
     guard canStart else { return }
     let id = UUID().uuidString.lowercased()
     let t = nowMs()
@@ -125,10 +133,10 @@ final class RecorderModel {
     clipStartedAt = nil
     error = nil
     lastSubmitted = nil
+    isGuest = owner == nil
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
     do {
-      try MomentStore.create(id: id, owner: owner, intention: intention.trimmingCharacters(in: .whitespacesAndNewlines),
-                             category: category, startedAt: t)
+      try MomentStore.create(id: id, owner: owner, intention: intentionData, startedAt: t)
     } catch {
       // Raw vault: without a local copy we don't record at all.
       self.error = "Could not save this Moment on the phone: \(error.localizedDescription)"
@@ -136,7 +144,7 @@ final class RecorderModel {
       return
     }
     phase = .recording
-    sync.watch(momentId: id)
+    if isGuest { sync.stop() } else { sync.watch(momentId: id) }
     location.start { [weak self] s in self?.addGPS(s) }
     motion.start { [weak self] s in self?.addMotion(s) }
     camera.start()
@@ -192,7 +200,7 @@ final class RecorderModel {
     do {
       try MomentStore.writeChunk(
         momentId: chain.momentId, chunk: chunk,
-        frame: frame.map { MomentStore.Frame(jpegB64: $0.jpegB64, w: $0.w, h: $0.h, t: $0.t) })
+        frame: frame.map { MomentStore.Frame(jpegB64: $0.jpegB64, w: $0.w, h: $0.h, t: $0.t) }, guest: isGuest)
       return true
     } catch {
       let msg = "Could not save chunk \(chunk.seq) on the phone: \(error.localizedDescription)"
@@ -379,6 +387,9 @@ final class RecorderModel {
       : Coach(kind: .retake, text: "Retake: \(check.reason)")
   }
 
+  /// `moments/{id}.witness` at submit (v3.4); informational, the server recounts from the chain.
+  var witnessSummary: [String: Any] { ["asked": 0, "answered": 0, "skipped": 0, "mode": "none"] }
+
   // MARK: - Finish
 
   func finish() async {
@@ -399,7 +410,8 @@ final class RecorderModel {
     do {
       try MomentStore.submit(
         momentId: id, endedAt: endedAt, chunkCount: chunks.count, headHash: chain.lastHash,
-        summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes))
+        summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes),
+        witness: witnessSummary, guest: isGuest)
     } catch {
       // Raw vault: not journaled means not submitted; the Moment stays `recording` on the server.
       self.error = "Could not save this Moment on the phone, so it was not submitted: \(error.localizedDescription)"
@@ -408,13 +420,15 @@ final class RecorderModel {
       momentId = nil
       return
     }
-    // Give the queued writes a head start, then check the server has every chunk.
-    Task {
-      try? await Task.sleep(for: .seconds(5))
-      await Vault.shared.verifyAll()
+    if !isGuest {
+      // Give the queued writes a head start, then check the server has every chunk.
+      Task {
+        try? await Task.sleep(for: .seconds(5))
+        await Vault.shared.verifyAll()
+      }
     }
 
-    lastSubmitted = Submitted(id: id, intention: intention)
+    lastSubmitted = Submitted(id: id, intention: intention, guest: isGuest)
     intention = ""
     coach = nil
     phase = .idle

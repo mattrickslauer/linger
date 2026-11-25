@@ -74,7 +74,7 @@ struct MomentDetailView: View {
         HeroImage(b64: m.heroJpegB64, category: m.category)
           .frame(height: 240).clipped()
           .clipShape(RoundedRectangle(cornerRadius: 18))
-        VerdictBadge(status: m.status).padding(10)
+        VerdictBadge(status: m.badgeStatus).padding(10)
       }
       Text(m.intention).font(.title3.bold())
       HStack(spacing: 8) {
@@ -96,6 +96,26 @@ struct MomentDetailView: View {
       }
       if let reason = m.sealReason, !reason.isEmpty {
         Text(reason).font(.footnote).foregroundStyle(m.isVerified ? Theme.accent : Theme.bad)
+      }
+      if m.local {
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: "iphone").font(.title3).foregroundStyle(.indigo)
+          VStack(alignment: .leading, spacing: 6) {
+            Text(m.status == "recording" ? "Recording on this device" : "On this device · sign in to verify")
+              .font(.subheadline.bold())
+            Text("Recorded as a guest. The hash chain is complete; the cloud judge, skeptic, scorer and the seal run after upload.")
+              .font(.caption).foregroundStyle(.secondary)
+            if m.status == "submitted" {
+              Button { app.upload(m) } label: {
+                Label("Upload & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+              }
+              .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+          }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
       }
     }
   }
@@ -313,7 +333,8 @@ struct SealChecklist: View {
   }
 
   private var statusLine: String {
-    switch card.status {
+    if card.local { return "Kept on this device. The seal runs after you sign in and upload it." }
+    return switch card.status {
     case "recording": "Still recording."
     case "submitted":
       card.judge == nil ? "Waiting for the cloud judge, skeptic and scorer (runs when the owner's phone is online)."

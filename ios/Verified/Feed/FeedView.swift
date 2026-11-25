@@ -9,6 +9,7 @@ struct FeedView: View {
     NavigationStack {
       ScrollView {
         LazyVStack(spacing: 16) {
+          LandingHeader()
           if let error = feed.error {
             Label(error, systemImage: "exclamationmark.triangle")
               .font(.footnote).foregroundStyle(Theme.bad).padding()
@@ -33,8 +34,61 @@ struct FeedView: View {
         .padding(16)
       }
       .background(Color(.systemGroupedBackground))
-      .navigationTitle("Feed")
+      .navigationTitle("Verified")
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          if let user = app.auth.user {
+            Button { app.tab = .me } label: { Avatar(url: user.photoURL, name: user.name, size: 30) }
+              .accessibilityLabel("Me")
+          } else {
+            Button("Sign in") { app.signIn() }.font(.subheadline.weight(.semibold))
+          }
+        }
+      }
     }
+  }
+}
+
+/// The landing IS the app (v3.1): one-line pitch, a big "Record a Moment" CTA, and the public feed right below.
+private struct LandingHeader: View {
+  @Environment(AppModel.self) private var app
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Proof that it really happened.")
+        .font(.system(.title, design: .rounded, weight: .bold))
+      Text("Recorded, chained and checked by AI.")
+        .font(.title3).foregroundStyle(.secondary)
+      Button {
+        app.tab = .record
+      } label: {
+        HStack(spacing: 12) {
+          Image(systemName: "record.circle.fill").font(.title2)
+            .symbolEffect(.pulse, options: .repeating)
+          Text("Record a Moment").font(.title3.bold())
+          Spacer()
+          Image(systemName: "arrow.right").font(.headline)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 16)
+        .foregroundStyle(.white)
+        .background(
+          LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing),
+          in: RoundedRectangle(cornerRadius: 18))
+        .shadow(color: Theme.accent.opacity(0.35), radius: 12, y: 6)
+      }
+      .buttonStyle(.plain)
+      HStack(spacing: 6) {
+        Chip(text: "on-device coach", systemImage: "cpu", color: Theme.accent)
+        Chip(text: "cloud judge", systemImage: "cloud", color: .blue)
+        Chip(text: "code seals", systemImage: "lock.fill", color: .secondary)
+      }
+      if app.isGuest {
+        Text("No account needed. Moments stay on this phone until you sign in to verify them.")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.bottom, 4)
   }
 }
 
@@ -48,7 +102,7 @@ struct MomentCard: View {
         HeroImage(b64: item.heroJpegB64, category: item.category)
           .frame(height: 210)
           .clipped()
-        VerdictBadge(status: item.status).padding(10)
+        VerdictBadge(status: item.badgeStatus).padding(10)
       }
       VStack(alignment: .leading, spacing: 8) {
         Text(item.intention).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
@@ -99,6 +153,7 @@ struct VerdictBadge: View {
     let (text, color): (String, Color) = switch status {
     case "sealed": ("Verified ✓", Theme.accent)
     case "rejected": ("Not verified", Theme.bad)
+    case "local": ("On this device", .indigo)
     case "submitted": ("Judging…", .blue)
     default: ("Recording", Theme.warn)
     }

@@ -70,7 +70,7 @@ struct RecordView: View {
       .safeAreaInset(edge: .bottom) {
         Button {
           focused = false
-          guard let user = app.auth.user else { return }
+          let user = app.auth.user  // nil: a guest Moment, kept on this phone (v3.1)
           let recorder = app.recorder
           Task {
             _ = await CameraController.requestAccess()
@@ -98,20 +98,35 @@ private struct SubmittedBanner: View {
 
   var body: some View {
     let judging = app.judge.running.contains(done.id)
+    let stillLocal = done.guest && app.vault.guestMoments.contains { $0.id == done.id }
     HStack(alignment: .top, spacing: 12) {
-      Image(systemName: "paperplane.circle.fill").font(.title2).foregroundStyle(Theme.accent)
+      Image(systemName: stillLocal ? "iphone.circle.fill" : "paperplane.circle.fill").font(.title2)
+        .foregroundStyle(stillLocal ? .indigo : Theme.accent)
       VStack(alignment: .leading, spacing: 4) {
-        Text("Moment submitted").font(.subheadline.bold())
+        Text(stillLocal ? "Saved on this phone" : "Moment submitted").font(.subheadline.bold())
         Text(done.intention).font(.subheadline).lineLimit(2)
+        if stillLocal {
+          Text("Recorded as a guest: chained and kept on this device. Sign in to upload it and get it verified.")
+            .font(.caption).foregroundStyle(.secondary)
+          Button {
+            if let m = app.vault.guestMoments.first(where: { $0.id == done.id }) { app.upload(m) }
+          } label: {
+            Label("Sign in & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.small)
+          .padding(.top, 4)
+        } else {
         Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
              : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
              : "Offline: it will sync and be judged when you're back online.")
           .font(.caption).foregroundStyle(.secondary)
+        }
       }
       Spacer(minLength: 0)
     }
     .padding(14)
-    .background(Theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+    .background((stillLocal ? Color.indigo : Theme.accent).opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
   }
 }
 

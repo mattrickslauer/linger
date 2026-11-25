@@ -40,6 +40,14 @@ final class MomentDetailModel {
   }
 
   func start() {
+    if card.local {
+      // Guest Moment: everything comes from the raw-vault journal on this phone (v3.1).
+      if loadedStatus == nil {
+        loadedStatus = card.status
+        Task { await loadChunks() }
+      }
+      return
+    }
     guard listener == nil else { return }
     listener = MomentStore.moment(card.id).addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, err in
       MainActor.assumeIsolated { self?.apply(snap, err) }
@@ -75,8 +83,14 @@ final class MomentDetailModel {
     loading = true
     defer { loading = false }
     do {
-      let snap = try await MomentStore.chunks(card.id).order(by: "seq").getDocuments()
-      let rows = snap.documents.map { ChunkRow($0.data()) }
+      let rows: [ChunkRow]
+      if card.local {
+        let id = card.id
+        rows = await Task.detached { Vault.localChunks(id).map { ChunkRow($0) } }.value
+      } else {
+        let snap = try await MomentStore.chunks(card.id).order(by: "seq").getDocuments()
+        rows = snap.documents.map { ChunkRow($0.data()) }
+      }
       let startedAt = card.startedAt, momentId = card.id
       let parsed = await Task.detached { Self.parse(momentId: momentId, docs: rows, startedAt: startedAt) }.value
       chunkCount = parsed.chunkCount
