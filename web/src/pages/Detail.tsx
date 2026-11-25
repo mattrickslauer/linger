@@ -3,6 +3,8 @@ import { useUser } from "../auth";
 import { cameFromMe, canDeleteMoment } from "../canDelete";
 import ChainViewer from "../components/ChainViewer";
 import DeleteMoment from "../components/DeleteMoment";
+import Ladder from "../components/Ladder";
+import { LADDER_DEMO } from "../credits";
 import MotionChart from "../components/MotionChart";
 import { getChunks, getMomentBundle, type MomentBundle } from "../data";
 import { FIXTURES } from "../firebase";
@@ -505,6 +507,23 @@ export default function Detail({ id }: { id: string }) {
           )}
         </div>
       </section>
+
+      {!local && (
+        <Ladder
+          momentId={id}
+          ownerUid={moment?.ownerUid ?? null}
+          isOwner={LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid)}
+          eligible={!!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected")}
+          score={finalScore}
+          baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? null}
+          bar={barValue}
+          modules={moment?.verification?.modules ?? null}
+          feedLadder={feed?.ladder}
+          chunks={chunks}
+          intention={intention}
+          onRan={() => setReload((n) => n + 1)}
+        />
+      )}
 
       <section className="seal" aria-labelledby="seal-h">
         <div className="section-head">

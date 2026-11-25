@@ -2265,3 +2265,245 @@ path.lf-cursor {
   text-align: center;
   border: 2px solid var(--gold);
 }
+
+/* Verification ladder (v3.6): public rungs, owner offers, run sheet */
+.ladder {
+  margin-top: 40px;
+}
+.ladder-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  color: var(--ink-2);
+  margin: 0 0 14px;
+}
+.ladder-head strong {
+  color: var(--ink);
+}
+.ladder-verdict {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 1px 10px;
+  border-radius: 999px;
+}
+.ladder-verdict.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.ladder-verdict.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.rungs {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0 0 0 14px;
+  border-left: 2px dashed var(--contour);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rung {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 16px;
+  border-radius: var(--r);
+  background: var(--sheet);
+}
+.rung::before {
+  content: "";
+  position: absolute;
+  left: -15px;
+  top: 22px;
+  width: 14px;
+  border-top: 2px solid var(--contour);
+}
+.rung-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-weight: 800;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.rung-fail .rung-mark {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.rung-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rung-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+.rung-verdict {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ok);
+}
+.rung-fail .rung-verdict {
+  color: var(--bad);
+}
+.rung-delta {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.rung-delta.up strong,
+.offer-preview .up,
+.run-math .up {
+  color: var(--ok);
+}
+.rung-delta.down strong,
+.offer-preview .down,
+.run-math .down {
+  color: var(--bad);
+}
+.offers {
+  padding: 20px;
+  border-radius: 14px;
+  border: 1.5px solid var(--ink);
+  background: color-mix(in srgb, var(--gold) 9%, var(--sheet));
+}
+.offers-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.offers-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.credits {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--gold-ink);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.credits .muted {
+  color: var(--gold-ink);
+  opacity: 0.75;
+}
+.offer-list {
+  list-style: none;
+  margin: 10px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--rule);
+}
+.offer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.offer-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.offer-main p {
+  margin: 0;
+}
+.offer-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.offer-cost {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-3);
+  color: var(--ink-2);
+}
+.offer-why {
+  color: var(--bad);
+}
+.offer-blocked .offer-title,
+.offer-soon .offer-title {
+  opacity: 0.65;
+}
+.offer-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.offer-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--mono);
+  margin: 0;
+  line-height: 1.35;
+}
+.run-math {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+.run-math div {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+}
+.run-math dt {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.run-math dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+@media (max-width: 600px) {
+  .rung {
+    grid-template-columns: auto 1fr;
+  }
+  .rung-delta {
+    grid-column: 2;
+  }
+  .offer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .offer-side {
+    justify-content: space-between;
+  }
+  .offer-preview {
+    flex-direction: row;
+    gap: 14px;
+  }
+  .run-math {
+    grid-template-columns: 1fr;
+  }
+}
