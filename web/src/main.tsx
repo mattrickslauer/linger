@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { finishRedirectSignIn } from "./auth";
 import "./styles.css";
+import "./v4.css";
 
 // The OAuth redirect lands on "/": a sign-in popup hands its code back and closes without rendering the app.
 finishRedirectSignIn().then((mode) => {

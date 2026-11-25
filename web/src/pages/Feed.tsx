@@ -74,7 +74,7 @@ function Pitch({ user }: { user: User | null }) {
 const STEPS = [
   { title: "Say what you're about to do", text: "A short voice interview turns \"going fishing\" into a claim with a place, a goal and numbers, on your device." },
   { title: "Record it live", text: "GPS, motion and proof shots close into SHA-256-chained chunks every 5 seconds. A witness asks for the evidence that matters." },
-  { title: "Three cloud reads", text: "A judge, a skeptic hunting for fakes, and a scorer that assumes most people cheat. AI sets the bar the score must clear." },
+  { title: "Cloud reviews", text: "A judge, a skeptic hunting for fakes, a scorer that assumes most people cheat, and a free review of your video clip. AI splits the claim into parts and sets the bar." },
   { title: "Code seals it", text: "A Cloud Function re-checks the chain, timing and physics and alone writes the seal. Owners can add stricter checks after." },
 ];
 
@@ -151,6 +151,13 @@ function Card({ e, lead }: { e: FeedEntry; lead?: boolean }) {
         </dl>
         <span className="chips">
           <Chips platform={e.platform} mode={e.onDeviceMode} />
+          {e.cheating ? (
+            <span className="chip chip-cheat">Not verified · cheating detected</span>
+          ) : e.claimsTotal ? (
+            <span className={`chip chip-claims ${(e.claimsBacked ?? 0) < e.claimsTotal ? "low" : ""}`}>
+              {e.claimsBacked ?? 0}/{e.claimsTotal} claims backed
+            </span>
+          ) : null}
           {extra > 0 && <span className="chip chip-ladder">+{extra} check{extra > 1 ? "s" : ""}</span>}
           {e.witness && e.witness.answered > 0 && <span className="chip">witness {e.witness.answered}/{e.witness.asked}</span>}
         </span>

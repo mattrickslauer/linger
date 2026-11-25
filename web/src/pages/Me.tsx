@@ -12,6 +12,8 @@ import type { Moment } from "../types";
 import { isDeclined, requireSignIn } from "../signin";
 import { forgetMoment, unclaimed, useLocalMoments, useVaultHeld, type LocalMoment } from "../vault";
 import { ago, Link, Stamp } from "../ui";
+import { uploadText, useClipUpload } from "../upload";
+import { videoStatusText } from "../v4";
 
 const STATUS: Record<Moment["status"], string> = {
   recording: "Recording (not finished)",
@@ -23,6 +25,7 @@ const STATUS: Record<Moment["status"], string> = {
 function Row({ m, uid }: { m: Moment; uid: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const up = useClipUpload(m.id);
   const needsReview = m.status === "submitted" && !m.judge && !m.pending;
   const done = m.status === "sealed" || m.status === "rejected";
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid, ownerUid: m.ownerUid, fromMe: true, id: m.id, recordingId: recordingMomentId() });
@@ -34,9 +37,14 @@ function Row({ m, uid }: { m: Moment; uid: string }) {
         {m.verification?.score != null && (
           <p className="muted small">
             score {m.verification.score.toFixed(2)} · bar {m.verification.bar.toFixed(2)}
+            {m.verification.claims?.length ? ` · ${m.verification.claimsBacked ?? 0}/${m.verification.claims.length} claims backed` : ""}
             {m.verification.modules.length ? ` · ${m.verification.modules.length} extra check${m.verification.modules.length > 1 ? "s" : ""}` : ""}
           </p>
         )}
+        {m.status === "submitted" && (videoStatusText(m.videoReview) || uploadText(up)) && (
+          <p className="muted small">{m.videoReview && m.videoReview.status !== "none" ? videoStatusText(m.videoReview) : uploadText(up)}</p>
+        )}
+        {m.status === "recording" && !m.pending && uploadText(up) && <p className="muted small">{uploadText(up)}</p>}
         <p className="muted small">
           {ago(m.startedAt)}
           {m.summary ? `, ${fmtDuration(m.summary.durationMs)}, ${fmtDistance(m.summary.distanceM)}, ${m.summary.frameCount} frames` : ""}

@@ -132,3 +132,48 @@ export async function applyFixtureLadder(id: string, r: import("./types").Ladder
     });
   }
 }
+
+/**
+ * Sample-data builds only, v4 Moments: the simulated runLadderModule (v4.6). The module's per-claim verdicts join the
+ * Moment's ladder and EVERY claim is recomputed with scoreV4 from the seal, as the function does. Returns the result
+ * row, or null when the Moment isn't a v4 sample.
+ */
+export async function applyFixtureLadderV4(
+  id: string,
+  mod: { module: import("./types").ModuleId; title: string; cost: number; strength: number; backs: string[]; backsTargetedOnly?: boolean },
+  verdicts: { id: string; verdict: "backed" | "not_backed" | "unclear"; confidence: number; reasons: string[] }[],
+  meta: { runId: string; confidence: number; reasons: string[] },
+) {
+  if (!FIXTURES) return null;
+  const f = await fixtures();
+  const { FIXTURE_V4_INPUTS, applyV4Result } = await import("./fixtures");
+  const { scoreV4 } = await import("./v4");
+  const m = f.moments[id];
+  const input = FIXTURE_V4_INPUTS[id];
+  if (!m || !input) return null;
+  input.ladder = [...(input.ladder ?? []), { module: mod.module, strength: mod.strength, backs: mod.backs, claims: verdicts, targetedOnly: mod.backsTargetedOnly }];
+  const r = scoreV4(input);
+  const step = r.ladder[r.ladder.length - 1];
+  const modules = [...(m.verification?.modules ?? [])];
+  const result: import("./types").LadderResult = {
+    runId: meta.runId,
+    module: mod.module,
+    title: mod.title,
+    cost: mod.cost,
+    strength: mod.strength,
+    passed: step.passed,
+    confidence: meta.confidence,
+    before: step.before,
+    after: step.after,
+    reasons: meta.reasons,
+    model: "simulated",
+    ranAt: Date.now(),
+    claims: step.claims.map((c) => {
+      const v = verdicts.find((x) => x.id === c.id);
+      return { id: c.id, verdict: v?.verdict ?? "missing", confidence: v?.confidence ?? 0, passed: c.passed, before: c.before, after: c.after, reasons: (v?.reasons ?? []).slice(0, 2) };
+    }),
+  };
+  modules.push(result);
+  applyV4Result(m, f.feed.find((x) => x.momentId === id), input, modules);
+  return { result, score: r.score, verified: r.verified, status: m.status as "sealed" | "rejected", claimScores: r.claims, claimsBacked: r.claimsBacked };
+}

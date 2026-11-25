@@ -2,6 +2,7 @@
 // (v3.3). No Firebase import, so everything here unit-tests in Node against shared/test-vectors-v3.json.
 
 import { CATEGORIES, type Category, type Intention, type InterviewMode, type MeasuredBy, type Quantity } from "./types";
+import { normalizeClaimsAndPlan } from "./v4";
 
 export const clamp01 = (x: number) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 export const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -104,10 +105,11 @@ export function normalizeIntention(raw: Record<string, unknown>, o: NormalizeOpt
   const region = orNull(place.region, 60);
   const country = orNull(place.country, 60);
   const mins = Number(raw.expectedMinutes);
+  const { claims, plan } = normalizeClaimsAndPlan(raw.claims, raw.plan);
   return {
     text,
     category: CATEGORIES.includes(cat) ? cat : guessCategory(text),
-    v: 3,
+    v: 4,
     activity: str(raw.activity, 40) || undefined,
     goal: str(raw.goal, 120) || undefined,
     quantities: normalizeQuantities(raw.quantities),
@@ -117,7 +119,19 @@ export function normalizeIntention(raw: Record<string, unknown>, o: NormalizeOpt
     assumptions: strList(raw.assumptions, 6, 120),
     interview: { turns: o.turns, mode: o.mode },
     preview: o.preview ?? null,
+    claims,
+    plan,
   };
+}
+
+/**
+ * Typed path (v4.1): attach the cloud's claims + plan for the typed sentence, keeping exactly what the person typed
+ * and picked. Returns the v1 intention unchanged when the model gave no usable claims.
+ */
+export function withDraftClaims(i: Intention, raw: Record<string, unknown>): Intention {
+  const { claims, plan } = normalizeClaimsAndPlan(raw.claims, raw.plan);
+  if (!claims.length) return i;
+  return { ...i, v: 4, claims, plan };
 }
 
 /** Which side ran the interview: every model turn plus the structuring call. */

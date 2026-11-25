@@ -18,6 +18,11 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
+import ClaimsPanel from "../components/Claims";
+import { claimViews, factsOf, videoStatusText } from "../v4";
+import { offersV4 } from "../ladder";
+import type { V4Ladder } from "../components/Ladder";
+import type { ModuleId } from "../types";
 
 const TrackMap = lazy(() => import("../components/TrackMap"));
 
@@ -33,6 +38,13 @@ const CHECKS_V3: typeof CHECKS = [
   ...CHECKS.slice(0, 4),
   { key: "ai", name: "AI review", ok: "The judge found it consistent and the skeptic found no fake signal.", bad: "The judge was not convinced, or the skeptic found a fake signal." },
   { key: "bar", name: "Score clears the bar", ok: "The final verification score is at or above the bar the AI set for this claim.", bad: "The final verification score is below the bar the AI set for this claim." },
+];
+// Seal v4 (docs/ARCHITECTURE.md v4.5/v4.6): per-claim bar, and cheating as its own check.
+const CHECKS_V4: typeof CHECKS = [
+  ...CHECKS.slice(0, 4),
+  { key: "ai", name: "AI review", ok: "The judge didn't find the proof frames contradicting the intention.", bad: "The proof frames contradict the intention." },
+  { key: "cheating", name: "No cheating", ok: "No broken chain, no fake signal from the skeptic, and the video matches the chain.", bad: "A cheating signal was found (see above)." },
+  { key: "bar", name: "Every claim clears the bar", ok: "The minimum evidence for every claim arrived, or extra checks lifted it to the bar.", bad: "At least one claim is still below the bar." },
 ];
 
 /**
@@ -237,6 +249,7 @@ export default function Detail({ id }: { id: string }) {
 
   const [local, setLocal] = useState(false);
   const [reload, setReload] = useState(0);
+  const [requested, setRequested] = useState<{ module: ModuleId; n: number } | null>(null);
   useEffect(() => {
     let live = true;
     // Server (or fixtures) first; a Moment only this browser holds (a guest's, or one not yet synced) comes from the
@@ -334,6 +347,33 @@ export default function Detail({ id }: { id: string }) {
   const finalScore = moment?.verification?.score ?? feed?.verificationScore ?? moment?.score?.probability ?? null;
   const sealV3 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 3 || checks?.bar !== undefined;
   const sealReason = moment?.seal?.reason ?? feed?.sealReason ?? "Waiting for the seal.";
+  // v4: claims (server, or the client draft before the seal), per-claim scores, video review.
+  const sealV4 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 4;
+  const ver = moment?.verification ?? null;
+  const draftClaims = !moment?.seal ? intention.claims : null;
+  const views = claimViews({
+    claims: moment?.claims?.items ?? draftClaims ?? null,
+    plan: moment?.plan ?? (draftClaims ? intention.plan : null) ?? null,
+    scores: ver?.version === 4 ? ver.claims : null,
+    bar: barValue,
+    feedClaims: feed?.claims ?? null,
+    feedPlan: feed?.plan ?? null,
+  });
+  const showClaims = views.length > 0 && (sealV4 || !moment?.seal);
+  const cheatingSignals =
+    moment?.seal?.checks.cheating === false ? (moment.seal.cheatingSignals ?? []) : feed?.cheating ? (feed.cheatingSignals ?? []) : null;
+  const vr = moment?.videoReview ?? (feed?.video ? { status: feed.video.status } : null);
+  // v4.6: modules back claims. Owner offers per claim, with that claim's previews.
+  const isOwner = LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid);
+  const eligible = !!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected");
+  const v4Ladder: V4Ladder | null =
+    sealV4 && moment?.claims?.items?.length && moment.plan && ver?.version === 4 && ver.claims
+      ? { claims: moment.claims.items, requirements: moment.plan.requirements, scores: ver.claims, witness: factsOf(chunks ?? []).witness }
+      : null;
+  const claimOffers =
+    v4Ladder && isOwner && eligible && !local
+      ? offersV4({ ...v4Ladder, modules: ver?.modules ?? [] }, evidenceOf(chunks ?? [], intention), null)
+      : null;
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
 
@@ -365,6 +405,54 @@ export default function Detail({ id }: { id: string }) {
         </div>
         {!pending && <Stamp sealed={sealed} size="lg" />}
       </header>
+
+      {showClaims && (
+        <ClaimsPanel
+          views={views}
+          bar={barValue}
+          score={sealV4 ? finalScore : null}
+          verified={sealed}
+          sealed={!pending && sealV4}
+          claimsBacked={ver?.claimsBacked ?? feed?.claimsBacked ?? null}
+          cheating={cheatingSignals}
+          videoStatus={vr && vr.status !== "none" ? videoStatusText(vr) : null}
+          videoSummary={moment?.videoReview?.summary || feed?.video?.summary || null}
+          offers={
+            claimOffers
+              ? (claimId) => {
+                  const rows = claimOffers.flatMap((o) =>
+                    (o.state === "ready" || o.state === "blocked") && o.claims.some((c) => c.id === claimId) ? [{ o, c: o.claims.find((c) => c.id === claimId)! }] : [],
+                  );
+                  if (!rows.length) return null;
+                  return (
+                    <ul className="claim-offers" aria-label="Checks that can still back this claim">
+                      {rows.map(({ o, c }) => (
+                        <li key={o.module.id} className="claim-offer">
+                          <span>
+                            <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
+                            <span className="down">{c.fail.toFixed(2)}</span>
+                            {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
+                          </span>
+                          {o.state === "ready" && (
+                            <button
+                              type="button"
+                              className="btn btn-small"
+                              onClick={() => {
+                                setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
+                              }}
+                            >
+                              Run · {o.module.cost} cr
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                }
+              : undefined
+          }
+        />
+      )}
 
       {summary && (
         <dl className="stats stats-wide">
@@ -494,7 +582,7 @@ export default function Detail({ id }: { id: string }) {
           {barValue != null ? (
             <ScoreVsBar
               score={finalScore}
-              baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
+              baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
               bar={barValue}
               rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
               factors={moment?.bar?.factors ?? []}
@@ -516,10 +604,12 @@ export default function Detail({ id }: { id: string }) {
         <Ladder
           momentId={id}
           ownerUid={moment?.ownerUid ?? null}
-          isOwner={LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid)}
-          eligible={!!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected")}
+          isOwner={isOwner}
+          eligible={eligible}
+          v4={v4Ladder}
+          requested={requested}
           score={finalScore}
-          baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? null}
+          baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? null}
           bar={barValue}
           modules={moment?.verification?.modules ?? null}
           feedLadder={feed?.ladder}
@@ -537,7 +627,7 @@ export default function Detail({ id }: { id: string }) {
         <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
         {checks ? (
           <ul className="checklist">
-            {(sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
+            {(sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
               <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
                 <span className="mark" aria-hidden="true">
                   {checks[c.key] ? "✓" : "✗"}

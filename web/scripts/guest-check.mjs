@@ -82,7 +82,7 @@ for (const size of [
       await page.getByRole("button", { name: /^Clip/ }).click();
       await page.waitForTimeout(2500);
       await page.screenshot({ path: `${OUT}/record-clip-${size.name}.png`, fullPage: true });
-      await page.getByRole("button", { name: /^Stop clip/ }).click();
+      await page.getByRole("button", { name: /^Stop video/ }).click();
       await page.getByRole("button", { name: /^Clip/ }).waitFor({ timeout: 15_000 });
       await page.waitForTimeout(500);
       ok("clip recorded");
@@ -131,6 +131,60 @@ for (const size of [
       await page.waitForTimeout(1200);
       (await page.locator(".local-banner").count()) ? ok("local detail renders from the journal") : fail("local detail missing");
       await page.screenshot({ path: `${OUT}/detail-local-${size.name}.png`, fullPage: true });
+
+      // v4: claims + evidence plan (`?plan=demo` canned draft), record screen opens in Video, live checklist,
+      // witness asks for an unmet requirement (rid), the clip is chained as a `video` event.
+      await page.goto(BASE + "/record?plan=demo&witness=demo", { waitUntil: "networkidle" });
+      await page.getByLabel("Type your answer").fill("clap 50 times");
+      await page.getByRole("button", { name: "Send" }).click();
+      await page.getByRole("heading", { name: "To get this verified" }).waitFor({ timeout: 15_000 });
+      const chips = await page.locator(".claim-chip").allInnerTexts();
+      const reqs = await page.locator(".plan-card .plan-row").count();
+      chips.length === 2 && reqs === 3 ? ok(`v4 end card: claims ${chips.map((c) => c.replace(/\s+/g, " ")).join(" | ")}, ${reqs} requirements`) : fail(`v4 end card: ${chips} / ${reqs}`);
+      await page.screenshot({ path: `${OUT}/record-plan-card-${size.name}.png`, fullPage: true });
+      await page.getByRole("button", { name: /^Start Moment/ }).first().click();
+      await page.waitForSelector(".live", { timeout: 10_000 });
+      (await page.getByRole("radio", { name: "Video" }).getAttribute("aria-checked")) === "true" ? ok("record screen opens in Video mode") : fail("not in Video mode");
+      const label0 = await page.locator(".live-plan h2").innerText();
+      /0\/3 captured/.test(label0) ? ok(`live checklist: ${label0}`) : fail(`live checklist: ${label0}`);
+      await page.getByText("Answer the witness once while you clap").first().waitFor({ timeout: 15_000 });
+      ok("witness asks for the unmet witness requirement first");
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page.getByRole("button", { name: /^Record video/ }).click();
+      await page.waitForTimeout(3000);
+      await page.screenshot({ path: `${OUT}/record-video-${size.name}.png`, fullPage: true });
+      await page.getByRole("button", { name: /^Stop video/ }).click();
+      await page.getByRole("button", { name: /^Record video/ }).waitFor({ timeout: 15_000 });
+      await page.waitForTimeout(800);
+      const label1 = await page.locator(".live-plan h2").innerText();
+      const states = await page.locator(".live-plan .plan-row").evaluateAll((rs) => rs.map((r) => r.className.includes("plan-captured")));
+      // r1 (any length) and r3 (rid-tagged answer) captured; r2 needs >= 20 s of continuous video.
+      JSON.stringify(states) === "[true,false,true]" ? ok(`checklist after a 3 s clip + answer: ${label1}`) : fail(`checklist states ${JSON.stringify(states)} (${label1})`);
+      await page.screenshot({ path: `${OUT}/record-checklist-${size.name}.png`, fullPage: true });
+      await page.getByRole("button", { name: /^Finish/ }).click();
+      await page.getByRole("heading", { name: "Moment recorded." }).waitFor({ timeout: 10_000 });
+      const v4ev = await page.evaluate(
+        () =>
+          new Promise((resolve, reject) => {
+            const r = indexedDB.open("verified-vault");
+            r.onerror = () => reject(r.error);
+            r.onsuccess = () => {
+              const t = r.result.transaction(["chunks", "moments"], "readonly");
+              const g = t.objectStore("chunks").getAll();
+              const m = t.objectStore("moments").getAll();
+              t.oncomplete = () => {
+                const mom = m.result.find((x) => x.intention?.v === 4 && x.intention?.claims?.length);
+                const evs = g.result.filter((c) => c.momentId === mom?.id).flatMap((c) => JSON.parse(c.payload).events);
+                resolve({ intention: mom?.intention, witness: evs.filter((e) => e.type === "witness"), video: evs.filter((e) => e.type === "video") });
+              };
+            };
+          }),
+      );
+      const w = v4ev.witness[0];
+      w && w.rid === "r3" && Object.keys(w).pop() === "rid" ? ok(`witness event carries rid as its last key: ${JSON.stringify(w)}`) : fail(`witness rid: ${JSON.stringify(v4ev.witness)}`);
+      v4ev.video.length === 1 && v4ev.video[0].sha256?.length === 64 ? ok(`clip chained as a video event (${v4ev.video[0].durationMs} ms)`) : fail(`video events: ${JSON.stringify(v4ev.video)}`);
+      v4ev.intention?.claims?.length === 2 && v4ev.intention?.plan?.recordMode === "video" ? ok("journal intention v4 with claims + plan") : fail(`intention: ${JSON.stringify(v4ev.intention)}`);
+      await page.screenshot({ path: `${OUT}/record-done-v4-${size.name}.png`, fullPage: true });
     }
   }
   await ctx.close();

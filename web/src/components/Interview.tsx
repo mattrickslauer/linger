@@ -3,7 +3,7 @@
 // Voice is optional at every step: the text field is always there, and "Skip, just type it" keeps the v1 form.
 import { useEffect, useRef, useState } from "react";
 import { barPreview, interviewTurn, structureIntention, type Route } from "../ai";
-import { configured } from "../firebase";
+import { configured, FIXTURES } from "../firebase";
 import {
   barFromDifficulty,
   buildContext,
@@ -17,8 +17,32 @@ import {
 } from "../intention";
 import { CATEGORIES, type Intention, type Quantity } from "../types";
 import { listen, speak, stopSpeaking, sttSupported, ttsSupported, type Listening } from "../voice";
+import { withoutClaim } from "../v4";
+import { PlanCard } from "./Plan";
 
 const OPENER = "What are you about to do?";
+
+/**
+ * Sample-data builds have no model; `?plan=demo` writes up a canned v4 draft (claims + evidence plan, the shape
+ * interviewTurn/structureIntention return) so the end card, the plan-driven record screen and its checklist can be
+ * seen and tested. Never active in a configured build.
+ */
+const PLAN_DEMO = FIXTURES && typeof location !== "undefined" && new URLSearchParams(location.search).get("plan") === "demo";
+const DEMO_PLAN = {
+  claims: [
+    { id: "c1", kind: "action", text: "clapping", metric: "", value: 0, unit: "" },
+    { id: "c2", kind: "count", text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+  ],
+  plan: {
+    requirements: [
+      { id: "r1", claimId: "c1", evidence: "video", ask: "Clap on camera, both hands in frame", minSeconds: 0 },
+      { id: "r2", claimId: "c2", evidence: "video", ask: "One continuous video of all 50 claps", minSeconds: 20 },
+      { id: "r3", claimId: "c1", evidence: "witness", ask: "Answer the witness once while you clap", minSeconds: 0 },
+    ],
+    recordMode: "video",
+    note: "One unbroken clip is enough; count out loud if you like.",
+  },
+};
 const MAX_QUESTIONS = 3;
 
 export function RouteChip({ mode }: { mode: Route | "none" | undefined }) {
@@ -155,6 +179,7 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
         console.warn("cloud structuring unavailable; keeping the on-device draft", e);
       }
     }
+    if (PLAN_DEMO && !Array.isArray(fields.claims)) fields = { ...fields, ...DEMO_PLAN };
     const i = normalizeIntention(fields, {
       pos: pos.current,
       start: Date.now(),
@@ -389,6 +414,14 @@ function ClaimCard({
             </button>
           ))}
         </div>
+        <PlanCard
+          claims={i.claims ?? []}
+          plan={i.plan}
+          onRemoveClaim={(id) => {
+            const { claims, plan } = withoutClaim(i.claims ?? [], i.plan, id);
+            onChange({ ...i, claims, plan });
+          }}
+        />
         <BarPreview preview={preview} />
         <p className="muted small">
           Interview: {i.interview?.turns ?? 0} answer{i.interview?.turns === 1 ? "" : "s"}, {i.interview?.mode === "on_device" ? "on-device" : i.interview?.mode}

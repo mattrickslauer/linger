@@ -1,10 +1,18 @@
 // Video clips during recording (docs/ARCHITECTURE.md: `video_start` / `video` events). MediaRecorder on the camera
-// stream, up to MAX_MS. The clip's bytes stay in this browser's vault; the chain commits to their SHA-256, and the
-// clip's middle frame is the proof frame of the same chunk. The clip is uploaded only if the owner runs `full_video`.
+// stream, up to a cap. The clip's bytes go into this browser's vault; the chain commits to their SHA-256 (a `video`
+// event, so the server reviews the clip itself, v4.4), and the clip's middle frame is the proof frame of the same
+// chunk. v4: every chained clip is uploaded at submit (upload.ts), before the Moment is marked submitted.
 
 import { captureFrame } from "./recorder";
 
-export const MAX_CLIP_MS = 20_000;
+/** Default cap; a plan asking for a longer continuous video raises it (clipCapMs). */
+export const MAX_CLIP_MS = 60_000;
+/** Hard cap: ~1.5 Mbit/s × 5 min ≈ 56 MB, well under the 200 MB upload limit. */
+export const HARD_CLIP_MS = 300_000;
+
+/** Cap for this session: room for the longest `video` requirement plus 15 s, between 60 s and 5 min. */
+export const clipCapMs = (plan: { requirements: { evidence: string; minSeconds?: number }[] } | null | undefined) =>
+  Math.min(HARD_CLIP_MS, Math.max(MAX_CLIP_MS, ...(plan?.requirements ?? []).filter((r) => r.evidence === "video").map((r) => ((r.minSeconds ?? 0) + 15) * 1000)));
 
 export const clipSupported = () => typeof MediaRecorder !== "undefined";
 
@@ -31,7 +39,10 @@ export class ClipRecorder {
   readonly startedAt = Date.now();
   readonly done: Promise<Clip>;
 
-  constructor(video: HTMLVideoElement) {
+  constructor(
+    video: HTMLVideoElement,
+    readonly capMs = MAX_CLIP_MS,
+  ) {
     const stream = video.srcObject as MediaStream | null;
     if (!stream) throw new Error("Camera unavailable");
     const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
@@ -63,7 +74,7 @@ export class ClipRecorder {
     this.mr.start(1000);
     take();
     this.grab = setInterval(take, 1000);
-    this.cap = setTimeout(() => this.stop(), MAX_CLIP_MS);
+    this.cap = setTimeout(() => this.stop(), capMs);
   }
 
   get recording() {

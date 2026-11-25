@@ -7,7 +7,8 @@ import { intentionForPrompt, witnessDraft, witnessRefine, type WitnessAsk } from
 import { configured, FIXTURES } from "./firebase";
 import type { Session } from "./recorder";
 import { speak } from "./voice";
-import { askedText, canAsk, sessionText, worthAsking } from "./witness";
+import { askedText, canAsk, sessionText, validRid, worthAsking } from "./witness";
+import { unmetRequirements } from "./v4";
 
 const REFINE_BUDGET_MS = 4000;
 const QUIET_BACKOFF_MS = 20_000;
@@ -63,12 +64,14 @@ export class WitnessAgent {
       const intention = intentionForPrompt(s.intentionObj);
       const session = sessionText({ elapsedMs: Date.now() - s.startedAt, distanceM: s.state.distanceM, labels: s.labels, gpsCount: s.gpsCount, motionOn: s.state.motionOn });
       const asked = askedText(s.witness);
-      let a: WitnessAsk & { mode: "on_device" | "cloud" } = await witnessDraft(intention, session, asked);
+      // v4.10: the plan and what isn't captured yet, so the witness asks for unmet requirements first.
+      const pv = { plan: JSON.stringify(s.plan), unmet: JSON.stringify(unmetRequirements(s.plan, s.state.facts)) };
+      let a: WitnessAsk & { mode: "on_device" | "cloud" } = await witnessDraft(intention, session, asked, pv);
       if (navigator.onLine) {
         const frames = s.framesForJudge().slice(-3);
         try {
           // Contract v3.4: a 4 s budget for the cloud refinement, then the on-device draft stands.
-          const r = await budget(witnessRefine(intention, session, asked, a, frames, s.startedAt), REFINE_BUDGET_MS);
+          const r = await budget(witnessRefine(intention, session, asked, a, frames, s.startedAt, pv), REFINE_BUDGET_MS);
           if (r.ask.trim()) a = { ...r, mode: "cloud" };
         } catch {
           /* 4 s budget or offline: keep the on-device draft */
@@ -78,7 +81,7 @@ export class WitnessAgent {
         this.nextTryAt = Date.now() + QUIET_BACKOFF_MS; // nothing worth asking yet: look again a little later
         return this.set("idle");
       }
-      const req = s.witnessAsk(a.ask, a.kind, a.why, a.mode);
+      const req = s.witnessAsk(a.ask, a.kind, a.why, a.mode, validRid(a.requirementId, s.plan));
       this.deliver(req.ask, req.wid);
       this.set("idle");
     } catch (e) {
@@ -99,7 +102,13 @@ export class WitnessAgent {
     const n = s.witness.requests.length;
     const last = s.witness.requests[n - 1];
     if (n >= DEMO.length || s.state.witnessOpen || Date.now() - s.startedAt < 3000 || (last && Date.now() - (last.closedAt ?? last.at) < 3000)) return;
-    const req = s.witnessAsk(DEMO[n].ask, DEMO[n].kind, DEMO[n].why, "on_device");
+    // Unmet plan requirements first (v4.10), like the real prompts are told to.
+    const target = unmetRequirements(s.plan, s.state.facts).find(
+      (r) => (r.evidence === "witness" || r.evidence === "frames") && !s.witness.requests.some((q) => q.rid === r.id),
+    );
+    const req = target
+      ? s.witnessAsk(target.ask.slice(0, 100), target.evidence === "frames" ? "show" : "do", "an item of the plan not captured yet", "on_device", target.id)
+      : s.witnessAsk(DEMO[n].ask, DEMO[n].kind, DEMO[n].why, "on_device");
     this.deliver(req.ask, req.wid);
   }
 

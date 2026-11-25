@@ -1,6 +1,39 @@
 import { describe, expect, it } from "vitest";
 import v3 from "../../shared/test-vectors-v3.json";
-import { applyStep, countsAsPass, evidenceOf, FREE_CREDITS, MODULES, offers, previews, reasonText, replay } from "./ladder";
+import { applyStep, countsAsPass, evidenceOf, FREE_CREDITS, MODULES, offers, offersV4, previews, reasonText, replay } from "./ladder";
+
+describe("v4 offers: modules back claim kinds (docs/ARCHITECTURE.md v4.6)", () => {
+  const claims = [
+    { id: "c1", kind: "action" as const, text: "clapping" },
+    { id: "c2", kind: "count" as const, text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+  ];
+  const requirements = [
+    { id: "r1", claimId: "c1", evidence: "video" as const, ask: "a" },
+    { id: "r2", claimId: "c2", evidence: "video" as const, ask: "b", minSeconds: 20 },
+  ];
+  const scores = [
+    { id: "c1", p: 0.52, sealP: 0.52, met: ["r1"], unmet: [], minimumMet: true, backedBy: ["video_review"] },
+    { id: "c2", p: 0.4, sealP: 0.4, met: [], unmet: ["r2"], minimumMet: false, backedBy: [] },
+  ];
+  const ev = { frames: 2, gps: 10, witnessAnswered: 0, quantities: 0, videos: ["a".repeat(64)] };
+  const list = offersV4({ claims, requirements, scores, modules: [], witness: [] }, ev, 10);
+  const by = (id: string) => list.find((o) => o.module.id === id)!;
+  it("count_measure is offered for the count (typed intentions too) with the spec's previews", () => {
+    const o = by("count_measure");
+    expect(o.state).toBe("ready");
+    if (o.state !== "ready") return;
+    expect(o.claims.map((c) => c.id)).toEqual(["c2"]);
+    expect(o.claims[0].pass).toBeCloseTo(0.58, 9);
+    expect(o.claims[0].fail).toBeCloseTo(0.28, 9);
+    expect(o.pass).toBeCloseTo(0.52, 9); // min(0.52, 0.58)
+  });
+  it("place_time backs no claim here; witness_review needs an answered request", () => {
+    expect(by("place_time")).toMatchObject({ state: "blocked", reason: "Backs none of this Moment's claims." });
+    expect(by("witness_review").state).toBe("blocked");
+    expect(by("full_video")).toMatchObject({ state: "ready" });
+    expect(by("human_review").state).toBe("soon");
+  });
+});
 import type { Chunk, LadderResult } from "./types";
 
 describe("ladder math (shared/test-vectors-v3.json ladders)", () => {

@@ -6,11 +6,13 @@
 // sheet can be seen and tested. It is labelled as a simulation in the UI and never runs in a configured build.
 
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from "firebase/functions";
-import { connectStorageEmulator, getStorage, ref, uploadBytes, type FirebaseStorage } from "firebase/storage";
-import { applyFixtureLadder } from "./data";
+import { getMetadata, ref, uploadBytes } from "firebase/storage";
+import { bucket, clipPath } from "./upload";
+import { applyFixtureLadder, applyFixtureLadderV4 } from "./data";
 import { app, FIXTURES, USE_EMULATORS } from "./firebase";
 import { applyStep, countsAsPass, FREE_CREDITS, moduleSpec } from "./ladder";
 import type { ModuleId } from "./types";
+import type { ClaimScore, ModuleClaimOutcome } from "./v4";
 import { clipsOf } from "./vault";
 
 export interface Credits {
@@ -34,6 +36,10 @@ export interface RunResult {
   balance: number;
   reasons: string[];
   measured?: { metric: string; value: number; unit: string }[];
+  // v4 Moments (v4.7)
+  claims?: ModuleClaimOutcome[];
+  claimScores?: ClaimScore[];
+  claimsBacked?: number;
 }
 
 /** A callable failed with `details.reason` from the v3.7 error table. */
@@ -51,7 +57,6 @@ export const LADDER_DEMO = FIXTURES && typeof location !== "undefined" && new UR
 
 const emuHost = import.meta.env.VITE_EMULATOR_HOST || "127.0.0.1";
 let fns: Functions | null = null;
-let storage: FirebaseStorage | null = null;
 function functions(): Functions {
   if (!app) throw new LadderError("unconfigured", "Firebase is not configured");
   if (!fns) {
@@ -59,14 +64,6 @@ function functions(): Functions {
     if (USE_EMULATORS) connectFunctionsEmulator(fns, emuHost, Number(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT || 5001));
   }
   return fns;
-}
-function bucket(): FirebaseStorage {
-  if (!app) throw new LadderError("unconfigured", "Firebase is not configured");
-  if (!storage) {
-    storage = getStorage(app);
-    if (USE_EMULATORS) connectStorageEmulator(storage, emuHost, Number(import.meta.env.VITE_STORAGE_EMULATOR_PORT || 9199));
-  }
-  return storage;
 }
 
 function wrap(e: unknown): LadderError {
@@ -109,10 +106,17 @@ export async function getCredits(): Promise<Credits> {
 async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s: string) => void): Promise<"uploaded" | "refused" | "absent"> {
   const clip = (await clipsOf(momentId)).find((c) => c.sha256 === sha);
   if (!clip) return "absent"; // maybe uploaded earlier, or recorded elsewhere: the function says clip_missing if not
-  const ext = clip.mime.includes("mp4") ? "mp4" : clip.mime.includes("quicktime") ? "mov" : "webm";
+  const r = ref(bucket(), clipPath(uid, momentId, sha, clip.mime));
+  try {
+    // v4: the clip normally went up at submit; the owner may `get` it, and a second create is refused.
+    await getMetadata(r);
+    return "uploaded";
+  } catch {
+    /* not there (or not readable): upload below */
+  }
   onStep(`Uploading clip (${(clip.bytes / 1e6).toFixed(1)} MB)…`);
   try {
-    await uploadBytes(ref(bucket(), `clips/${uid}/${momentId}/${sha}.${ext}`), clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
+    await uploadBytes(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
     return "uploaded";
   } catch (e) {
     // Rules allow create only; a second upload of the same clip is refused and the first one stands. If the server
@@ -123,7 +127,7 @@ async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s
 }
 
 export async function runLadderModule(
-  a: { uid: string; momentId: string; module: ModuleId; requestId: string; clipSha?: string; score: number; bar: number },
+  a: { uid: string; momentId: string; module: ModuleId; requestId: string; clipSha?: string; score: number; bar: number; /** v4: claims this module backs (demo only; the server decides) */ claimIds?: string[] },
   onStep: (s: string) => void = () => {},
 ): Promise<RunResult> {
   if (LADDER_DEMO) return demoRun(a, onStep);
@@ -144,7 +148,7 @@ export async function runLadderModule(
   }
 }
 
-async function demoRun(a: { momentId: string; module: ModuleId; requestId: string; score: number; bar: number }, onStep: (s: string) => void): Promise<RunResult> {
+async function demoRun(a: { momentId: string; module: ModuleId; requestId: string; score: number; bar: number; claimIds?: string[] }, onStep: (s: string) => void): Promise<RunResult> {
   const m = moduleSpec(a.module)!;
   if (demo.balance < m.cost) throw new LadderError("insufficient_credits", "insufficient credits", { balance: demo.balance, cost: m.cost });
   demo.balance -= m.cost;
@@ -152,6 +156,35 @@ async function demoRun(a: { momentId: string; module: ModuleId; requestId: strin
   onStep("Simulating the Cloud Function…");
   await new Promise((r) => setTimeout(r, 900));
   const confidence = 0.78;
+  // v4 sample Moment: per-claim verdicts (the simulation backs every claim the module backs) and the v4.5 recompute.
+  const backed = a.claimIds ?? [];
+  if (backed.length) {
+    const v4 = await applyFixtureLadderV4(
+      a.momentId,
+      { ...m, module: m.id },
+      backed.map((id) => ({ id, verdict: "backed" as const, confidence, reasons: [DEMO_REASONS[a.module]] })),
+      { runId: a.requestId, confidence, reasons: [DEMO_REASONS[a.module]] },
+    );
+    if (v4)
+      return {
+        runId: a.requestId,
+        module: a.module,
+        passed: v4.result.passed,
+        confidence,
+        before: v4.result.before,
+        after: v4.result.after,
+        score: v4.score,
+        bar: a.bar,
+        verified: v4.verified,
+        status: v4.status,
+        cost: m.cost,
+        balance: demo.balance,
+        reasons: v4.result.reasons,
+        claims: v4.result.claims,
+        claimScores: v4.claimScores,
+        claimsBacked: v4.claimsBacked,
+      };
+  }
   const passed = countsAsPass(true, confidence);
   const after = applyStep(a.score, m.strength, passed);
   const res: RunResult = {

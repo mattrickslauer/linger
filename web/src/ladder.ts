@@ -4,6 +4,7 @@
 
 import catalog from "../../shared/ladder.json";
 import type { Chunk, Intention, LadderResult, ModuleId, Verification } from "./types";
+import { claimsBackedByModule, type Claim, type ClaimKind, type ClaimScore, type Requirement, type WitnessFact } from "./v4";
 
 export type Need = "frames" | "gps" | "witness_answered" | "quantities" | "video";
 export interface ModuleSpec {
@@ -15,6 +16,9 @@ export interface ModuleSpec {
   available: boolean;
   needs: Need[];
   prompt: string | null;
+  /** v4: claim kinds this module backs; witness_review only the claims an answered request targeted. */
+  backs: ClaimKind[];
+  backsTargetedOnly?: boolean;
 }
 
 export const MODULES = catalog.modules as ModuleSpec[];
@@ -97,6 +101,51 @@ export function offers(v: Pick<Verification, "score" | "modules">, ev: Evidence,
   });
 }
 
+// ---------------------------------------------------------------- v4: modules back claims (v4.6)
+
+export interface ClaimPreview {
+  id: string;
+  text: string;
+  p: number;
+  pass: number;
+  fail: number;
+}
+export type OfferV4 =
+  | { module: ModuleSpec; state: "done"; result: LadderResult }
+  | { module: ModuleSpec; state: "ready" | "blocked"; reason?: string; claims: ClaimPreview[]; pass: number; fail: number }
+  | { module: ModuleSpec; state: "soon" };
+
+/**
+ * v4 offers (owner): a module is offered only if it backs ≥ 1 of the Moment's server claims (after backsTargetedOnly)
+ * and its needs are met; `quantities` means a count/measure server claim. Previews per claim (`p` → pass / fail on that
+ * claim alone) and for the Moment (min over claims if the module passes / fails on every claim it backs).
+ */
+export function offersV4(
+  a: { claims: Claim[]; requirements: Requirement[]; scores: ClaimScore[]; modules: LadderResult[]; witness: WitnessFact[] },
+  ev: Evidence,
+  balance: number | null,
+): OfferV4[] {
+  const hasQuantities = a.claims.some((c) => c.kind === "count" || c.kind === "measure");
+  const pOf = (id: string) => a.scores.find((s) => s.id === id)?.p ?? 0;
+  return MODULES.map((m): OfferV4 => {
+    const result = a.modules.find((r) => r.module === m.id);
+    if (result) return { module: m, state: "done", result };
+    if (!m.available) return { module: m, state: "soon" };
+    const ids = claimsBackedByModule({ claims: a.claims, requirements: a.requirements, facts: { witness: a.witness } }, { backs: m.backs, targetedOnly: m.backsTargetedOnly });
+    const claims = ids.map((id) => {
+      const p = pOf(id);
+      return { id, text: a.claims.find((c) => c.id === id)!.text, p, ...previews(p, m.strength) };
+    });
+    const overall = (pass: boolean) => Math.min(...a.claims.map((c) => (ids.includes(c.id) ? applyStep(pOf(c.id), m.strength, pass) : pOf(c.id))));
+    const base = { module: m, claims, pass: overall(true), fail: overall(false) };
+    if (!claims.length) return { ...base, state: "blocked", reason: "Backs none of this Moment's claims." };
+    const need = unmetNeed(m, { ...ev, quantities: hasQuantities ? 1 : 0 });
+    if (need) return { ...base, state: "blocked", reason: need === NEED_TEXT.quantities ? "Needs a count or measure claim." : need };
+    if (balance != null && balance < m.cost) return { ...base, state: "blocked", reason: `Needs ${m.cost} credits; you have ${balance}.` };
+    return { ...base, state: "ready" };
+  });
+}
+
 /** Human text for runLadderModule's `details.reason` (v3.7 error table). */
 export function reasonText(reason: string | undefined, details?: { balance?: number; cost?: number }): string {
   switch (reason) {
@@ -126,6 +175,8 @@ export function reasonText(reason: string | undefined, details?: { balance?: num
       return "Cloud Storage refused the clip upload, so the server can't see it. No credits were spent.";
     case "clip_hash_mismatch":
       return "The uploaded clip doesn't match the fingerprint in the chain. No credits were spent.";
+    case "no_claims_backed":
+      return "This check backs none of this Moment's claims, so it can't move the score.";
     case "in_progress":
       return "This check is still running. Try again in a few seconds to see its result; you won't be charged twice.";
     case "bad_request":

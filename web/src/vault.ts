@@ -31,6 +31,7 @@ import {
 import { auth, db } from "./firebase";
 import type { Chunk, Moment } from "./types";
 import { compareVault, type VaultChunk } from "./vaultCheck";
+import { uploadMomentClips } from "./upload";
 
 const pad6 = (n: number) => String(n).padStart(6, "0");
 
@@ -395,12 +396,21 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     }
   }
   if (server.get("status") === "recording") {
+    // v4.4: every chained clip reaches Storage BEFORE the submit fields; a failed upload throws and submit waits.
+    await uploadMomentClips(uid, id, localChunks);
+    stopIfDeleted(id);
     const submit: Fields = {};
     for (const k of SUBMIT_FIELDS) submit[k] = k === "submittedAtServer" ? serverTimestamp() : (local[k] ?? null);
     // The intention may ride the submit update (it is frozen after); harmless when unchanged.
     if (local.intention) submit.intention = local.intention;
     stopIfDeleted(id);
     await updateDoc(ref, submit);
+  } else if (server.get("status") === "submitted" && [undefined, null, "waiting"].includes((server.get("videoReview") as { status?: string } | null | undefined)?.status)) {
+    // Submitted without its clip (an older tab, or a lost upload): the server waits 24 h for it. Idempotent (existing
+    // objects are skipped). A failed upload throws, so this pass KEEPS the local copy and the next one retries:
+    // forgetting it now would drop the clip's only route to the server. Clips this browser doesn't hold, or that are
+    // too large to upload, don't throw.
+    await uploadMomentClips(uid, id, localChunks);
   }
 
   // Read everything back from the server and compare with the journal, byte for byte where it matters.

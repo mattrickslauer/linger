@@ -6,12 +6,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCredits, LADDER_DEMO, LadderError, newRequestId, runLadderModule, type Credits, type RunResult } from "../credits";
 import { evidenceOf, fmtScore, offers, reasonText, type Offer } from "../ladder";
 import { isDeclined, requireSignIn } from "../signin";
-import type { Chunk, FeedLadderStep, Intention, LadderResult } from "../types";
+import type { Chunk, FeedLadderStep, Intention, LadderResult, ModuleId } from "../types";
+import { offersV4, type OfferV4 } from "../ladder";
+import type { Claim, ClaimScore, Requirement, WitnessFact } from "../v4";
 
 type Step = Pick<LadderResult, "module" | "title" | "passed" | "before" | "after" | "reasons"> & Partial<LadderResult>;
 
 /** One rung: what ran, pass/fail, and how it moved the score. */
-function Rung({ r }: { r: Step }) {
+function Rung({ r, claimText }: { r: Step; claimText?: (id: string) => string | undefined }) {
   const up = r.after >= r.before;
   return (
     <li className={`rung ${r.passed ? "rung-pass" : "rung-fail"}`}>
@@ -25,6 +27,16 @@ function Rung({ r }: { r: Step }) {
           {r.confidence != null && <span className="muted small">confidence {Math.round(r.confidence * 100)}%</span>}
         </p>
         {r.reasons.length > 0 && <p className="small">{r.reasons[0]}</p>}
+        {r.claims?.length ? (
+          <ul className="rung-claims" aria-label="Per claim">
+            {r.claims.map((c) => (
+              <li key={c.id}>
+                {c.passed ? "✓" : "✗"} {claimText?.(c.id) ?? c.id} {fmtScore(c.before)} → {fmtScore(c.after)}
+                {c.verdict === "missing" ? " (no verdict)" : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {r.measured?.length ? (
           <ul className="tagrow" aria-label="Measured">
             {r.measured.map((m, i) => (
@@ -42,12 +54,12 @@ function Rung({ r }: { r: Step }) {
   );
 }
 
-export function LadderResults({ steps }: { steps: Step[] }) {
+export function LadderResults({ steps, claimText }: { steps: Step[]; claimText?: (id: string) => string | undefined }) {
   if (!steps.length) return null;
   return (
     <ol className="rungs" aria-label="Extra checks that ran">
       {steps.map((r, i) => (
-        <Rung key={r.runId ?? i} r={r} />
+        <Rung key={r.runId ?? i} r={r} claimText={claimText} />
       ))}
     </ol>
   );
@@ -66,6 +78,16 @@ interface Props {
   chunks: Chunk[] | null;
   intention: Intention;
   onRan: () => void;
+  /** v4 Moments: server claims, plan, per-claim scores and the chain's witness facts; null = v3 math. */
+  v4?: V4Ladder | null;
+  /** A claim row asked to run this module: open its confirm sheet. `n` changes on every ask. */
+  requested?: { module: ModuleId; n: number } | null;
+}
+export interface V4Ladder {
+  claims: Claim[];
+  requirements: Requirement[];
+  scores: ClaimScore[];
+  witness: WitnessFact[];
 }
 
 /** The public results plus, for the owner, the offers. Hidden entirely on Moments without a bar (pre-v3). */
@@ -88,7 +110,7 @@ export default function Ladder(p: Props) {
         score <strong>{fmtScore(p.score)}</strong> · bar <strong>{fmtScore(p.bar)}</strong>
         {p.score != null && <span className={`ladder-verdict ${p.score >= p.bar ? "ok" : "bad"}`}>{p.score >= p.bar ? "clears the bar" : "below the bar"}</span>}
       </p>
-      <LadderResults steps={steps} />
+      <LadderResults steps={steps} claimText={(id) => p.v4?.claims.find((c) => c.id === id)?.text} />
       {showOffers && <Offers {...p} score={p.score!} bar={p.bar!} />}
     </section>
   );
@@ -97,7 +119,7 @@ export default function Ladder(p: Props) {
 function Offers(p: Props & { score: number; bar: number }) {
   const [credits, setCredits] = useState<Credits | null>(null);
   const [creditErr, setCreditErr] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<Offer | null>(null);
+  const [confirm, setConfirm] = useState<Offer | OfferV4 | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -118,7 +140,23 @@ function Offers(p: Props & { score: number; bar: number }) {
   }, []);
 
   const ev = useMemo(() => evidenceOf(p.chunks ?? [], p.intention), [p.chunks, p.intention]);
-  const list = offers({ score: p.score, modules: p.modules ?? [] }, ev, credits?.balance ?? null).filter((o) => o.state !== "done");
+  const list: (Offer | OfferV4)[] = (
+    p.v4 ? offersV4({ ...p.v4, modules: p.modules ?? [] }, ev, credits?.balance ?? null) : offers({ score: p.score, modules: p.modules ?? [] }, ev, credits?.balance ?? null)
+  )
+    .filter((o) => o.state !== "done")
+    // v4.6: a module is offered only if it backs >= 1 of this Moment's claims (after backsTargetedOnly).
+    .filter((o) => !("claims" in o) || o.claims.length > 0);
+
+  // A claim row's "Run" opens the same confirm sheet.
+  useEffect(() => {
+    if (!p.requested) return;
+    const o = list.find((x) => x.module.id === p.requested!.module);
+    if (o && o.state === "ready") {
+      setErr(null);
+      setConfirm(o);
+    } else if (o && o.state === "blocked") setErr(o.reason ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.requested?.n]);
 
   useEffect(() => {
     const d = dialog.current;
@@ -127,7 +165,7 @@ function Offers(p: Props & { score: number; bar: number }) {
     if (!confirm && d.open) d.close();
   }, [confirm]);
 
-  async function run(o: Offer) {
+  async function run(o: Offer | OfferV4) {
     setErr(null);
     setResult(null);
     if (requestId.current?.module !== o.module.id) requestId.current = { module: o.module.id, id: newRequestId() };
@@ -136,7 +174,8 @@ function Offers(p: Props & { score: number; bar: number }) {
       const u = LADDER_DEMO ? { uid: "demo" } : await requireSignIn("run a check");
       setRunning("Starting…");
       const clipSha = o.module.id === "full_video" ? ev.videos[ev.videos.length - 1] : undefined;
-      const r = await runLadderModule({ uid: u.uid, momentId: p.momentId, module: o.module.id, requestId: rid, clipSha, score: p.score, bar: p.bar }, setRunning);
+      const claimIds = "claims" in o ? o.claims.map((c) => c.id) : undefined;
+      const r = await runLadderModule({ uid: u.uid, momentId: p.momentId, module: o.module.id, requestId: rid, clipSha, score: p.score, bar: p.bar, claimIds }, setRunning);
       requestId.current = null;
       setResult(r);
       setCredits((c) => (c ? { ...c, balance: r.balance, spent: c.spent + r.cost } : c));
@@ -190,9 +229,14 @@ function Offers(p: Props & { score: number; bar: number }) {
                 <span className="offer-cost">{o.module.cost} cr</span>
               </p>
               <p className="muted small">{o.module.blurb}</p>
+              {"claims" in o && o.claims.length > 0 && (
+                <p className="small offer-claims">
+                  Backs {o.claims.map((c) => `${c.text} ${fmtScore(c.p)} → ${fmtScore(c.pass)} / ${fmtScore(c.fail)}`).join(" · ")}
+                </p>
+              )}
               {o.state === "blocked" && <p className="small offer-why">{o.reason}</p>}
             </div>
-            {o.state === "soon" ? (
+            {o.state === "soon" || o.state === "done" ? (
               <span className="chip">coming soon</span>
             ) : (
               <div className="offer-side">
@@ -224,6 +268,16 @@ function Offers(p: Props & { score: number; bar: number }) {
           <div className="sheet-box">
             <h2 id="run-h">Run {confirm.module.title}?</h2>
             <p className="muted">{confirm.module.blurb}</p>
+            {"claims" in confirm && (
+              <ul className="run-claims small">
+                {confirm.claims.map((c) => (
+                  <li key={c.id}>
+                    <strong>{c.text}</strong> {fmtScore(c.p)} → <span className="up">{fmtScore(c.pass)}</span> if it passes ·{" "}
+                    <span className="down">{fmtScore(c.fail)}</span> if it fails
+                  </li>
+                ))}
+              </ul>
+            )}
             <dl className="run-math">
               <div>
                 <dt>cost</dt>

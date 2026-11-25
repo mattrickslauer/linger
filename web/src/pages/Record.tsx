@@ -11,8 +11,13 @@ import { CATEGORIES, type Category, type Intention, type Moment } from "../types
 import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip } from "../components/Interview";
 import { WitnessAgent } from "../witnessAgent";
-import { ClipRecorder, clipSupported, MAX_CLIP_MS, sha256Bytes } from "../clip";
+import { clipCapMs, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
+import { captured, videoStatusText, type Requirement } from "../v4";
+import { uploadText, useClipUpload } from "../upload";
+import { PlanList } from "../components/Plan";
 import { listen, stopSpeaking, sttSupported } from "../voice";
+import { structureIntention } from "../ai";
+import { buildContext, withDraftClaims } from "../intention";
 import type { WitnessRequest } from "../witness";
 
 const EXAMPLES: Record<Category, string> = {
@@ -39,12 +44,27 @@ function Spark({ values }: { values: number[] }) {
 function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; guest: boolean; onVoice: () => void }) {
   const [cat, setCat] = useState<Category>("fishing");
   const [text, setText] = useState("");
+  const [planning, setPlanning] = useState(false);
   return (
     <form
       className="page setup"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        onStart({ text: text.trim() || EXAMPLES[cat], category: cat });
+        if (planning) return;
+        const typed: Intention = { text: text.trim() || EXAMPLES[cat], category: cat };
+        let i = typed;
+        // v4.1: a typed sentence may get claims + an evidence plan from the cloud before Start (optional, 8 s).
+        if (configured && navigator.onLine) {
+          setPlanning(true);
+          try {
+            const s = await structureIntention(buildContext(null), `me: ${typed.text}`, {}, 8000);
+            i = withDraftClaims(typed, s.fields);
+          } catch (err) {
+            console.warn("typed intention: no plan, the server sets claims at submit", err);
+          }
+          setPlanning(false);
+        }
+        onStart(i);
       }}
     >
       <h1>What are you about to do?</h1>
@@ -60,8 +80,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
           </button>
         ))}
       </div>
-      <button className="btn btn-primary btn-big" type="submit">
-        Start Moment
+      <button className="btn btn-primary btn-big" type="submit" disabled={planning} aria-busy={planning}>
+        {planning ? "Planning the evidence…" : "Start Moment"}
       </button>
       <button type="button" className="btn btn-quiet" onClick={onVoice}>
         Use the voice interview instead
@@ -153,15 +173,20 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
 
-  // Video clip: chained by hash, kept in this browser, uploaded only for the full_video ladder check.
+  // Video clip: chained by hash as a `video` event, kept in the vault, uploaded at submit and reviewed as video (v4.4).
   const clipRef = useRef<ClipRecorder | null>(null);
   const [clipAt, setClipAt] = useState<number | null>(null);
   const [clipErr, setClipErr] = useState<string | null>(null);
+  // v4: the plan decides how the record screen opens ("Video" when any requirement needs a continuous clip).
+  const plan = session.plan;
+  const [mode, setMode] = useState<"video" | "photo">(plan?.recordMode === "video" && clipSupported() ? "video" : "photo");
+  const capMs = clipCapMs(plan);
+  const needSec = Math.max(0, ...(plan?.requirements ?? []).filter((r) => r.evidence === "video").map((r) => r.minSeconds ?? 0));
   async function startClip() {
     if (!video.current || clipRef.current || shooting) return;
     setClipErr(null);
     try {
-      const r = new ClipRecorder(video.current);
+      const r = new ClipRecorder(video.current, capMs);
       clipRef.current = r;
       session.videoStart();
       setClipAt(r.startedAt);
@@ -193,9 +218,44 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
 
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
+  const clipMs = clipAt != null ? Math.min(capMs, Math.max(0, Date.now() - clipAt)) : 0;
+  const clipButton = clipSupported() && (
+    <button
+      className={`btn btn-big btn-clip ${mode === "video" ? "btn-primary" : ""} ${clipAt != null ? "on" : ""}`}
+      onClick={() => void (clipAt != null ? stopClip() : startClip())}
+      disabled={!!camErr || (shooting && clipAt == null)}
+      aria-pressed={clipAt != null}
+    >
+      <span className="rec-dot" aria-hidden="true" />
+      {clipAt != null ? (
+        <>
+          Stop video {fmtDuration(clipMs)}
+          {needSec > 0 && <span className={`clip-need ${clipMs >= needSec * 1000 ? "ok" : ""}`}> / ≥ {fmtDuration(needSec * 1000)}</span>}
+        </>
+      ) : mode === "video" ? (
+        "Record video"
+      ) : (
+        "Clip"
+      )}
+    </button>
+  );
+  const shotButton = (
+    <button className={`btn btn-big ${mode === "photo" ? "btn-primary" : ""}`} onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
+      {shooting ? "Checking…" : "Proof shot"}
+    </button>
+  );
   return (
     <div className="page live">
       <p className="live-intent">{session.intention}</p>
+      {clipSupported() && (
+        <div className="mode-switch" role="radiogroup" aria-label="Record mode">
+          {(["video", "photo"] as const).map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} disabled={clipAt != null} onClick={() => setMode(m)}>
+              {m === "video" ? "Video" : "Photo"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="live-grid">
         <div className="cam">
           <video ref={video} autoPlay playsInline muted className={facing === "user" ? "mirror" : undefined} />
@@ -248,6 +308,14 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
             <span className="g-label">time</span>
             <span className="g-val">{fmtDuration(s.elapsedMs)}</span>
           </div>
+          {!!plan?.requirements.length && (
+            <section className="live-plan" aria-labelledby="live-plan-h">
+              <h2 id="live-plan-h" className="g-label">
+                To get this verified · {plan.requirements.filter((r) => captured(r, s.facts)).length}/{plan.requirements.length} captured
+              </h2>
+              <PlanList compact requirements={plan.requirements} state={(r) => (captured(r as Requirement, s.facts) ? "captured" : "todo")} />
+            </section>
+          )}
           <div className="gauge">
             <span className="g-label">distance</span>
             <span className="g-val">{fmtDistance(s.distanceM)}</span>
@@ -309,19 +377,16 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
         />
       )}
       <div className="live-actions">
-        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
-          {shooting ? "Checking…" : "Proof shot"}
-        </button>
-        {clipSupported() && (
-          <button
-            className={`btn btn-big btn-clip ${clipAt != null ? "on" : ""}`}
-            onClick={() => void (clipAt != null ? stopClip() : startClip())}
-            disabled={!!camErr || (shooting && clipAt == null)}
-            aria-pressed={clipAt != null}
-          >
-            <span className="rec-dot" aria-hidden="true" />
-            {clipAt != null ? `Stop clip ${fmtDuration(Math.min(MAX_CLIP_MS, s.elapsedMs - (clipAt - session.startedAt)))}` : "Clip"}
-          </button>
+        {mode === "video" ? (
+          <>
+            {clipButton}
+            {shotButton}
+          </>
+        ) : (
+          <>
+            {shotButton}
+            {clipButton}
+          </>
         )}
         <button
           className="btn btn-big"
@@ -469,6 +534,7 @@ function WitnessToast({
 /** A guest's Moment is finished and chained in this browser; uploading it is the first thing that needs an account. */
 function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const up = useClipUpload(session.id);
   const [err, setErr] = useState<string | null>(null);
   return (
     <div className="page done">
@@ -477,6 +543,7 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
       <ol className="steps">
         <li className="step step-done">Recorded and chained on this device ({session.chunks.length} chunks)</li>
         <li className="step step-now">On this device · sign in to verify</li>
+        {session.hasClips && <li className="step step-todo">Video uploads when you sign in, then a free video review</li>}
         <li className="step step-todo">Cloud judge, skeptic + scorer</li>
         <li className="step step-todo">Deterministic seal by Cloud Function</li>
       </ol>
@@ -498,7 +565,7 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
             }
           }}
         >
-          {busy ?? "Upload and verify"}
+          {busy ? (up?.phase === "uploading" ? uploadText(up) : busy) : "Upload and verify"}
         </button>
         <Link to={`/m/${session.id}`} className="btn">
           Open it
@@ -518,6 +585,7 @@ function Done({ session }: { session: Session }) {
   const [review, setReview] = useState<"waiting" | "running" | "done" | "failed">("waiting");
   const [reviewErr, setReviewErr] = useState<string | null>(null);
   const started = useRef(false);
+  const up = useClipUpload(session.id);
 
   useEffect(
     () =>
@@ -548,9 +616,24 @@ function Done({ session }: { session: Session }) {
     return () => window.removeEventListener("online", go);
   }, [m, pending, session]);
 
+  const vr = m?.videoReview ?? null;
+  const submitted = !!m && m.status !== "recording";
   const steps = [
     { name: "Recorded and chained on this device", state: "done" },
     { name: pending ? "Waiting for signal to sync" : "Synced to Firestore", state: pending ? "now" : "done" },
+    // v4.4: the clip goes up before the submit, then the server reviews the clip itself (free).
+    ...(session.hasClips
+      ? [
+          {
+            name: submitted && (!up || up.phase !== "failed") ? "Video uploaded" : (uploadText(up) ?? (navigator.onLine ? "Uploading video…" : "Video waits for signal")),
+            state: submitted || up?.phase === "done" ? "done" : up?.phase === "failed" ? "bad" : "now",
+          },
+          {
+            name: vr?.status === "done" ? `Video reviewed${vr.summary ? `: ${vr.summary}` : ""}` : (videoStatusText(vr) ?? "Free video review by a Cloud Function"),
+            state: !vr ? "todo" : vr.status === "done" ? "done" : vr.status === "running" || vr.status === "waiting" ? "now" : vr.status === "none" ? "done" : "bad",
+          },
+        ]
+      : []),
     {
       name:
         review === "failed"
@@ -564,8 +647,8 @@ function Done({ session }: { session: Session }) {
     {
       // v3.3: the binding bar, set by the Cloud Function from the claim once the Moment is submitted.
       name: m?.bar
-        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
-        : "Cloud Function sets the bar for this claim",
+        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.claims?.items?.length ? ` · ${m.claims.items.length} claim${m.claims.items.length > 1 ? "s" : ""}: ${m.claims.items.map((c) => c.text).join(" · ")}` : ""}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
+        : "Cloud Function sets the bar and the claims",
       state: m?.bar ? "done" : m?.status === "submitted" && !pending ? "now" : "todo",
     },
     {
