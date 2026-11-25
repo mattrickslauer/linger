@@ -29,6 +29,10 @@ export interface ModuleDef {
   strength: number;
   available: boolean;
   needs: Need[];
+  /** v4: the claim kinds this module can back (moves only those claims' scores). */
+  backs: import("./v4").ClaimKind[];
+  /** v4 witness_review: only claims whose requirements an answered witness request targeted. */
+  backsTargetedOnly?: boolean;
   prompt: string | null;
 }
 

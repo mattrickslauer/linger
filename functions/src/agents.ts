@@ -19,6 +19,9 @@ import {
 } from "./ladder";
 import { Bar, DEFAULT_BAR, MomentDoc, Summary } from "./seal";
 import type { ModuleId } from "./shared";
+import type { Claim, VerdictForClaim } from "./v4";
+import { coerceVerdicts } from "./video";
+import { ServerClaims, claimsFromModel, draftOf, fakeClaimsAndPlan, fallbackClaims, intentionWithoutDraft } from "./claims";
 
 const MAX_MODULE_FRAMES = 8;
 
@@ -91,6 +94,57 @@ export async function computeBar(m: MomentDoc, engine: AiEngine = getEngine(), n
   }
 }
 
+// ───────────────────────────────── v4.3 bar + claims + plan (one ONLY_IN_CLOUD call)
+
+export interface BarAndClaims extends ServerClaims {
+  bar: Bar;
+  /** true when the model answered (bar from the model); false when everything came from the fallbacks. */
+  fromModel: boolean;
+}
+
+/**
+ * v4.3 `barAndClaims`: difficulty → bar (code maps it), the authoritative claims and the evidence plan, in one call.
+ * The client's claims/plan are hints (`{{draft}}`). Never throws: any failure gives the v3 default bar, the client's
+ * claims (or one outcome claim) and the client's plan with the server's default requirements.
+ */
+export async function computeBarAndClaims(m: MomentDoc, engine: AiEngine = getEngine(), now = Date.now()): Promise<BarAndClaims> {
+  const intention = intentionWithoutDraft(intentionForModel(m.intention));
+  const draft = draftOf(m.intention);
+  const fallback = fallbackClaims(m.intention, now);
+  try {
+    const { data, model } = await engine.generateJson({
+      prompt: "barAndClaims",
+      vars: { intention: JSON.stringify(intention), draft: JSON.stringify(draft), context: JSON.stringify(barContext(m)) },
+      fake: () => {
+        const fromDraft = draft.claims.length > 0 ? { claims: draft.claims, plan: draft.plan ?? { requirements: [], recordMode: "photo", note: "" } } : fakeClaimsAndPlan(intention);
+        const counted = (fromDraft.claims as Array<{ kind?: string }>).filter((c) => c.kind === "count" || c.kind === "measure").length;
+        return {
+          difficulty: round2(Math.min(1, fakeDifficulty(intention as IntentionLike) + (intention.quantities ? 0 : 0.1 * Math.min(3, counted)))),
+          rationale: "Emulator bar: set from the category and the claimed numbers.",
+          factors: [String(intention.category ?? "other")],
+          ...fromDraft,
+        };
+      },
+    });
+    const raw = asNumber(data.difficulty, NaN);
+    if (!Number.isFinite(raw)) throw new Error("no difficulty");
+    const difficulty = round2(clamp01(raw));
+    const bar: Bar = {
+      value: barFromDifficulty(difficulty),
+      difficulty,
+      rationale: (typeof data.rationale === "string" && data.rationale.trim() ? data.rationale.trim() : "Set from the claim").slice(0, 160),
+      factors: asStrings(data.factors, 4, 60),
+      source: "ai",
+      model,
+      ranAt: now,
+    };
+    const fromModel = claimsFromModel(data, model, now) ?? fallback;
+    return { bar, ...fromModel, fromModel: true };
+  } catch {
+    return { bar: defaultBar(now), ...fallback, fromModel: false };
+  }
+}
+
 // ───────────────────────────────── ladder modules
 
 export interface ModuleContext {
@@ -99,6 +153,8 @@ export interface ModuleContext {
   facts: ChainFacts;
   /** full_video only: the uploaded clip, already re-hashed against the chain. */
   clip?: { gsUri: string; mimeType: string; sha256: string; bytes: number; durationMs: number | null };
+  /** v4: the server claims this module backs (`{{claims}}`); empty for v3 Moments. */
+  claims?: Claim[];
 }
 
 export interface ModuleAnswer {
@@ -106,6 +162,8 @@ export interface ModuleAnswer {
   confidence: number;
   reasons: string[];
   measured?: Measured[];
+  /** v4: per-claim verdicts, coerced to the claims the module was given. */
+  claims: VerdictForClaim[];
   model: string;
 }
 
@@ -141,7 +199,21 @@ interface Built {
   fake: () => Record<string, unknown>;
 }
 
+/** The fake engine's per-claim verdicts: every claim the module was given gets the module's overall verdict. */
+function withClaims(ctx: ModuleContext, fake: () => Record<string, unknown>): () => Record<string, unknown> {
+  return () => {
+    const a = fake();
+    const ok = a.passed === true;
+    return { ...a, claims: (ctx.claims ?? []).map((c) => ({ id: c.id, verdict: ok ? "backed" : "not_backed", confidence: 0.8, reasons: [String((a.reasons as string[])[0] ?? "")] })) };
+  };
+}
+
 function build(module: ModuleId, ctx: ModuleContext): Built {
+  const b = buildV3(module, ctx);
+  return { vars: { ...b.vars, claims: JSON.stringify(ctx.claims ?? []) }, media: b.media, fake: withClaims(ctx, b.fake) };
+}
+
+function buildV3(module: ModuleId, ctx: ModuleContext): Built {
   const { moment: m, facts } = ctx;
   const intention = JSON.stringify(intentionForModel(m.intention));
   const summary = JSON.stringify(m.summary ?? {});
@@ -204,7 +276,9 @@ function build(module: ModuleId, ctx: ModuleContext): Built {
     }
     case "count_measure": {
       const s = sensors(ctx);
-      const quantities = intentionForModel(m.intention).quantities ?? [];
+      // v4: the server's count/measure claims are the quantities (a typed "clap 50 times" has no intention.quantities).
+      const fromClaims = (ctx.claims ?? []).filter((c) => c.kind === "count" || c.kind === "measure").map((c) => ({ metric: c.metric ?? c.text, value: c.value ?? 0, unit: c.unit ?? "" }));
+      const quantities = intentionForModel(m.intention).quantities?.length ? intentionForModel(m.intention).quantities! : fromClaims;
       return {
         vars: { intention, quantities: JSON.stringify(quantities), sensors: JSON.stringify(s), frameOffsets: offsets },
         media: frameParts(frames),
@@ -264,6 +338,7 @@ export async function runModule(module: ModuleId, ctx: ModuleContext, engine: Ai
     passed: data.passed,
     confidence: round2(clamp01(asNumber(data.confidence, 0))),
     reasons: asStrings(data.reasons, 4),
+    claims: coerceVerdicts(data.claims, (ctx.claims ?? []).map((c) => c.id)),
     model,
   };
   if (module === "count_measure" && Array.isArray(data.measured)) {
