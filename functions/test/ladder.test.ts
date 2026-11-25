@@ -199,7 +199,7 @@ describe("chain facts: witness, frames, video (v3.4)", () => {
     const sha = "a".repeat(64);
     const payload = JSON.stringify({ gps: [], motion: [], events: [{ t: 5, type: "video", sha256: sha, bytes: 10, durationMs: 3000, startedAt: 1, name: "v.mp4" }, { t: 6, type: "video", sha256: "nope" }], frameSha: null, check: null });
     const f = chainFacts([{ seq: 0, t0: 0, t1: 10, prevHash: "", payload, hash: "" }]);
-    expect(f.videos).toEqual([{ t: 5, sha256: sha, bytes: 10, durationMs: 3000, name: "v.mp4" }]);
+    expect(f.videos).toEqual([{ t: 5, sha256: sha, bytes: 10, durationMs: 3000, startedAt: 1, name: "v.mp4" }]);
   });
 });
 
@@ -240,7 +240,7 @@ describe("module runner (server Gemini, coerced)", () => {
     expect(seen!.prompt).toBe("moduleCountMeasure");
     expect(seen!.media).toEqual([{ inlineData: { mimeType: "image/jpeg", data: "aGVsbG8=" } }]);
     expect(JSON.parse(seen!.vars.sensors)).toMatchObject({ frameCount: 1, gpsFixes: facts.gps.length });
-    expect(a).toEqual({ passed: true, confidence: 1, reasons: ["ok", "b"], measured: [{ metric: "length", value: 41, unit: "cm" }], model: "test-model" });
+    expect(a).toEqual({ passed: true, confidence: 1, reasons: ["ok", "b"], measured: [{ metric: "length", value: 41, unit: "cm" }], claims: [], model: "test-model" });
   });
   it("witness review sees each request and its answer", async () => {
     let seen: AiCall | null = null;
