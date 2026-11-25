@@ -32,6 +32,7 @@ interface Spec {
   sealReason: string;
   judge: Omit<AiOpinion, "model" | "ranAt">;
   skeptic: Omit<AiOpinion, "model" | "ranAt">;
+  score: { probability: number; reasons: string[] };
   teleportAt?: number;
 }
 
@@ -76,6 +77,10 @@ const SPECS: Spec[] = [
       confidence: 0.74,
       reasons: ["Lighting and water texture match across all frames.", "No screen edges, moire or print grain detected."],
     },
+    score: {
+      probability: 0.81,
+      reasons: ["The bass is held at the waterline in the same light as the cast frames.", "Release frame is hard to stage after the fact.", "Walk along the shore fits the GPS track."],
+    },
   },
   {
     id: "2e9b6d31-84a7-4f0c-b5d2-91c3e7a40f58",
@@ -108,6 +113,7 @@ const SPECS: Spec[] = [
       ],
     },
     skeptic: { verdict: "uncertain", confidence: 0.4, reasons: ["Summit sign is legible but generic; no other hikers to cross-check."] },
+    score: { probability: 0.58, reasons: ["Steady climb in GPS and motion fits a real hike.", "Summit sign alone is easy to photograph without the hike, so it adds little."] },
   },
   {
     id: "b4d07a9e-3c51-4e26-a8f9-0d6e2b1c7f33",
@@ -135,6 +141,7 @@ const SPECS: Spec[] = [
       reasons: ["Same workbench and lighting in both frames.", "Rough blank becomes a finished bowl over 18 minutes.", "Stationary GPS fits a workshop."],
     },
     skeptic: { verdict: "consistent", confidence: 0.62, reasons: ["Wood grain and shavings are continuous between frames."] },
+    score: { probability: 0.67, reasons: ["The piece changes shape between frames in a way that takes real work.", "Indoor session gives no GPS evidence either way."] },
   },
   {
     id: "e81f5c27-6a03-4b9d-9e44-c2a7d0b95f16",
@@ -160,6 +167,7 @@ const SPECS: Spec[] = [
       confidence: 0.91,
       reasons: ["Frame shows a monitor bezel and scanline moire: this is a photo of a screen.", "A 90-second session cannot include a 14,505 ft summit."],
     },
+    score: { probability: 0.03, reasons: ["The only proof is a photo of a screen.", "Session is far too short for the claim."] },
   },
 ];
 
@@ -266,7 +274,8 @@ async function buildOne(spec: Spec, seed: number) {
     onDevice: { mode: spec.mode, checks, retakes },
     judge: op(spec.judge),
     skeptic: op(spec.skeptic),
-    seal: { sealed, at: end + 60_000, checks: spec.checks, reason: spec.sealReason, version: 1 },
+    score: { ...spec.score, model: "gemini-3.5-flash", ranAt: end + 40_000 },
+    seal: { sealed, at: end + 60_000, checks: spec.checks, reason: spec.sealReason, version: 2 },
   };
   const hero = chunks.find((c) => c.seq === heroSeq)?.frame?.jpegB64 ?? null;
   const feed: FeedEntry = {
@@ -280,6 +289,8 @@ async function buildOne(spec: Spec, seed: number) {
     sealReason: spec.sealReason,
     checks: spec.checks,
     judgeReasons: spec.judge.reasons,
+    verificationScore: spec.score.probability,
+    scoreReasons: spec.score.reasons,
     heroJpegB64: hero,
     track: downsample(gps.map((g) => [g[1], g[2]] as [number, number]), 200),
     sealedAtServer: end + 60_000,

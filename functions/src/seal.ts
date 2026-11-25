@@ -3,16 +3,26 @@
 // Contract: docs/ARCHITECTURE.md ("Deterministic seal").
 import { createHash } from "node:crypto";
 
-export const SEAL_VERSION = 1;
+export const SEAL_VERSION = 2;
 export const MIN_DURATION_MS = 20_000;
 export const MAX_GPS_SPEED_MPS = 70;
 export const AI_MIN_CONFIDENCE = 0.6;
+/** Scorer: P(claim true | evidence) under a cheater-heavy prior (0.2, shared/prompts.json). Must reach this. */
+export const SCORE_MIN_PROBABILITY = 0.5;
 export const MAX_TRACK_POINTS = 200;
 
 export type Verdict = "consistent" | "inconsistent" | "uncertain";
 export interface AiOpinion {
   verdict: Verdict;
   confidence: number;
+  reasons: string[];
+  model?: string;
+  ranAt?: number;
+}
+
+/** The scorer's output: probability the claim is true given the evidence, assuming most submissions cheat. */
+export interface VerificationScore {
+  probability: number;
   reasons: string[];
   model?: string;
   ranAt?: number;
@@ -45,6 +55,8 @@ export interface MomentDoc {
   summary?: Partial<Summary> | null;
   judge?: AiOpinion | null;
   skeptic?: AiOpinion | null;
+  /** Optional so Moments from app builds without the scorer still seal on judge + skeptic. */
+  score?: VerificationScore | null;
   seal?: unknown;
   [k: string]: unknown;
 }
@@ -267,7 +279,11 @@ export function checkFrames(chunks: ChunkDoc[], payloads: Payload[]): string[] {
   return f;
 }
 
-export function checkAi(judge: AiOpinion | null | undefined, skeptic: AiOpinion | null | undefined): string[] {
+export function checkAi(
+  judge: AiOpinion | null | undefined,
+  skeptic: AiOpinion | null | undefined,
+  score?: VerificationScore | null,
+): string[] {
   const f: string[] = [];
   if (!judge) f.push("judge missing");
   else if (judge.verdict !== "consistent" || !(judge.confidence >= AI_MIN_CONFIDENCE)) {
@@ -276,6 +292,15 @@ export function checkAi(judge: AiOpinion | null | undefined, skeptic: AiOpinion 
   if (!skeptic) f.push("skeptic missing");
   else if (skeptic.verdict === "inconsistent") {
     f.push("skeptic found a fake signal" + (skeptic.reasons?.[0] ? `: ${skeptic.reasons[0]}` : ""));
+  }
+  if (score != null) {
+    const p = Number(score.probability);
+    if (!(Number.isFinite(p) && p >= SCORE_MIN_PROBABILITY)) {
+      f.push(
+        `verification score ${Number.isFinite(p) ? Math.round(p * 100) + "%" : "invalid"} below ${SCORE_MIN_PROBABILITY * 100}%` +
+          (score.reasons?.[0] ? ` - ${score.reasons[0]}` : ""),
+      );
+    }
   }
   return f;
 }
@@ -322,7 +347,7 @@ export function evaluateSeal(momentId: string, m: MomentDoc, rawChunks: ChunkDoc
   const timingF = checkTiming(m, chunks, payloads);
   const physicsF = checkPhysics(payloads);
   const framesF = checkFrames(chunks, payloads);
-  const aiF = checkAi(m.judge, m.skeptic);
+  const aiF = checkAi(m.judge, m.skeptic, m.score);
 
   const checks: Checks = {
     chain: chainF.length === 0,

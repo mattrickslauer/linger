@@ -14,6 +14,8 @@ import com.mattricks.verified.data.Store
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -22,8 +24,8 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
- * When online: for each of my submitted Moments without a judge, run judge + skeptic in the cloud
- * (Firebase AI Logic, ONLY_IN_CLOUD) on the hero frame + up to 3 more frames, and write both opinions.
+ * When online: for each of my submitted Moments without a judge, run judge, skeptic + scorer in the cloud
+ * (Firebase AI Logic, ONLY_IN_CLOUD) on the hero frame + up to 3 more frames, and write all three in one update.
  * The Cloud Function then seals. Triggered after Finish, on sign-in and whenever the network comes back.
  */
 object Judging {
@@ -33,7 +35,7 @@ object Judging {
     private var cm: ConnectivityManager? = null
 
     private val _status = MutableStateFlow<String?>(null)
-    /** e.g. "Judge + skeptic running in the cloud…" — null when idle. */
+    /** e.g. "Judge, skeptic + scorer running in the cloud…" — null when idle. */
     val status: StateFlow<String?> = _status
 
     fun init(ctx: Context) {
@@ -57,7 +59,7 @@ object Judging {
         val pending = runCatching { Store.pendingJudging(uid) }.onFailure { Log.w(TAG, "query", it) }.getOrDefault(emptyList())
         for (m in pending) {
             try {
-                _status.value = "Judge + skeptic running in the cloud…"
+                _status.value = "Judge, skeptic + scorer running in the cloud…"
                 judgeOne(m.id, m.data.orEmpty())
             } catch (t: Throwable) {
                 Log.w(TAG, "judge ${m.id} failed", t)
@@ -90,9 +92,14 @@ object Judging {
         val text = intention["text"] as? String ?: ""
         val category = intention["category"] as? String ?: "other"
 
-        val judge = Ai.opinion("judge", text, category, summaryJson, bitmaps)
-        val skeptic = Ai.opinion("skeptic", text, category, summaryJson, bitmaps)
-        Store.writeOpinions(id, judge.toMap(), skeptic.toMap())
-        Log.i(TAG, "judged $id: judge=${judge.verdict} skeptic=${skeptic.verdict}")
+        // Concurrent; any failure cancels the others and nothing is written (retried on the next kick).
+        val (judge, skeptic, score) = coroutineScope {
+            val j = async { Ai.opinion("judge", text, category, summaryJson, bitmaps) }
+            val s = async { Ai.opinion("skeptic", text, category, summaryJson, bitmaps) }
+            val p = async { Ai.score(text, category, summaryJson, bitmaps) }
+            Triple(j.await(), s.await(), p.await())
+        }
+        Store.writeOpinions(id, judge.toMap(), skeptic.toMap(), score.toMap())
+        Log.i(TAG, "judged $id: judge=${judge.verdict} skeptic=${skeptic.verdict} score=${score.probability}")
     }
 }

@@ -528,7 +528,7 @@ private fun FinishedView(ui: RecUi, vm: RecordViewModel, onOpen: (String) -> Uni
         Text("${fmtDuration(ui.elapsedMs)} · ${fmtDistance(ui.distanceM)} · ${ui.frameCount} frames")
         SyncBadge(ui)
         Text(
-            judging ?: if (Judging.online()) "Judge + skeptic run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
+            judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
             color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
         )
         ui.momentId?.let { id -> Button(onClick = { onOpen(id) }) { Text("View Moment") } }

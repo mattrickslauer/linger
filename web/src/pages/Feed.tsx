@@ -70,7 +70,7 @@ function HeroArt() {
 const STEPS = [
   { title: "On-device coach", text: "Gemini Nano looks at each proof shot on your device and says keep going or retake. It can never verify." },
   { title: "Offline sync", text: "No signal at the lake? Every 5-second chunk is hashed and queued on the phone, then syncs itself." },
-  { title: "Cloud judge + skeptic", text: "One model weighs the evidence. A second hunts for screens, stock photos and staging." },
+  { title: "Cloud judge, skeptic + scorer", text: "One model weighs the evidence, a second hunts for screens, stock photos and staging, and a third scores how likely the claim is true assuming most people cheat." },
   { title: "Deterministic seal", text: "A Cloud Function re-hashes the chain, checks timing and physics, and alone writes the seal." },
 ];
 

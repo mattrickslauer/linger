@@ -102,8 +102,8 @@ private struct SubmittedBanner: View {
       VStack(alignment: .leading, spacing: 4) {
         Text("Moment submitted").font(.subheadline.bold())
         Text(done.intention).font(.subheadline).lineLimit(2)
-        Text(judging ? "Cloud judge and skeptic are reviewing it…"
-             : app.network.isOnline ? "It seals once the cloud judge and skeptic have run. Track it in Me."
+        Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
+             : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
              : "Offline: it will sync and be judged when you're back online.")
           .font(.caption).foregroundStyle(.secondary)
       }
@@ -120,7 +120,7 @@ private struct HowItWorks: View {
       row("location.fill", "GPS, motion and app events are recorded as a time series.")
       row("camera.fill", "Take proof shots. The on-device coach says “keep going” or “retake”.")
       row("link", "Every 5 s the data is sealed into a SHA-256 chain, offline or not.")
-      row("checkmark.seal.fill", "Online again: a cloud judge and skeptic weigh in, then code seals it.")
+      row("checkmark.seal.fill", "Online again: a cloud judge, skeptic and scorer weigh in, then code seals it.")
     }
     .font(.footnote)
     .foregroundStyle(.secondary)

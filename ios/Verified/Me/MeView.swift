@@ -64,7 +64,7 @@ struct MeView: View {
         Section("Hybrid AI") {
           LabeledContent("Live coach", value: LiveCoach.onDeviceAvailable ? "On-device first" : "Cloud fallback")
           Text(LiveCoach.availabilityNote).font(.footnote).foregroundStyle(.secondary)
-          LabeledContent("Judge + skeptic", value: FirebaseSetup.cloudModel)
+          LabeledContent("Judge, skeptic, scorer", value: FirebaseSetup.cloudModel)
           LabeledContent("Network", value: app.network.isOnline ? "Online" : "Offline")
         }
 

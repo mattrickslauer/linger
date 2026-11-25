@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
-/** Every AI call in the app goes through Firebase AI Logic (hybrid for live checks, cloud for judge/skeptic). */
+/** Every AI call in the app goes through Firebase AI Logic (hybrid for live checks, cloud for judge/skeptic/scorer). */
 @OptIn(PublicPreviewAPI::class)
 object Ai {
     private const val TAG = "VerifiedAi"
@@ -118,10 +118,15 @@ object Ai {
         }
     }
 
-    // ---------- judge + skeptic (ONLY_IN_CLOUD, JSON schema) ----------
+    // ---------- judge + skeptic + scorer (ONLY_IN_CLOUD, JSON schema) ----------
 
     data class Opinion(val verdict: String, val confidence: Double, val reasons: List<String>, val model: String, val ranAt: Long) {
         fun toMap() = mapOf("verdict" to verdict, "confidence" to confidence, "reasons" to reasons, "model" to model, "ranAt" to ranAt)
+    }
+
+    /** Verification score: P(claim true | evidence) under the adversarial prior (prompts.scorer). */
+    data class Score(val probability: Double, val reasons: List<String>, val model: String, val ranAt: Long) {
+        fun toMap() = mapOf("probability" to probability, "reasons" to reasons, "model" to model, "ranAt" to ranAt)
     }
 
     private val opinionSchema = Schema.obj(
@@ -132,11 +137,18 @@ object Ai {
         )
     )
 
-    private fun cloudModelFor(key: String) = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+    private val scoreSchema = Schema.obj(
+        mapOf(
+            "probability" to Schema.double("P(claim true | evidence), 0..1"),
+            "reasons" to Schema.array(Schema.string()),
+        )
+    )
+
+    private fun cloudModelFor(key: String, schema: Schema = opinionSchema) = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
         modelName = cloudModel(),
         generationConfig = generationConfig {
             responseMimeType = "application/json"
-            responseSchema = opinionSchema
+            responseSchema = schema
         },
         systemInstruction = content { text(prompt(key, "system")) },
         onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
@@ -144,22 +156,36 @@ object Ai {
 
     /** key = "judge" | "skeptic". frames = (offsetSeconds, bitmap) in time order. */
     suspend fun opinion(key: String, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>): Opinion {
+        val j = cloudJson(key, opinionSchema, intention, category, summaryJson, frames)
+        val reasons = reasonsOf(j)
+        val verdict = j.optString("verdict").takeIf { it in setOf("consistent", "inconsistent", "uncertain") } ?: "uncertain"
+        return Opinion(verdict, j.optDouble("confidence", 0.0).coerceIn(0.0, 1.0), reasons, cloudModel(), System.currentTimeMillis())
+    }
+
+    /** prompts.scorer, same inputs as the judge. Throws when the reply has no probability (treated like a judge failure). */
+    suspend fun score(intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>): Score {
+        val j = cloudJson("scorer", scoreSchema, intention, category, summaryJson, frames)
+        val p = j.optDouble("probability").takeIf { !it.isNaN() } ?: throw IllegalStateException("scorer: no probability")
+        return Score(p.coerceIn(0.0, 1.0), reasonsOf(j), cloudModel(), System.currentTimeMillis())
+    }
+
+    private suspend fun cloudJson(key: String, schema: Schema, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>): JSONObject {
         val user = prompt(key, "user")
             .replace("{{intention}}", intention)
             .replace("{{category}}", category)
             .replace("{{summary}}", summaryJson)
             .replace("{{frameOffsets}}", frames.joinToString(", ") { "${it.first}s" }.ifEmpty { "none" })
         val resp = withTimeout(90_000) {
-            cloudModelFor(key).generateContent(content {
+            cloudModelFor(key, schema).generateContent(content {
                 text(user)
                 frames.forEach { image(it.second) }
             })
         }
-        val j = extractJson(resp.text.orEmpty()) ?: JSONObject()
-        val reasons = j.optJSONArray("reasons")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty().take(4)
-        val verdict = j.optString("verdict").takeIf { it in setOf("consistent", "inconsistent", "uncertain") } ?: "uncertain"
-        return Opinion(verdict, j.optDouble("confidence", 0.0).coerceIn(0.0, 1.0), reasons, cloudModel(), System.currentTimeMillis())
+        return extractJson(resp.text.orEmpty()) ?: JSONObject()
     }
+
+    private fun reasonsOf(j: JSONObject) =
+        j.optJSONArray("reasons")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty().take(4)
 
     /** Lenient: handles ```json fences or prose around the object. */
     fun extractJson(s: String): JSONObject? {

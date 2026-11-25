@@ -179,6 +179,7 @@ nonisolated enum VaultIO {
     m["seal"] = NSNull()
     m["judge"] = NSNull()
     m["skeptic"] = NSNull()
+    m["score"] = NSNull()
     m["createdAtServer"] = FieldValue.serverTimestamp()
     return m
   }

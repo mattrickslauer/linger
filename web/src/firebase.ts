@@ -1,10 +1,11 @@
 // Firebase wiring: app, App Check (AI Logic), Auth, offline-first Firestore, Remote Config and the
-// three Firebase AI Logic models Verified routes between.
+// four Firebase AI Logic models Verified routes between.
 //
 //   liveCheck  PREFER_ON_DEVICE  every proof frame, many per session, often at a lake with no signal.
 //                                Gemini Nano in Chrome answers instantly and privately; cloud otherwise.
 //   judge      ONLY_IN_CLOUD     once per Moment, multimodal, needs the larger model.
 //   skeptic    ONLY_IN_CLOUD     a second, adversarial opinion from a separate prompt.
+//   scorer     ONLY_IN_CLOUD     P(claim true | evidence), assuming most submissions cheat (prior 0.2).
 //
 // Modes:  VITE_FIXTURES=true      no Firebase at all; feed + detail render built-in sample data
 //         VITE_USE_EMULATORS=true Auth + Firestore talk to the local Emulator Suite
@@ -82,7 +83,7 @@ export async function loadCloudModel(): Promise<string> {
     if (name !== cloudModelName) {
       cloudModelName = name;
       // Models built before Remote Config answered hold the old name; rebuild them on next use.
-      live = judge = skeptic = null;
+      live = judge = skeptic = scorer = null;
     }
   } catch (err) {
     console.warn("Remote Config unavailable, using default model", err);
@@ -101,6 +102,13 @@ const opinionSchema = Schema.object({
   },
 });
 
+const scoreSchema = Schema.object({
+  properties: {
+    probability: Schema.number({ description: "P(claim true | evidence), 0..1" }),
+    reasons: Schema.array({ items: Schema.string() }),
+  },
+});
+
 const liveCheckSchema = Schema.object({
   properties: {
     ok: Schema.boolean(),
@@ -112,6 +120,7 @@ const liveCheckSchema = Schema.object({
 let live: GenerativeModel | null = null;
 let judge: GenerativeModel | null = null;
 let skeptic: GenerativeModel | null = null;
+let scorer: GenerativeModel | null = null;
 
 function ai() {
   if (!app) throw new Error("Firebase is not configured (see web/.env.example)");
@@ -141,13 +150,13 @@ export function liveCheckModel(): GenerativeModel {
   return live;
 }
 
-function cloudOpinionModel(system: string): GenerativeModel {
+function cloudOpinionModel(system: string, responseSchema = opinionSchema): GenerativeModel {
   return getGenerativeModel(ai(), {
     mode: InferenceMode.ONLY_IN_CLOUD,
     inCloudParams: {
       model: cloudModelName,
       systemInstruction: system,
-      generationConfig: { responseMimeType: "application/json", responseSchema: opinionSchema },
+      generationConfig: { responseMimeType: "application/json", responseSchema },
     },
   });
 }
@@ -157,6 +166,10 @@ export function judgeModel(): GenerativeModel {
 }
 export function skepticModel(): GenerativeModel {
   return (skeptic ??= cloudOpinionModel(prompts.skeptic.system));
+}
+/** P(claim true | evidence) under a cheater-heavy prior. */
+export function scorerModel(): GenerativeModel {
+  return (scorer ??= cloudOpinionModel(prompts.scorer.system, scoreSchema));
 }
 
 export { prompts };

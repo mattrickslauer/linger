@@ -18,8 +18,39 @@ const CHECKS: { key: keyof SealChecks; name: string; ok: string; bad: string }[]
   { key: "timing", name: "Timing", ok: "Timestamps only move forward and the session ran at least 20 s.", bad: "Timestamps go backwards or the session is too short." },
   { key: "physics", name: "Physics", ok: "No impossible GPS jumps; the motion sensor was live.", bad: "Location jumped faster than 70 m/s, or motion was flat." },
   { key: "frames", name: "Proof frames", ok: "At least one frame, each matching its fingerprint in the chain.", bad: "Missing frames, or a frame does not match its fingerprint." },
-  { key: "ai", name: "AI review", ok: "Judge found it consistent and the skeptic found no fake signal.", bad: "The judge was not convinced, or the skeptic found a fake signal." },
+  { key: "ai", name: "AI review", ok: "Judge found it consistent, the skeptic found no fake signal, and the verification score is at least 50%.", bad: "The judge was not convinced, the skeptic found a fake signal, or the verification score is under 50%." },
 ];
+
+/** The scorer: P(claim true | evidence), starting from the assumption that most submissions cheat. */
+function ScoreCard({ probability, reasons }: { probability: number | null; reasons: string[] }) {
+  const pct = probability == null ? null : Math.round(probability * 100);
+  const tone = pct == null ? "meh" : pct >= 50 ? "ok" : pct >= 30 ? "meh" : "bad";
+  return (
+    <article className={`opinion opinion-${tone}`}>
+      <header>
+        <h3>Verification score</h3>
+        {pct != null && (
+          <p className="verdict">
+            {pct}% likely true
+            <span className="conf" aria-label={`probability ${pct} percent`}>
+              <span style={{ width: `${pct}%` }} />
+            </span>
+          </p>
+        )}
+      </header>
+      <p className="muted small">Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%). Needs 50% to seal.</p>
+      {pct == null ? (
+        <p className="muted small">Not scored (recorded before the scorer existed).</p>
+      ) : reasons.length ? (
+        <ul>
+          {reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
 
 function Opinion({ who, o, fallback }: { who: "Judge" | "Skeptic"; o: AiOpinion | null; fallback?: string[] }) {
   const verdict = o?.verdict;
@@ -285,6 +316,10 @@ export default function Detail({ id }: { id: string }) {
         <div className="opinions">
           <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
           <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
+          <ScoreCard
+            probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
+            reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+          />
         </div>
       </section>
 

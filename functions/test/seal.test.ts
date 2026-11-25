@@ -209,6 +209,17 @@ describe("checkAi", () => {
   it("missing opinions fail", () => {
     expect(checkAi(null, undefined)).toHaveLength(2);
   });
+  it("verification score must reach 0.5 when present", () => {
+    expect(checkAi(ok, ok, { probability: 0.5, reasons: [] })).toEqual([]);
+    const f = checkAi(ok, ok, { probability: 0.31, reasons: ["Fish could be a stock photo"] });
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatch(/31%.*stock photo/);
+    expect(checkAi(ok, ok, { probability: NaN, reasons: [] })[0]).toMatch(/invalid/);
+  });
+  it("missing verification score does not block (older app builds)", () => {
+    expect(checkAi(ok, ok, null)).toEqual([]);
+    expect(checkAi(ok, ok)).toEqual([]);
+  });
 });
 
 describe("helpers", () => {

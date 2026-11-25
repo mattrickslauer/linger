@@ -31,6 +31,14 @@ export interface AiOpinion {
   ranAt: number;
 }
 
+/** The scorer: probability the claim is true given the evidence, assuming most submissions cheat. */
+export interface VerificationScore {
+  probability: number;
+  reasons: string[];
+  model: string;
+  ranAt: number;
+}
+
 export interface SealChecks {
   chain: boolean;
   timing: boolean;
@@ -44,7 +52,7 @@ export interface Seal {
   at: unknown;
   checks: SealChecks;
   reason: string;
-  version: 1;
+  version: 1 | 2;
 }
 
 export interface Moment {
@@ -63,6 +71,8 @@ export interface Moment {
   onDevice: { mode: CheckMode; checks: number; retakes: number };
   judge: AiOpinion | null;
   skeptic: AiOpinion | null;
+  /** Absent on Moments recorded before the scorer existed. */
+  score?: VerificationScore | null;
   seal: Seal | null;
   /** client-only: Firestore metadata.hasPendingWrites */
   pending?: boolean;
@@ -118,6 +128,9 @@ export interface FeedEntry {
   sealReason: string;
   checks: SealChecks;
   judgeReasons: string[];
+  /** Scorer's P(claim true | evidence); null/absent for Moments without a score. */
+  verificationScore?: number | null;
+  scoreReasons?: string[];
   heroJpegB64: string | null;
   track: [number, number][];
   sealedAtServer: number | null; // millis (converted from Timestamp on read)
