@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AiCall, AiEngine, fakeEngine } from "../src/ai";
 import { barContext, computeBar, defaultBar, fakeDifficulty, intentionForModel, runModule } from "../src/agents";
-import { eligibility, validateRunRequest } from "../src/callable";
+import { STALE_RUN_MS, eligibility, isStaleRun, validateRunRequest } from "../src/callable";
 import { debit, withGrant } from "../src/credits";
 import {
   applyStep,
@@ -122,6 +122,21 @@ describe("ladder math (v3.6)", () => {
     expect(countsAsPass(true, 0.59, c)).toBe(false);
     expect(countsAsPass(false, 0.99, c)).toBe(false);
     expect(countsAsPass("true", 0.9, c)).toBe(false);
+  });
+  it("score math: pass p+s(1-p), fail p(1-s), order of results matters only through the path", () => {
+    expect(applyStep(0.62, 0.2, true)).toBeCloseTo(0.696, 12);
+    expect(applyStep(0.62, 0.2, false)).toBeCloseTo(0.496, 12);
+    const runs = [
+      { strength: 0.2, passed: true },
+      { strength: 0.45, passed: false },
+      { strength: 0.3, passed: true },
+    ];
+    const manual = applyStep(applyStep(applyStep(0.5, 0.2, true), 0.45, false), 0.3, true);
+    expect(scoreFromResults(0.5, runs)).toBe(manual);
+    expect(scoreFromResults(0.5, [])).toBe(0.5);
+    // A pass with low confidence counts as a fail (the model proposes, code decides).
+    expect(countsAsPass(true, 0.59, getLadder().passConfidence)).toBe(false);
+    expect(countsAsPass("true", 0.99, getLadder().passConfidence)).toBe(false);
   });
   it("passes and fails stay inside 0..1", () => {
     expect(applyStep(1, 0.45, false)).toBeCloseTo(0.55);
@@ -252,6 +267,14 @@ describe("credits (v3.6): grant once, debit either way", () => {
     expect(withGrant(undefined)).toEqual({ credits: { balance: 10, granted: 10, spent: 0 }, justGranted: true });
     expect(withGrant({ balance: 3, granted: 10, spent: 7 })).toEqual({ credits: { balance: 3, granted: 10, spent: 7 }, justGranted: false });
   });
+  it("a session of spends and one refund keeps balance = granted - spent", () => {
+    let c = withGrant(undefined).credits;
+    for (const id of ["second_look", "place_time", "count_measure", "full_video"]) c = debit(c, getModule(id)!.cost);
+    c = debit(c, -getModule("place_time")!.cost); // refund
+    expect(c).toEqual({ balance: 10 - 1 - 2 - 3, granted: 10, spent: 6 });
+    expect(c.balance).toBe(c.granted - c.spent);
+    expect(withGrant({ balance: 0, granted: 10, spent: 10 }).justGranted).toBe(false); // never re-granted
+  });
   it("module debit moves balance and spent; a refund reverses it exactly", () => {
     const start = withGrant(undefined).credits;
     const afterVideo = debit(start, getModule("full_video")!.cost);
@@ -276,6 +299,29 @@ describe("runLadderModule request + eligibility", () => {
     expect(reason({ momentId: "a/b", module: "second_look", requestId: id })).toBe("bad_request");
     expect(reason({ momentId: id, module: "buy_score", requestId: id })).toBe("bad_module");
     expect(reason({ momentId: id, module: "full_video", requestId: id, clipSha: "ABC" })).toBe("bad_request");
+  });
+  it("requestId must be a UUID, so it can never collide with the ledger's own ids", () => {
+    const reason = (requestId: unknown) => {
+      try {
+        validateRunRequest({ momentId: id, module: "second_look", requestId });
+        return null;
+      } catch (e) {
+        return (e as { details?: { reason?: string } }).details?.reason;
+      }
+    };
+    expect(reason(id.toUpperCase())).toBeNull(); // iOS UUID().uuidString
+    expect(reason("grant")).toBe("bad_request");
+    expect(reason(`${id}-refund`)).toBe("bad_request");
+    expect(reason("abcdefgh-refund")).toBe("bad_request");
+    expect(reason(undefined)).toBe("bad_request");
+  });
+  it("a run with neither result nor refund is settled only after the stale window", () => {
+    const now = Date.UTC(2026, 10, 25, 12);
+    expect(STALE_RUN_MS).toBeGreaterThan(300_000); // longer than runLadderModule's timeout
+    expect(isStaleRun(now - 60_000, now)).toBe(false);
+    expect(isStaleRun(now - STALE_RUN_MS, now)).toBe(true);
+    expect(isStaleRun(undefined, now)).toBe(false);
+    expect(isStaleRun(NaN, now)).toBe(false);
   });
   it("only sealed/rejected v3 Moments that are ladderEligible; each module once", () => {
     const seal = { sealed: true, checks: {}, reason: "", version: 3, ladderEligible: true };

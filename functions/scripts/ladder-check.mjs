@@ -16,7 +16,7 @@ const AUTH = process.env.FIREBASE_AUTH_EMULATOR_HOST || "127.0.0.1:9099";
 const FN = process.env.FUNCTIONS_EMULATOR_HOST || "127.0.0.1:5001";
 const HAS_STORAGE = !!process.env.FIREBASE_STORAGE_EMULATOR_HOST || !!process.env.STORAGE_EMULATOR_HOST;
 const { initializeApp } = require("firebase-admin/app");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const seal = require("../lib/seal.js");
 const BUCKET = process.env.STORAGE_BUCKET || `${PROJECT}.appspot.com`;
@@ -107,6 +107,8 @@ r = await call("runLadderModule", { momentId: FISH, module: "human_review", requ
 ok(r.error?.reason === "unavailable_module", "human_review is coming soon", r.error);
 r = await call("runLadderModule", { momentId: FISH, module: "buy_score", requestId: rid() }, alice.token);
 ok(r.error?.reason === "bad_module", "unknown module", r.error);
+r = await call("runLadderModule", { momentId: FISH, module: "place_time", requestId: "abcdefgh-refund" }, alice.token);
+ok(r.error?.reason === "bad_request", "requestId must be a UUID (cannot collide with ledger ids)", r.error);
 r = await call("runLadderModule", { momentId: FISH, module: "place_time", requestId: rid() }, bob.token);
 ok(r.error?.reason === "not_owner", "only the owner can run modules", r.error);
 r = await call("runLadderModule", { momentId: FAKE, module: "second_look", requestId: rid() }, alice.token);
@@ -134,6 +136,28 @@ ok(after.balance === before, "credits refunded", { before, after: after.balance 
 ok((await db.doc(`credits/${alice.uid}/ledger/${failReq}-refund`).get()).get("delta") === 1, "refund ledger entry");
 const run1 = (await db.doc(`moments/${RUN}`).get()).data();
 ok(run1.verification.modules.length === 0 && !run1.verification.pending?.second_look, "nothing recorded, module not locked");
+
+// A run that died mid-flight (spend written, marker set, no result, no refund) blocks nothing once it is stale:
+// the next request refunds it and runs. Simulated by hand: spend 11 minutes ago + marker.
+const runText = run1.intention.text.replace(" #ai-fail", "");
+await db.doc(`moments/${RUN}`).update({ "intention.text": runText });
+const lost = rid();
+const bal0 = (await db.doc(`credits/${alice.uid}`).get()).get("balance");
+await db.doc(`credits/${alice.uid}/ledger/${lost}`).set({ delta: -1, kind: "spend", reason: "Place & time check", momentId: RUN, module: "place_time", runId: lost, balanceAfter: bal0 - 1, atServer: Timestamp.fromMillis(Date.now() - 11 * 60_000) });
+await db.doc(`credits/${alice.uid}`).update({ balance: bal0 - 1, spent: FieldValue.increment(1) });
+await db.doc(`moments/${RUN}`).update({ "verification.pending.place_time": lost });
+r = await call("runLadderModule", { momentId: RUN, module: "place_time", requestId: lost }, alice.token);
+ok(r.error?.reason === "model_failed", "the lost run's own requestId settles as model_failed (refunded)", r.error);
+ok((await db.doc(`credits/${alice.uid}/ledger/${lost}-refund`).get()).get("delta") === 1, "stale run refunded");
+ok((await db.doc(`credits/${alice.uid}`).get()).get("balance") === bal0, "balance restored after the stale refund");
+// And a fresh in-flight marker from another request still blocks (not stale).
+const live = rid();
+await db.doc(`credits/${alice.uid}/ledger/${live}`).set({ delta: -1, kind: "spend", reason: "Place & time check", momentId: RUN, module: "place_time", runId: live, balanceAfter: bal0, atServer: FieldValue.serverTimestamp() });
+await db.doc(`moments/${RUN}`).update({ "verification.pending.place_time": live });
+r = await call("runLadderModule", { momentId: RUN, module: "place_time", requestId: rid() }, alice.token);
+ok(r.error?.reason === "already_run", "a live run of the same module still blocks a second spend", r.error);
+await db.doc(`moments/${RUN}`).update({ "verification.pending.place_time": FieldValue.delete() });
+await db.doc(`credits/${alice.uid}/ledger/${live}`).delete();
 
 // Insufficient credits.
 await db.doc(`credits/${alice.uid}`).update({ balance: 0 });
@@ -184,6 +208,7 @@ if (HAS_STORAGE) {
   await bucket.file(`clips/${alice.uid}/${id}/${clipSha}.mp4`).save(Buffer.from("tampered bytes"), { contentType: "video/mp4" });
   r = await call("runLadderModule", { momentId: id, module: "full_video", requestId: rid() }, alice.token);
   ok(r.error?.reason === "clip_hash_mismatch", "re-hash catches a different clip", r.error);
+  ok(!(await bucket.file(`clips/${alice.uid}/${id}/${clipSha}.mp4`).exists())[0], "the mismatched upload is removed so the owner can upload again");
   await bucket.file(`clips/${alice.uid}/${id}/${clipSha}.mp4`).save(clip, { contentType: "video/mp4" });
   r = await call("runLadderModule", { momentId: id, module: "full_video", requestId: rid(), clipSha }, alice.token);
   ok(r.result?.passed === true && near(r.result.after, 0.62 + 0.45 * 0.38) && r.result.cost === 3 && r.result.balance === 4, "full_video: hash matches the chain, 3 credits, p + 0.45(1-p)", r.result);

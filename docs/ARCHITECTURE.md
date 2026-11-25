@@ -457,7 +457,7 @@ Grants the free credits on first call (transaction; idempotent). Errors: `unauth
 
 **`runLadderModule`**
 ```
-request:  { momentId: string, module: ModuleId, requestId: string /* client UUID v4, idempotency key */,
+request:  { momentId: string, module: ModuleId, requestId: string /* client UUID (any case), idempotency key; anything else is bad_request */,
             clipSha?: string /* full_video: which chained video; default: the last `video` event */ }
 response: { runId: string /* == requestId */, module: ModuleId, passed: boolean, confidence: number,
             before: number, after: number, score: number, bar: number, verified: boolean,
@@ -482,17 +482,24 @@ result, no second charge.
 | `unavailable` | `model_failed` (credits refunded; the same `requestId` keeps answering `model_failed`, retry with a new one) |
 | `aborted` | `in_progress` (the same `requestId` is still running) |
 
-`clip_missing` also carries `details.bucket` and `details.path` (where to upload). While a run is in flight the function
+`clip_missing` also carries `details.bucket`, `details.path` (where to upload; swap `.mp4` for the clip's real extension)
+and `details.extensions` (`["mp4","mov","webm"]`). On `clip_hash_mismatch` the function deletes the bad upload (clips are
+create-only for clients), so the owner can upload the right bytes and retry. While a run is in flight the function
 keeps a server-only marker `verification.pending.<module> = requestId` on the Moment (cleared on record or refund), so
-two concurrent requests for the same module cannot both spend.
+two concurrent requests for the same module cannot both spend. A run whose spend is older than 10 minutes with neither
+a result nor a refund (the instance died) is settled by the next request: refund entry `<requestId>-refund` (reason
+"Refund: run did not finish"), marker cleared; its own `requestId` then answers `model_failed`. If the Moment is
+deleted while a module runs, the spend is refunded and the call fails `not-found`/`moment_missing`. Deleting a Moment
+also deletes its clips under `clips/{uid}/{momentId}/`.
 
 **Server-side model (`bar`, `module*`).** Cloud Functions call Gemini on Vertex AI in the same Firebase project with
 the function's service account (`@google/genai`, `vertexai: true`; env `CLOUD_MODEL`, default `gemini-3.5-flash`;
 `VERIFIED_AI_LOCATION`, default `global`), with the system/user/schema from `shared/prompts.json` (copied into
 `functions/lib/shared/` by `npm run build`). No key on any device. In the emulator the default engine is a
 deterministic fake (`VERIFIED_AI=fake`; set `VERIFIED_AI=vertex` to use the real model); any prompt variable containing
-`#ai-fail` makes the fake throw, which the e2e uses to test refunds. The bar agent re-runs only while `bar == null`;
-concurrent triggers may both call the model, but only the first write wins.
+`#ai-fail` makes the fake throw, which the e2e uses to test refunds. The bar agent runs only while `bar == null`, under
+a 150 s lease in the server-only collection `barLeases/{momentId}` (no client access), so the burst of writes around
+submit calls the model once; the first bar write wins.
 
 No other callables: the bar is computed by the trigger, guest claims use ordinary rule-checked writes.
 

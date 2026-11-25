@@ -234,6 +234,19 @@ describe("v3: credits", () => {
     await assertFails(deleteDoc(doc(alice(), "credits/alice/ledger/e1")));
     await assertFails(setDoc(doc(alice(), "credits/bob"), { balance: 10 }));
   });
+  it("barLeases (server-only bar-agent lease): no client reads or writes, guests included", async () => {
+    await admin("barLeases/m1", { at: 1 });
+    await assertFails(getDoc(doc(alice(), "barLeases/m1")));
+    await assertFails(getDoc(doc(anon(), "barLeases/m1")));
+    await assertFails(setDoc(doc(alice(), "barLeases/m2"), { at: 1 }));
+    await assertFails(deleteDoc(doc(alice(), "barLeases/m1")));
+  });
+  it("guests write nothing anywhere a signed-in user could", async () => {
+    await assertFails(setDoc(doc(anon(), "credits/x"), { balance: 10 }));
+    await assertFails(setDoc(doc(anon(), "users/x"), { displayName: "Guest" }));
+    await assertFails(setDoc(doc(anon(), "moments/g1"), { ownerUid: null, status: "recording", guest: true }));
+    await assertFails(setDoc(doc(anon(), "feed/g1"), { status: "sealed" }));
+  });
 });
 
 describe("feed and users", () => {

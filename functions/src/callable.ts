@@ -19,6 +19,19 @@ export interface Verification {
 export const fail = (code: ConstructorParameters<typeof HttpsError>[0], reason: string, message: string, extra: Record<string, unknown> = {}) =>
   new HttpsError(code, message, { reason, ...extra });
 
+export const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * A run whose spend is older than this and still has neither a result nor a refund was lost (the function
+ * instance died mid-run: runLadderModule times out at 300 s). Its marker is cleared and its credits refunded,
+ * so a crash never blocks a module or keeps the credits.
+ */
+export const STALE_RUN_MS = 10 * 60_000;
+
+export function isStaleRun(spentAtMs: number | null | undefined, nowMs: number, staleMs = STALE_RUN_MS): boolean {
+  return typeof spentAtMs === "number" && Number.isFinite(spentAtMs) && nowMs - spentAtMs >= staleMs;
+}
+
 export interface RunRequest {
   momentId: string;
   module: ModuleId;
@@ -29,7 +42,9 @@ export interface RunRequest {
 export function validateRunRequest(data: unknown): RunRequest {
   const d = (data ?? {}) as Record<string, unknown>;
   const okId = (s: unknown, re: RegExp) => typeof s === "string" && re.test(s);
-  if (!okId(d.momentId, /^[A-Za-z0-9_-]{1,128}$/) || !okId(d.requestId, /^[A-Za-z0-9_-]{8,128}$/)) {
+  // requestId must be a UUID (contract: client UUID v4; any case, iOS prints upper case). A free-form id could
+  // collide with the ledger's own entry ids ("grant", "<requestId>-refund") and overwrite a spend or a refund.
+  if (!okId(d.momentId, /^[A-Za-z0-9_-]{1,128}$/) || !okId(d.requestId, UUID_RE)) {
     throw fail("invalid-argument", "bad_request", "momentId and requestId are required.");
   }
   if (d.clipSha != null && !okId(d.clipSha, /^[0-9a-f]{64}$/)) throw fail("invalid-argument", "bad_request", "clipSha must be a lowercase sha256 hex.");

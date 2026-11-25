@@ -3,7 +3,7 @@
 // here, ONLY_IN_CLOUD); this code decides. Contract: docs/ARCHITECTURE.md (v3.3 - v3.8).
 import { createHash } from "node:crypto";
 import { initializeApp } from "firebase-admin/app";
-import { FieldValue, getFirestore, Transaction } from "firebase-admin/firestore";
+import { DocumentReference, FieldValue, Timestamp, getFirestore, Transaction } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -24,7 +24,7 @@ import {
 } from "./ladder";
 import { ChunkDoc, MomentDoc, SEAL_VERSION, evaluateSeal, isReadyToSeal, needsBar } from "./seal";
 import { ModuleDef, ModuleId, getLadder, getModule } from "./shared";
-import { Verification, eligibility, fail, validateRunRequest } from "./callable";
+import { Verification, eligibility, fail, isStaleRun, validateRunRequest } from "./callable";
 
 initializeApp();
 setGlobalOptions({ maxInstances: 10, region: "us-central1" });
@@ -34,19 +34,41 @@ export type SealOutcome = "sealed" | "rejected" | "not-ready" | "waiting-for-chu
 
 // ───────────────────────────────── bar (v3.3)
 
+/**
+ * A short lease so the burst of writes around submit (status, then judge/skeptic/score) calls the bar model once,
+ * not once per trigger. Server-only collection (no rules match, so clients can neither read nor write it).
+ * computeBar never throws, so the holder always writes; a lease older than BAR_LEASE_MS (a crashed instance) is
+ * taken over by the next trigger.
+ */
+export const BAR_LEASE_MS = 150_000;
+
+async function takeBarLease(momentId: string): Promise<boolean> {
+  const lease = db.collection("barLeases").doc(momentId);
+  return db.runTransaction(async (tx) => {
+    const l = await tx.get(lease);
+    const at = (l.data()?.at as Timestamp | undefined)?.toMillis?.();
+    if (l.exists && typeof at === "number" && Date.now() - at < BAR_LEASE_MS) return false;
+    tx.set(lease, { at: Timestamp.now() });
+    return true;
+  });
+}
+
 /** Computes the AI-set bar once, at submit. Idempotent: only the first writer wins. */
 export async function ensureBar(momentId: string): Promise<"written" | "skipped"> {
   const ref = db.collection("moments").doc(momentId);
   const pre = await ref.get();
   if (!pre.exists || !needsBar(pre.data() as MomentDoc)) return "skipped";
+  if (!(await takeBarLease(momentId))) return "skipped";
   const bar = await computeBar(pre.data() as MomentDoc);
-  return db.runTransaction(async (tx) => {
+  const out = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists || !needsBar(snap.data() as MomentDoc)) return "skipped";
+    if (!snap.exists || !needsBar(snap.data() as MomentDoc)) return "skipped" as const;
     tx.update(ref, { bar });
     logger.info("bar set", { momentId, value: bar.value, difficulty: bar.difficulty, source: bar.source });
-    return "written";
+    return "written" as const;
   });
+  await db.collection("barLeases").doc(momentId).delete().catch(() => undefined);
+  return out;
 }
 
 // ───────────────────────────────── seal v3 (v3.5) + feed v3 (v3.8)
@@ -147,9 +169,17 @@ export const onMomentWritten = onDocumentWritten({ document: "moments/{momentId}
   await trySeal(momentId);
 });
 
-export const onChunkWritten = onDocumentCreated("moments/{momentId}/chunks/{seq}", async (event) => {
-  // Late (offline-tail) chunks: once the last one arrives the moment may become sealable.
-  await trySeal(event.params.momentId);
+export const onChunkWritten = onDocumentCreated({ document: "moments/{momentId}/chunks/{seq}", timeoutSeconds: 120 }, async (event) => {
+  // Late (offline-tail) chunks: once the last one arrives the moment may become sealable. If the bar trigger died
+  // before writing the bar (no further Moment writes would re-run it), a late chunk retries it; the bar write then
+  // re-triggers onMomentWritten, which seals.
+  const momentId = event.params.momentId;
+  const m = (await db.collection("moments").doc(momentId).get()).data() as MomentDoc | undefined;
+  if (needsBar(m)) {
+    await ensureBar(momentId);
+    return;
+  }
+  await trySeal(momentId);
 });
 
 /**
@@ -163,6 +193,14 @@ export const onMomentDeleted = onDocumentDeleted("moments/{momentId}", async (ev
   await db.doc(`deleted/${momentId}`).set({ ownerUid: before?.ownerUid ?? null, deletedAt: FieldValue.serverTimestamp() });
   await db.recursiveDelete(db.collection(`moments/${momentId}/chunks`));
   await db.doc(`feed/${momentId}`).delete();
+  await db.doc(`barLeases/${momentId}`).delete().catch(() => undefined);
+  // The owner's uploaded full_video clips go too (best effort: Storage may not be enabled in every project).
+  if (before?.ownerUid) {
+    await getStorage()
+      .bucket()
+      .deleteFiles({ prefix: `clips/${before.ownerUid}/${momentId}/` })
+      .catch((e) => logger.warn("clip cleanup failed", { momentId, error: String(e) }));
+  }
   logger.info("moment deleted by owner", { momentId, ownerUid: before?.ownerUid });
 });
 
@@ -244,14 +282,57 @@ async function loadClip(uid: string, momentId: string, facts: ChainFacts, clipSh
         .on("end", () => resolve());
     });
     const sha = hash.digest("hex");
-    if (sha !== chained.sha256) throw fail("failed-precondition", "clip_hash_mismatch", "The uploaded clip does not match the hash in the chain.");
+    if (sha !== chained.sha256) {
+      // Storage rules make clips create-only, so remove the bad upload or the owner could never upload the right one.
+      await file.delete().catch((e) => logger.warn("could not remove mismatched clip", { path: file.name, error: String(e) }));
+      throw fail("failed-precondition", "clip_hash_mismatch", "The uploaded clip does not match the hash in the chain. Upload it again.");
+    }
     return { gsUri: `gs://${bucket.name}/${file.name}`, mimeType, sha256: sha, bytes, durationMs: chained.durationMs };
   }
   throw fail("failed-precondition", "clip_missing", "Upload the clip first.", {
     bucket: bucket.name,
     path: `clips/${uid}/${momentId}/${chained.sha256}.mp4`,
+    extensions: Object.keys(CLIP_TYPES),
   });
 }
+
+/**
+ * Refunds one run's spend (idempotent: the `<requestId>-refund` entry is written once) and clears its in-flight
+ * marker when the Moment still carries it. Safe when the Moment was deleted meanwhile.
+ */
+async function refundRun(uid: string, momentRef: DocumentReference, module: ModuleId, requestId: string, cost: number, reason: string): Promise<void> {
+  await db.runTransaction(async (tx) => {
+    const refundRef = ledgerRef(db, uid, `${requestId}-refund`);
+    const [cs, rs, ms] = await Promise.all([tx.get(creditsRef(db, uid)), tx.get(refundRef), tx.get(momentRef)]);
+    const pending = (ms.data()?.verification as Verification | undefined)?.pending?.[module];
+    if (!rs.exists) {
+      const next = debit(withGrant(cs.data() as CreditsDoc).credits, -cost);
+      writeCredits(tx, db, uid, next, false);
+      tx.set(refundRef, entry({ delta: cost, kind: "refund", reason, momentId: momentRef.id, module, runId: requestId, balanceAfter: next.balance }));
+    }
+    if (ms.exists && pending === requestId) tx.update(momentRef, { [`verification.pending.${module}`]: FieldValue.delete() });
+  });
+}
+
+/**
+ * A run that never finished (instance died after the spend): neither a recorded result nor a refund, and the
+ * spend is older than STALE_RUN_MS. Refunds it and clears its marker, so the module is not blocked forever and
+ * the credits come back. Returns true when `requestId` is now settled as refunded.
+ */
+async function recoverStaleRun(uid: string, momentRef: DocumentReference, module: ModuleId, requestId: string): Promise<boolean> {
+  const [spend, refund, ms] = await Promise.all([ledgerRef(db, uid, requestId).get(), ledgerRef(db, uid, `${requestId}-refund`).get(), momentRef.get()]);
+  if (!spend.exists || spend.get("kind") !== "spend") return false;
+  if (refund.exists) return true;
+  const recorded = (ms.data()?.verification as Verification | undefined)?.modules?.some((r) => r.runId === requestId);
+  if (recorded) return false;
+  const at = (spend.get("atServer") as Timestamp | undefined)?.toMillis?.();
+  if (!isStaleRun(at, Date.now())) return false;
+  logger.warn("refunding a ladder run that never finished", { momentId: momentRef.id, module, requestId });
+  await refundRun(uid, momentRef, module, requestId, Math.abs(Number(spend.get("delta")) || 0), "Refund: run did not finish");
+  return true;
+}
+
+class MomentGone extends Error {}
 
 export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, async (req): Promise<RunResponse> => {
   const uid = requireUid(req);
@@ -271,15 +352,18 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
     const done = v?.modules?.find((r) => r.runId === requestId);
     const bal = Number((await creditsRef(db, uid).get()).data()?.balance ?? 0);
     if (done && v) return responseFor(done, v, ms.data()!.status, bal);
-    if ((await ledgerRef(db, uid, `${requestId}-refund`).get()).exists) throw fail("unavailable", "model_failed", "The module could not run; credits were refunded.");
+    if (await recoverStaleRun(uid, momentRef, module, requestId)) throw fail("unavailable", "model_failed", "The module could not run; credits were refunded.");
     throw fail("aborted", "in_progress", "This run is still in progress.");
   }
 
   // Load + eligibility (outside the spend; cheap, and the spend transaction re-checks).
-  const snap = await momentRef.get();
+  let snap = await momentRef.get();
   if (!snap.exists) throw fail("not-found", "moment_missing", "Moment not found.");
+  if ((snap.data() as MomentDoc).ownerUid !== uid) throw fail("permission-denied", "not_owner", "Only the owner can run verification modules.");
+  // Another run of this module holds the marker: if it died mid-run long ago, settle it (refund) and go on.
+  const holder = ((snap.data() as MomentDoc).verification as Verification | undefined)?.pending?.[module];
+  if (holder && holder !== requestId && (await recoverStaleRun(uid, momentRef, module, holder))) snap = await momentRef.get();
   const m = snap.data() as MomentDoc;
-  if (m.ownerUid !== uid) throw fail("permission-denied", "not_owner", "Only the owner can run verification modules.");
   const why = eligibility(m, module, requestId);
   if (why) throw fail("failed-precondition", why, `Not eligible: ${why}.`);
   const chunks = (await momentRef.collection("chunks").orderBy("seq").get()).docs.map((d) => d.data() as ChunkDoc);
@@ -312,65 +396,69 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
     answer = await runModule(module, { momentId, moment: m, facts, clip });
   } catch (e) {
     logger.error("ladder module failed; refunding", { momentId, module, requestId, error: String(e) });
-    await db.runTransaction(async (tx) => {
-      const cs = await tx.get(creditsRef(db, uid));
-      const next = debit(withGrant(cs.data() as CreditsDoc).credits, -cost);
-      writeCredits(tx, db, uid, next, false);
-      tx.set(ledgerRef(db, uid, `${requestId}-refund`), entry({ delta: cost, kind: "refund", reason: "Refund: model failed", momentId, module, runId: requestId, balanceAfter: next.balance }));
-      tx.update(momentRef, { [`verification.pending.${module}`]: FieldValue.delete() });
-    });
+    await refundRun(uid, momentRef, module, requestId, cost, "Refund: model failed");
     throw fail("unavailable", "model_failed", "The module could not run right now; your credits were refunded.");
   }
 
   // Record: append the result, recompute the score from the baseline, re-seal (bar check only), update the feed.
   const passConfidence = getLadder().passConfidence;
-  return db.runTransaction(async (tx) => {
-    const [ms, cs] = await Promise.all([tx.get(momentRef), tx.get(creditsRef(db, uid))]);
-    const cur = ms.data() as MomentDoc;
-    const v = cur.verification as Verification;
-    const seal = cur.seal as SealV3;
-    const baseline = v.baseline as number;
-    const before = scoreFromResults(baseline, v.modules ?? []);
-    const passed = countsAsPass(answer.passed, answer.confidence, passConfidence);
-    const result: LadderResult = {
-      runId: requestId,
-      module,
-      title: mod.title,
-      cost,
-      strength: mod.strength,
-      passed,
-      confidence: answer.confidence,
-      before,
-      after: applyStep(before, mod.strength, passed),
-      reasons: answer.reasons,
-      ...(answer.measured ? { measured: answer.measured } : {}),
-      model: answer.model,
-      ranAt: Date.now(),
-    };
-    const modules = [...(v.modules ?? []), result];
-    const score = scoreFromResults(baseline, modules);
-    const verified = score >= v.bar;
-    const re = resealAfterLadder(seal, score, v.bar);
-    const now = FieldValue.serverTimestamp();
-    tx.update(momentRef, {
-      status: re.status,
-      "seal.checks": re.checks,
-      "seal.sealed": re.sealed,
-      "seal.reason": re.reason,
-      "seal.updatedAt": now,
-      "verification.modules": modules,
-      "verification.score": score,
-      "verification.verified": verified,
-      "verification.updatedAtServer": now,
-      [`verification.pending.${module}`]: FieldValue.delete(),
+  try {
+    return await db.runTransaction(async (tx) => {
+      const [ms, cs] = await Promise.all([tx.get(momentRef), tx.get(creditsRef(db, uid))]);
+      const cur = ms.data() as MomentDoc | undefined;
+      const v = cur?.verification as Verification | undefined;
+      const seal = cur?.seal as SealV3 | undefined;
+      // Deleted (or otherwise gone) while the model ran: nothing to record on, so the spend is refunded below.
+      if (!cur || !v || !seal || typeof v.baseline !== "number") throw new MomentGone();
+      const done = v.modules?.find((r) => r.runId === requestId);
+      if (done) return responseFor(done, v, String(cur.status), Number(cs.data()?.balance ?? 0));
+      const baseline = v.baseline as number;
+      const before = scoreFromResults(baseline, v.modules ?? []);
+      const passed = countsAsPass(answer.passed, answer.confidence, passConfidence);
+      const result: LadderResult = {
+        runId: requestId,
+        module,
+        title: mod.title,
+        cost,
+        strength: mod.strength,
+        passed,
+        confidence: answer.confidence,
+        before,
+        after: applyStep(before, mod.strength, passed),
+        reasons: answer.reasons,
+        ...(answer.measured ? { measured: answer.measured } : {}),
+        model: answer.model,
+        ranAt: Date.now(),
+      };
+      const modules = [...(v.modules ?? []), result];
+      const score = scoreFromResults(baseline, modules);
+      const verified = score >= v.bar;
+      const re = resealAfterLadder(seal, score, v.bar);
+      const now = FieldValue.serverTimestamp();
+      tx.update(momentRef, {
+        status: re.status,
+        "seal.checks": re.checks,
+        "seal.sealed": re.sealed,
+        "seal.reason": re.reason,
+        "seal.updatedAt": now,
+        "verification.modules": modules,
+        "verification.score": score,
+        "verification.verified": verified,
+        "verification.updatedAtServer": now,
+        [`verification.pending.${module}`]: FieldValue.delete(),
+      });
+      tx.set(
+        db.collection("feed").doc(momentId),
+        { status: re.status, sealReason: re.reason, checks: re.checks, verificationScore: score, ladder: ladderFeed(modules), ladderUpdatedAtServer: now },
+        { merge: true },
+      );
+      logger.info("ladder module recorded", { momentId, module, passed, before, after: result.after, score, bar: v.bar, status: re.status });
+      const balance = Number(cs.data()?.balance ?? 0);
+      return responseFor(result, { ...v, score, verified, modules }, re.status, balance);
     });
-    tx.set(
-      db.collection("feed").doc(momentId),
-      { status: re.status, sealReason: re.reason, checks: re.checks, verificationScore: score, ladder: ladderFeed(modules), ladderUpdatedAtServer: now },
-      { merge: true },
-    );
-    logger.info("ladder module recorded", { momentId, module, passed, before, after: result.after, score, bar: v.bar, status: re.status });
-    const balance = Number(cs.data()?.balance ?? 0);
-    return responseFor(result, { ...v, score, verified, modules }, re.status, balance);
-  });
+  } catch (e) {
+    if (!(e instanceof MomentGone)) throw e;
+    await refundRun(uid, momentRef, module, requestId, cost, "Refund: Moment was deleted");
+    throw fail("not-found", "moment_missing", "The Moment was deleted while the module ran; your credits were refunded.");
+  }
 });
