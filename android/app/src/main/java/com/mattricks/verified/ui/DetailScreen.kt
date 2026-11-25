@@ -128,6 +128,13 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
         if (d.local) LocalBanner(d)
         else Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
 
+        // v4: overall verdict on top, the free video review, then one row per claim (docs/ARCHITECTURE.md v4.11).
+        if (isV4(d)) {
+            VerdictHeader(d)
+            VideoReviewCard(d)
+            ClaimsSection(d)
+        } else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) VideoUploadLine(d.card.id)
+
         if (d.frames.isNotEmpty()) {
             val f = d.frames[selected.coerceIn(0, d.frames.size - 1)]
             B64Image(f.jpegB64, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(16.dp)))
@@ -177,7 +184,13 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
 
         Section("Seal")
         val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
-        val labels = linkedMapOf(
+        val labels = if (d.sealVersion >= 4) linkedMapOf(
+            "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
+            "frames" to "Proof frames match",
+            "ai" to "The proof frames don't contradict the intention",
+            "cheating" to "No cheating detected",
+            "bar" to "Every claim reaches the bar" + (barOf(d)?.let { " (${com.mattricks.verified.data.V3Math.fmt(it)})" } ?: ""),
+        ) else linkedMapOf(
             "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
             "frames" to "Proof frames match",
             "ai" to if (d.sealVersion >= 3) "Judge consistent, skeptic found nothing" else "Judge consistent, skeptic found nothing, score ≥ 50%",
