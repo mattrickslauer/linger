@@ -242,7 +242,8 @@ final class RecorderModel {
     shooting = true
     coach = Coach(kind: .checking, text: LiveCoach.onDeviceAvailable ? "Checking on-device…" : "Checking…")
     // A shot taken after the witness's "Show" answers that request; the coach checks it against the ask.
-    let answering = witness.armedRequest
+    // The camera is always live here, so a shot while a "show" request is open answers it even without tapping Show.
+    let answering = witness.armedRequest ?? witness.open.flatMap { $0.kind == .show ? $0 : nil }
     let intentionText = answering.map { "\(intention) — witness asked: \($0.ask)" } ?? intention
     shotTask = Task { [weak self] in
       guard let self else { return }

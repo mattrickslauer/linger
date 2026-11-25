@@ -183,15 +183,18 @@ final class InterviewModel {
         structuredByCloud = true
       }
     }
-    if draft.isEmpty, let first = lines.first(where: { $0.role == .me })?.text {
-      draft = ["text": first, "category": Self.guessCategory(first).rawValue, "goal": first]
-    }
-    guard var r = StructuredIntention(json: draft, location: location) else {
-      phase = .waiting
+    let first = lines.first(where: { $0.role == .me })?.text ?? ""
+    let fallback: [String: Any] = ["text": first, "category": Self.guessCategory(first).rawValue, "goal": first]
+    // A model draft without text or goal (e.g. only a category) would leave nothing to show: use the first answer.
+    guard var r = StructuredIntention(json: draft, location: location)
+            ?? StructuredIntention(json: fallback, location: location) else {
+      // Nothing was said at all: back to the intro (the typed form below still works).
+      reset()
       return
     }
     let modes = Set(turnModes + (structuredByCloud ? ["cloud"] : []))
-    r.mode = modes.count > 1 ? "mixed" : (modes.first ?? "on_device")
+    // No model ran at all (offline, no on-device model): the person's own words became the intention.
+    r.mode = modes.count > 1 ? "mixed" : (modes.first ?? "typed")
     r.turns = lines.filter { $0.role == .me }.count
     result = r
     phase = .previewing

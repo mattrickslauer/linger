@@ -84,8 +84,16 @@ enum ClipUpload {
     let ref = Storage.storage().reference(withPath: path)
     try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
       ref.putFile(from: url, metadata: meta) { _, error in
-        if let error { c.resume(throwing: error) } else { c.resume() }
+        // storage.rules allow create only: on a retry (the clip went up, the module call then failed) the same
+        // path is an overwrite and is refused. The path is the clip's SHA-256, so the bytes there are already
+        // these; carry on and let the function re-hash them (it answers `clip_missing` if nothing is there).
+        if let error, !alreadyUploaded(error) { c.resume(throwing: error) } else { c.resume() }
       }
     }
+  }
+
+  private static func alreadyUploaded(_ error: Error) -> Bool {
+    let e = error as NSError
+    return e.domain == StorageErrorDomain && StorageErrorCode(rawValue: e.code) == .unauthorized
   }
 }

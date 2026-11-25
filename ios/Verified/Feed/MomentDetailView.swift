@@ -25,7 +25,7 @@ struct MomentDetailView: View {
       VStack(alignment: .leading, spacing: 18) {
         header(m)
         if let s = m.structured { section("Intention", icon: "text.quote") { IntentionDetails(intention: s) } }
-        if m.bar != nil || m.displayScore != nil {
+        if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
           section("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
         }
         if LadderSection.visible(m, uid: app.auth.user?.uid) {
@@ -454,8 +454,19 @@ struct BarScoreCard: View {
         Text(b.source == "default" ? "Standard bar (the bar model was unavailable)."
              : "Set in the cloud from the intention: harder or more tempting claims need a higher score.")
           .font(.caption2).foregroundStyle(.tertiary)
-      } else if card.status == "submitted" {
-        Text("The cloud sets the bar when the Moment is submitted.").font(.caption).foregroundStyle(.secondary)
+      } else if card.local || card.status == "recording" || card.status == "submitted" {
+        // Before the server sets the binding bar: the client's hybrid preview from the interview (v3.2 step 4).
+        if let p = card.structured?.preview {
+          HStack(spacing: 8) {
+            Text(String(format: "Bar ≈ %.2f", p.bar)).font(.title3.bold().monospacedDigit()).foregroundStyle(Theme.warn)
+            Text("preview").font(.caption).foregroundStyle(.secondary)
+            Chip(text: p.mode == "on_device" ? "on-device" : "cloud", systemImage: p.mode == "on_device" ? "cpu" : "cloud",
+                 color: p.mode == "on_device" ? Theme.accent : .blue)
+          }
+        }
+        Text(card.local ? "The cloud sets the binding bar after you upload this Moment."
+             : "The cloud sets the binding bar when the Moment is submitted.")
+          .font(.caption).foregroundStyle(.secondary)
       }
     }
   }

@@ -31,6 +31,8 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
   @ObservationIgnored private var silenceTimer: Task<Void, Never>?
   @ObservationIgnored private var maxTimer: Task<Void, Never>?
   @ObservationIgnored private var speakDone: CheckedContinuation<Void, Never>?
+  /// The utterance `speakDone` waits for: a late didFinish/didCancel of an interrupted one must not end the next.
+  @ObservationIgnored private var current: AVSpeechUtterance?
 
   override private init() {
     super.init()
@@ -67,6 +69,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
       ?? AVSpeechSynthesisVoice(language: "en-US")
     u.rate = AVSpeechUtteranceDefaultSpeechRate * 1.02
     speaking = true
+    current = u
     await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
       speakDone = c
       synth.speak(u)
@@ -79,6 +82,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
   }
 
   private func finishSpeaking() {
+    current = nil
     speaking = false
     let c = speakDone
     speakDone = nil
@@ -86,11 +90,19 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
   }
 
   nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    Task { @MainActor in self.finishSpeaking() }
+    nonisolated(unsafe) let u = utterance  // only compared by identity on the main actor
+    Task { @MainActor in self.finished(u) }
   }
 
   nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-    Task { @MainActor in self.finishSpeaking() }
+    nonisolated(unsafe) let u = utterance  // only compared by identity on the main actor
+    Task { @MainActor in self.finished(u) }
+  }
+
+  /// Only the utterance being waited for ends the wait (`stopSpeaking` already ended an interrupted one).
+  private func finished(_ u: AVSpeechUtterance) {
+    guard let current, current === u else { return }
+    finishSpeaking()
   }
 
   // MARK: - Listen

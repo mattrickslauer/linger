@@ -96,7 +96,13 @@ final class AppModel {
     guard auth.user != nil, !claimable.isEmpty else { return }
     guard force || !claimOfferedThisSession else { return }
     claimOfferedThisSession = true
-    claimOffer = true
+    // Right after sign-in the "Sign in to …" sheet is still animating away; a second sheet presented in the same
+    // moment can be dropped by SwiftUI, so wait for the dismissal.
+    Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(700))
+      guard let self, self.auth.user != nil, !self.claimable.isEmpty else { return }
+      self.claimOffer = true
+    }
   }
 
   /// Journal first (owner, recordedAsGuest, claimedAt), then the normal raw-vault verify re-creates the Moment on the
