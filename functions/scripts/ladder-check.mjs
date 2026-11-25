@@ -246,14 +246,14 @@ const V3 = "e2e00000-0000-4000-8000-0000000000a3";
 
 // ───────────────────────── Storage: v3 full_video, then the v4 free video review
 let bucketName = null;
-function videoChunks(id, clipSha, { T0 = Date.now() - 3_600_000, durationMs = 35_000, gps = true } = {}) {
+function videoChunks(id, clipSha, { T0 = Date.now() - 3_600_000, durationMs = 35_000, gps = true, bytes = 64 } = {}) {
   const JPEG = "/9j/e2eframe-" + id.slice(-4);
   const chunks = [];
   let prev = seal.genesis(id);
   for (let seq = 0; seq < 8; seq++) {
     const t0 = T0 + seq * 5000, t1 = t0 + 5000, last = seq === 7;
     const events = seq === 0 ? [{ t: t0, type: "start" }, { t: t0 + 500, type: "video_start" }] : [];
-    if (last) events.push({ t: t1, type: "video", sha256: clipSha, bytes: 64, durationMs, startedAt: T0 + 500, name: "clip.webm" }, { t: t1, type: "frame" }, { t: t1, type: "stop" });
+    if (last) events.push({ t: t1, type: "video", sha256: clipSha, bytes, durationMs, startedAt: T0 + 500, name: "clip.webm" }, { t: t1, type: "frame" }, { t: t1, type: "stop" });
     const payload = JSON.stringify({
       gps: gps ? [0, 1, 2, 3, 4].map((k) => [t0 + k * 1000, 33.6 + (seq * 5 + k) * 0.00002, -117.6, 5, null, 1]) : [],
       motion: [0, 1, 2].map((k) => [t0 + k * 100, 0.1 + k * 0.4, 9.8, 0.2, 0.01, 0, 0]),
@@ -309,9 +309,9 @@ if (HAS_STORAGE) {
   // ───────────────────────── v4: "clap 50 times" (the production failure), all free
   console.log('v4: "Clap 50 times" typed, video clip, free video review');
   /** Records a v4 Moment the way the clients do: chunks, then (optionally) the clip, then submit + judge/skeptic/scorer. */
-  async function recordClap(id, { clipBytes, upload, uploadBytes, submittedAtServer, text = "Clap 50 times" }) {
+  async function recordClap(id, { clipBytes, upload, uploadBytes, submittedAtServer, text = "Clap 50 times", chainedBytes = 64 }) {
     const clipSha = createHash("sha256").update(clipBytes).digest("hex");
-    const { chunks, T0, headHash } = videoChunks(id, clipSha, { gps: false });
+    const { chunks, T0, headHash } = videoChunks(id, clipSha, { gps: false, bytes: chainedBytes });
     const ref = db.doc(`moments/${id}`);
     await db.recursiveDelete(ref);
     await db.doc(`feed/${id}`).delete();
@@ -359,6 +359,26 @@ if (HAS_STORAGE) {
   const clapFeed = (await db.doc(`feed/${CLAP}`).get()).data();
   ok(clapFeed?.claimsBacked === 2 && clapFeed.claimsTotal === 2 && clapFeed.video.reviewed === true && clapFeed.plan.requirements.every((q) => q.met) && clapFeed.status === "sealed", "feed: 2/2 claims backed, video reviewed", clapFeed?.video);
 
+  console.log('v4: "Clap 50 times" in the client order: clip uploaded before submit, never waits');
+  const CLAP2 = "e2e00000-0000-4000-8000-0000000c1a55";
+  const clap2 = await recordClap(CLAP2, { clipBytes: Buffer.from("fifty claps, uploaded before submit"), upload: "before" });
+  m = await waitFor(clap2.ref, (x) => !!x.seal);
+  ok(
+    m?.status === "sealed" && m.videoReview?.status === "done" && m.videoReview.attempts === 1 && m.verification?.modules.length === 0 && m.verification.claimsBacked === 2,
+    "clip at submit -> video review -> Verified, no paid module",
+    m?.seal?.reason,
+  );
+
+  console.log("v4: a clip over the 200 MB upload limit does not hold the seal for 24 h");
+  const BIG = "e2e00000-0000-4000-8000-0000000c1a56";
+  const big = await recordClap(BIG, { clipBytes: Buffer.from("a 4K clip the client skipped"), chainedBytes: 250 * 1024 * 1024 });
+  m = await waitFor(big.ref, (x) => !!x.seal);
+  ok(
+    m?.videoReview?.status === "expired" && m.videoReview.reason === "video too large to upload" && m.seal.checks.cheating === true && m.status === "rejected",
+    "oversize clip: sealed at once without it, video requirements unmet, not cheating",
+    m?.videoReview,
+  );
+
   console.log("v4: a tampered clip uploaded at submit is cheating (kept as evidence)");
   const TAMPER = "e2e00000-0000-4000-8000-0000000c1a51";
   const tamper = await recordClap(TAMPER, { clipBytes: Buffer.from("the bytes the chain committed to"), upload: "before", uploadBytes: Buffer.from("some other video") });
@@ -388,6 +408,16 @@ if (HAS_STORAGE) {
   );
   r = await call("runLadderModule", { momentId: LATE, module: "full_video", requestId: rid() }, alice.token);
   ok(r.error?.reason === "clip_missing", "full_video on an expired upload -> clip_missing", r.error);
+  // A clip that arrives after the expiry was never seal evidence: a wrong upload is removed so the right one can follow.
+  await getStorage().bucket(bucketName).file(late.path).save(Buffer.from("not the chained bytes"), { contentType: "video/webm" });
+  r = await call("runLadderModule", { momentId: LATE, module: "full_video", requestId: rid() }, alice.token);
+  ok(r.error?.reason === "clip_hash_mismatch" && !(await getStorage().bucket(bucketName).file(late.path).exists())[0], "late wrong clip -> clip_hash_mismatch, removed (not seal evidence)", r.error);
+  await getStorage().bucket(bucketName).file(late.path).save(Buffer.from("never uploaded"), { contentType: "video/webm" });
+  r = await call("runLadderModule", { momentId: LATE, module: "full_video", requestId: rid() }, alice.token);
+  // (the fake full_video follows the frames judge, which was "uncertain" here: the run happens, per claim, and fails)
+  ok(r.result && r.result.claims.map((c) => c.id).join(",") === "c1,c2" && r.result.claims.every((c) => c.verdict === "not_backed" && !c.passed), "late right clip -> full_video runs on both claims", r.result?.claims ?? r.error);
+  m = (await late.ref.get()).data();
+  ok(m.seal.version === 4 && m.verification.modules.length === 2 && m.videoReview.status === "expired", "the expired Moment keeps seal v4; modules recorded per claim", m.verification.modules.map((x) => x.module));
 
   console.log("v4: the model fails: default claim, video review retried once, then failed (not cheating)");
   const DOWN = "e2e00000-0000-4000-8000-0000000c1a53";

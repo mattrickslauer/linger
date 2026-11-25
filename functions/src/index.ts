@@ -42,7 +42,19 @@ import {
 import { ChecksV4, applyLadderV4, claimsBackedByModule, moduleOutcomes, reasonV4, recheck } from "./score4";
 import { ModuleDef, ModuleId, getLadder, getModule } from "./shared";
 import { Verification, eligibility, fail, isStaleRun, unmetNeedV4, validateRunRequest } from "./callable";
-import { CLIP_EXTS, CLIP_TYPES, ReviewClip, clipList, clipPath, clipsForReview, emptyReview, parseClipPath, runVideoReview } from "./video";
+import {
+  CLIP_EXTS,
+  CLIP_TYPES,
+  MAX_REVIEW_ATTEMPTS,
+  ReviewClip,
+  clipList,
+  clipPath,
+  clipsForReview,
+  emptyReview,
+  nextReviewStep,
+  parseClipPath,
+  runVideoReview,
+} from "./video";
 import { Claim, ClaimScore, ModuleClaimOutcome, VIDEO_LEASE_MS, VideoReview } from "./v4";
 
 initializeApp();
@@ -183,28 +195,29 @@ export async function ensureVideoReview(momentId: string, now = Date.now()): Pro
   if (count < m!.chunkCount) return "waiting-for-chunks";
   const chunks = (await ref.collection("chunks").orderBy("seq").get()).docs.map((d) => d.data() as ChunkDoc);
   const facts = chainFacts(chunks);
-  const vr = m!.videoReview as Partial<VideoReview> | undefined;
-  const attempts = Number(vr?.attempts) || 0;
+  const attemptsOf = (x: MomentDoc | undefined) => Number((x?.videoReview as Partial<VideoReview> | undefined)?.attempts) || 0;
+  const found = facts.videos.length > 0 ? await findClips(m!.ownerUid, momentId, facts) : new Map<string, string>();
+  const clips = clipList(facts.videos, found);
+  const submittedMs = millis(m!.submittedAtServer) ?? (typeof m!.endedAt === "number" ? m!.endedAt : null);
+  const pre1 = nextReviewStep(facts.videos, clips, attemptsOf(m), videoWaitExpired(submittedMs, now));
 
   // 1. No video in the chain.
-  if (facts.videos.length === 0) {
+  if (pre1.kind === "none") {
     await writeReview(ref, emptyReview("none", null));
     return "none";
   }
-  // 2. A chained clip is not in Storage: wait (24 h), then seal without it.
-  const found = await findClips(m!.ownerUid, momentId, facts);
-  const clips = clipList(facts.videos, found);
-  if (clips.some((c) => !c.uploaded)) {
-    const submittedMs = millis(m!.submittedAtServer) ?? (typeof m!.endedAt === "number" ? m!.endedAt : null);
-    if (videoWaitExpired(submittedMs, now)) {
-      await writeReview(ref, emptyReview("expired", "video never arrived", clips, attempts));
-      logger.info("video never arrived; sealing without it", { momentId });
-      return "expired";
-    }
-    await writeReview(ref, emptyReview("waiting", WAITING_REASON, clips, attempts), (cur) => !(cur?.status === "waiting" && cur.reason === WAITING_REASON && sameClips(cur.clips as ReviewClip[], clips)));
+  // 2. A chained clip is not in Storage: wait (24 h), then seal without it. Clips over the upload limit are never
+  //    uploaded (v4.4), so they do not hold the seal.
+  if (pre1.kind === "expired") {
+    await writeReview(ref, emptyReview("expired", pre1.reason, clips, attemptsOf(m)));
+    logger.info("sealing without the video", { momentId, reason: pre1.reason });
+    return "expired";
+  }
+  if (pre1.kind === "waiting") {
+    await writeReview(ref, emptyReview("waiting", WAITING_REASON, clips, attemptsOf(m)), (cur) => !(cur?.status === "waiting" && cur.reason === WAITING_REASON && sameClips(cur.clips as ReviewClip[], clips)));
     return "waiting";
   }
-  // 3. All clips present: one reviewer at a time.
+  // 3. All clips that can arrive are present: one reviewer at a time.
   if (!(await takeLease("videoLeases", momentId, VIDEO_LEASE_MS))) return "busy";
   let released = false;
   const release = async () => {
@@ -212,44 +225,57 @@ export async function ensureVideoReview(momentId: string, now = Date.now()): Pro
     released = true;
   };
   try {
-    await writeReview(ref, { ...emptyReview("running", null, clips, attempts) }, (cur) => cur?.status !== "running" || !sameClips(cur.clips as ReviewClip[], clips));
+    // Re-read under the lease: another instance may have spent an attempt (or finished) since our first read.
+    const fresh = (await ref.get()).data() as MomentDoc | undefined;
+    if (!needsVideoReview(fresh)) return "skipped";
+    const step = nextReviewStep(facts.videos, clips, attemptsOf(fresh), false);
+    if (step.kind === "failed") {
+      // The attempts were spent by runs that died mid-way (instance crash / timeout): stop retrying, not cheating.
+      await writeReview(ref, emptyReview("failed", "video review failed", clips, attemptsOf(fresh)));
+      return "failed";
+    }
+    if (step.kind !== "run") return "skipped";
+    // The attempt is counted before any work, so a run that keeps dying (OOM, timeout) cannot retry forever.
+    const n = step.attempt;
+    await writeReview(ref, emptyReview("running", n > 1 ? "retrying video review" : null, clips, n));
     const hashOk = new Map<string, boolean>();
     for (const c of clips) {
+      if (!c.uploaded) continue;
       const { sha } = await hashObject(clipPath(m!.ownerUid, momentId, c.sha256, c.ext!));
       hashOk.set(c.sha256, sha === c.sha256);
       if (sha !== c.sha256) logger.warn("clip does not match the chain (kept as evidence)", { momentId, chained: c.sha256, actual: sha });
     }
     const checked = clipList(facts.videos, found, hashOk);
     const watch = clipsForReview(checked);
-    const claims = ((m!.claims as ServerClaimsDoc).items ?? []) as Claim[];
-    const plan = m!.plan as ServerPlanDoc;
+    const claims = ((fresh!.claims as ServerClaimsDoc).items ?? []) as Claim[];
+    const plan = fresh!.plan as ServerPlanDoc;
     if (watch.length === 0) {
       // Every clip failed its hash: nothing honest to watch; the mismatch itself is the cheating signal.
-      await writeReview(ref, { ...emptyReview("done", null, checked, attempts), ranAt: now });
+      await writeReview(ref, { ...emptyReview("done", null, checked, n), ranAt: now });
       return "done";
     }
     const bucket = getStorage().bucket().name;
     try {
       const a = await runVideoReview({
-        moment: m!,
+        moment: fresh!,
         facts,
         claims,
         plan,
         clips: watch.map((c) => ({ ...c, gsUri: `gs://${bucket}/${clipPath(m!.ownerUid, momentId, c.sha256, c.ext!)}` })),
       });
-      await writeReview(ref, { status: "done", clips: checked, claims: a.claims, cheating: a.cheating, summary: a.summary, attempts: attempts + 1, reason: null, model: a.model, ranAt: now });
+      await writeReview(ref, { status: "done", clips: checked, claims: a.claims, cheating: a.cheating, summary: a.summary, attempts: n, reason: null, model: a.model, ranAt: now });
       logger.info("video reviewed", { momentId, claims: a.claims.map((c) => `${c.id} ${c.verdict} ${c.confidence}`), cheating: a.cheating });
       return "done";
     } catch (e) {
-      // 4. Model/infra failure: count the attempt; retried on the next trigger, failed after 2 (not cheating).
-      const n = attempts + 1;
+      // 4. Model/infra failure: retried on the next trigger, failed after MAX_REVIEW_ATTEMPTS (not cheating).
       logger.error("video review failed", { momentId, attempt: n, error: String(e) });
       await release(); // before the write, so the re-trigger it causes can take the lease and retry
-      if (n >= 2) {
+      if (n >= MAX_REVIEW_ATTEMPTS) {
         await writeReview(ref, { ...emptyReview("failed", "video review failed", checked, n) });
         return "failed";
       }
-      await writeReview(ref, { ...emptyReview("running", "retrying video review", checked, n) });
+      // Only if no other instance has started the next attempt in the meantime (never move attempts backwards).
+      await writeReview(ref, { ...emptyReview("running", "retrying video review", checked, n) }, (cur) => (Number(cur?.attempts) || 0) <= n);
       return "retry";
     }
   } finally {
@@ -374,13 +400,19 @@ export const onClipUploaded = onObjectFinalized({ timeoutSeconds: 60 }, async (e
 
 /**
  * v4.4: every 30 min, settle video reviews nothing else will move: clips that never arrived within 24 h (→ expired,
- * the Moment seals without them) and reviews whose instance died mid-run (lease expired → re-run).
+ * the Moment seals without them) and reviews whose instance died mid-run (lease expired → re-run). Also retries a
+ * barAndClaims call whose instance died (its lease expired), since no further Moment write may come.
  */
 export const expireVideoWaits = onSchedule({ schedule: "every 30 minutes", timeoutSeconds: 540, memory: "1GiB" }, async () => {
   const snap = await db.collection("moments").where("status", "==", "submitted").get();
   let n = 0;
   for (const d of snap.docs) {
     const m = d.data() as MomentDoc;
+    // A barAndClaims run whose instance died leaves an expired lease and nothing to re-trigger it: retry it here.
+    if (needsBarAndClaims(m)) {
+      await advance(d.id).catch((e) => logger.error("scheduled bar and claims failed", { momentId: d.id, error: String(e) }));
+      continue;
+    }
     if (!needsVideoReview(m)) continue;
     const out = await ensureVideoReview(d.id).catch((e) => {
       logger.error("scheduled video review failed", { momentId: d.id, error: String(e) });
@@ -481,10 +513,11 @@ function responseFor(r: LadderResultV4, v: Verification, status: string, balance
 
 /**
  * full_video: find the uploaded clip and re-hash its bytes against the chain. Throws HttpsError; no charge yet.
- * v3 Moments: a mismatched upload is deleted so the owner can upload the right bytes (clips are create-only). v4
- * Moments: the clip was uploaded at submit and a mismatch is cheating evidence, so it is kept.
+ * A mismatched upload is deleted so the owner can upload the right bytes (clips are create-only), unless
+ * `keepOnMismatch(sha)`: on v4 Moments a clip the seal's video review saw is cheating evidence and stays. A v4 clip
+ * that arrived after the 24 h expiry was never part of the seal, so it is treated like a v3 upload.
  */
-async function loadClip(uid: string, momentId: string, facts: ChainFacts, clipSha: string | undefined, deleteOnMismatch: boolean): Promise<NonNullable<ModuleContext["clip"]>> {
+async function loadClip(uid: string, momentId: string, facts: ChainFacts, clipSha: string | undefined, keepOnMismatch: (sha: string) => boolean): Promise<NonNullable<ModuleContext["clip"]>> {
   const chained = clipSha ? facts.videos.find((v) => v.sha256 === clipSha) : facts.videos[facts.videos.length - 1];
   if (!chained) throw fail("failed-precondition", clipSha ? "clip_missing" : "needs_video", "That video is not in this Moment's chain.");
   const bucket = getStorage().bucket();
@@ -507,8 +540,9 @@ async function loadClip(uid: string, momentId: string, facts: ChainFacts, clipSh
     const sha = hash.digest("hex");
     if (sha !== chained.sha256) {
       // Storage rules make clips create-only, so remove the bad upload or the owner could never upload the right one.
-      if (deleteOnMismatch) await file.delete().catch((e) => logger.warn("could not remove mismatched clip", { path: file.name, error: String(e) }));
-      throw fail("failed-precondition", "clip_hash_mismatch", "The uploaded clip does not match the hash in the chain. Upload it again.");
+      const keep = keepOnMismatch(chained.sha256);
+      if (!keep) await file.delete().catch((e) => logger.warn("could not remove mismatched clip", { path: file.name, error: String(e) }));
+      throw fail("failed-precondition", "clip_hash_mismatch", keep ? "The uploaded clip does not match the hash in the chain." : "The uploaded clip does not match the hash in the chain. Upload it again.");
     }
     return { gsUri: `gs://${bucket.name}/${file.name}`, mimeType, sha256: sha, bytes, durationMs: chained.durationMs };
   }
@@ -607,7 +641,10 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
       )
     : [];
   if (isV4 && backedIds.length === 0) throw fail("failed-precondition", "no_claims_backed", `${mod.title} backs none of this Moment's claims.`);
-  const clip = module === "full_video" ? await loadClip(uid, momentId, facts, clipSha, !isV4) : undefined;
+  const sealedClips = new Set(
+    ((m.videoReview as Partial<VideoReview> | undefined)?.clips ?? []).filter((c) => c.uploaded).map((c) => c.sha256),
+  );
+  const clip = module === "full_video" ? await loadClip(uid, momentId, facts, clipSha, (sha) => isV4 && sealedClips.has(sha)) : undefined;
 
   // Spend (grant first if this is the user's first use). Marks the module as in flight on the Moment.
   const cost = mod.cost;

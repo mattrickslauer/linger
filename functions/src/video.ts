@@ -36,6 +36,37 @@ export function clipList(videos: VideoFact[], found: Map<string, string>, hashOk
   return out;
 }
 
+/** Storage rules accept clips < 200 MiB; clients skip bigger ones at submit (v4.4), so the seal must not wait for them. */
+export const MAX_CLIP_BYTES = 200 * 1024 * 1024;
+/** Model/infra attempts before the review is `failed` (v4.4 step 4). */
+export const MAX_REVIEW_ATTEMPTS = 2;
+
+/** A chained clip the client will never upload: its chained byte size is over the Storage limit. */
+export const tooLargeToUpload = (v: Pick<VideoFact, "bytes">): boolean => typeof v.bytes === "number" && v.bytes >= MAX_CLIP_BYTES;
+
+export type ReviewStep =
+  | { kind: "none" }
+  | { kind: "waiting" }
+  | { kind: "expired"; reason: string }
+  | { kind: "failed" }
+  | { kind: "run"; attempt: number };
+
+/**
+ * v4.4 steps 1-4 as a pure decision: no video event → none; a clip that can still arrive is missing → waiting, or
+ * expired after 24 h (`expired` = the caller's videoWaitExpired); every missing clip is over the upload limit and
+ * none arrived → expired at once (the client skipped them, waiting 24 h helps nobody); `attempts` already spent
+ * (runs that died after counting their attempt) → failed; otherwise run attempt `attempts + 1`.
+ */
+export function nextReviewStep(videos: VideoFact[], clips: ReviewClip[], attempts: number, expired: boolean): ReviewStep {
+  if (videos.length === 0) return { kind: "none" };
+  const missing = clips.filter((c) => !c.uploaded);
+  const canArrive = missing.filter((c) => !videos.some((v) => v.sha256 === c.sha256 && tooLargeToUpload(v)));
+  if (canArrive.length > 0) return expired ? { kind: "expired", reason: "video never arrived" } : { kind: "waiting" };
+  if (!clips.some((c) => c.uploaded)) return { kind: "expired", reason: "video too large to upload" };
+  if (attempts >= MAX_REVIEW_ATTEMPTS) return { kind: "failed" };
+  return { kind: "run", attempt: attempts + 1 };
+}
+
 /** The clips the model watches: the last ≤ 3 uploaded clips whose hash matches, in chain order. */
 export function clipsForReview(clips: ReviewClip[]): ReviewClip[] {
   return clips.filter((c) => c.uploaded && c.hashOk === true).slice(-MAX_REVIEW_CLIPS);

@@ -13,7 +13,7 @@ import { evaluateSealV4, feedV4Fields, isReadyToSealV4, needsBarAndClaims, needs
 import { applyLadderV4, claimsBackedByModule, moduleOutcomes, scoreV4 } from "../src/score4";
 import { getModule } from "../src/shared";
 import { Claim, VIDEO_WAIT_MS } from "../src/v4";
-import { clipList, clipsForReview, coerceVerdicts, parseClipPath, runVideoReview } from "../src/video";
+import { MAX_CLIP_BYTES, MAX_REVIEW_ATTEMPTS, clipList, clipsForReview, coerceVerdicts, nextReviewStep, parseClipPath, runVideoReview, tooLargeToUpload } from "../src/video";
 
 const v4 = JSON.parse(readFileSync(new URL("../../shared/test-vectors-v4.json", import.meta.url), "utf8"));
 
@@ -289,6 +289,26 @@ describe("seal v4 readiness: waits for bar + claims, then the clip (v4.3, v4.4)"
     expect(videoWaitExpired(1_000, 1_000 + VIDEO_WAIT_MS - 1)).toBe(false);
     expect(videoWaitExpired(1_000, 1_000 + VIDEO_WAIT_MS)).toBe(true);
     expect(videoWaitExpired(null, Date.now())).toBe(false);
+  });
+  it("review steps: none, waiting, 24 h expiry, oversize clips never block, attempts are bounded", () => {
+    const vid = (n: string, bytes: number | null = 1000) => ({ t: 0, sha256: n.repeat(64), bytes, durationMs: 30_000, startedAt: 0, name: null });
+    const small = vid("a");
+    const huge = vid("b", MAX_CLIP_BYTES);
+    expect(nextReviewStep([], [], 0, false)).toEqual({ kind: "none" });
+    // the clip has not arrived: wait; after 24 h seal without it
+    expect(nextReviewStep([small], clipList([small], new Map()), 0, false)).toEqual({ kind: "waiting" });
+    expect(nextReviewStep([small], clipList([small], new Map()), 0, true)).toEqual({ kind: "expired", reason: "video never arrived" });
+    // over the Storage limit: the client never uploads it, so no 24 h wait
+    expect(nextReviewStep([huge], clipList([huge], new Map()), 0, false)).toEqual({ kind: "expired", reason: "video too large to upload" });
+    expect(tooLargeToUpload({ bytes: MAX_CLIP_BYTES - 1 })).toBe(false);
+    // an oversize clip next to an uploaded one: review the uploaded one now
+    expect(nextReviewStep([huge, small], clipList([huge, small], new Map([[small.sha256, "webm"]])), 0, false)).toEqual({ kind: "run", attempt: 1 });
+    // a missing small clip still waits even when another clip is there
+    expect(nextReviewStep([small, huge], clipList([small, huge], new Map([[huge.sha256, "mp4"]])), 0, false)).toEqual({ kind: "waiting" });
+    // attempts are counted before the work: a run that keeps dying stops after MAX_REVIEW_ATTEMPTS
+    const up = clipList([small], new Map([[small.sha256, "mp4"]]));
+    expect(nextReviewStep([small], up, 1, false)).toEqual({ kind: "run", attempt: 2 });
+    expect(nextReviewStep([small], up, MAX_REVIEW_ATTEMPTS, false)).toEqual({ kind: "failed" });
   });
 });
 
