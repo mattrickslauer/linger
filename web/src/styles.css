@@ -2575,3 +2575,194 @@ path.lf-cursor {
 .clip .bad {
   color: var(--bad);
 }
+
+/* ---------------------------------------------------------------- /embed (SDK, coming soon) */
+
+.embed {
+  max-width: 880px;
+}
+.embed-hero {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+.embed-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.embed-hero .lede {
+  margin: 0;
+}
+.embed-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.embed-sec {
+  margin-top: 48px;
+  display: grid;
+  gap: 14px;
+}
+.embed-sec p,
+.embed-sec h2 {
+  margin: 0;
+}
+.embed-layers,
+.embed-flow,
+.embed-stages,
+.embed-q {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.embed-layers {
+  display: grid;
+  gap: 12px;
+}
+.embed-layer {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  padding: 18px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+}
+.embed-layer > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.embed-layer p {
+  margin: 0;
+}
+.embed-num {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--gold-ink);
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+.embed-pkg {
+  color: var(--lake);
+  overflow-wrap: anywhere;
+}
+.embed-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.embed-tabs button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.embed-tabs button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.embed-code {
+  margin: 0;
+  padding: 18px;
+  overflow-x: auto;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.embed-flow {
+  counter-reset: flow;
+  display: grid;
+  gap: 0;
+  border-left: 2px solid var(--track);
+  margin-left: 10px;
+}
+.embed-flow li {
+  counter-increment: flow;
+  position: relative;
+  padding: 0 0 16px 24px;
+}
+.embed-flow li::before {
+  content: counter(flow);
+  position: absolute;
+  left: -12px;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--track);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.embed-rules {
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+.embed-rules div {
+  padding-left: 14px;
+  border-left: 3px solid var(--gold);
+}
+.embed-rules dt {
+  font-weight: 700;
+}
+.embed-rules dd {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+}
+.embed-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.embed-stages li {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--contour);
+  border-radius: var(--r);
+}
+.embed-stages li.now {
+  border: 1.5px solid var(--lake);
+  background: var(--lake-soft);
+}
+.embed-stages .chip {
+  justify-self: start;
+}
+.embed-stages h3 {
+  font-size: 1.05rem;
+}
+.embed-stages p {
+  font-size: 0.92rem;
+  color: var(--ink-2);
+}
+.embed-q {
+  display: grid;
+  gap: 8px;
+}
+.embed-q li {
+  padding: 10px 14px;
+  background: var(--sheet);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rule);
+}
