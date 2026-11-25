@@ -196,6 +196,10 @@ async function seedOne(spec, frameB64) {
     skeptic: null,
     score: null,
     seal: null,
+    bar: null, // v3: server-only, set by the bar agent at submit
+    verification: null,
+    // v3.1: recorded as a guest, claimed at sign-in hours later (the chain is identical either way)
+    ...(spec.recordedAsGuest ? { recordedAsGuest: true, claimedAt: END + 3 * 3600_000 } : {}),
     createdAtServer: FieldValue.serverTimestamp(),
   });
   // 2. chunks (client writes them one by one while recording; BulkWriter is just faster here)
@@ -247,7 +251,8 @@ if (WAIT) {
     }
     const expect = m.kind === "fake" ? "rejected" : "sealed";
     if (s.status !== expect) bad++;
-    console.log(`  ${m.kind.padEnd(8)} ${s.status.padEnd(8)} ${s.status === expect ? "(as expected)" : "(UNEXPECTED, wanted " + expect + ")"}  ${JSON.stringify(s.seal.checks)}  ${s.seal.reason}`);
+    const v3 = s.seal.version >= 3 ? `  bar ${s.bar?.value} (${s.bar?.source})  score ${s.verification?.score}` : "";
+    console.log(`  ${m.kind.padEnd(8)} ${s.status.padEnd(8)} ${s.status === expect ? "(as expected)" : "(UNEXPECTED, wanted " + expect + ")"}  ${JSON.stringify(s.seal.checks)}${v3}  ${s.seal.reason}`);
   }
 }
 process.exit(bad ? 1 : 0);

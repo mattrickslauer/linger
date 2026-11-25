@@ -3,12 +3,13 @@
 // Contract: docs/ARCHITECTURE.md ("Deterministic seal").
 import { createHash } from "node:crypto";
 
-export const SEAL_VERSION = 2;
+/** v3: the score gate moved from `ai` to the new `bar` check (score >= the Moment's AI-set bar). */
+export const SEAL_VERSION = 3;
 export const MIN_DURATION_MS = 20_000;
 export const MAX_GPS_SPEED_MPS = 70;
 export const AI_MIN_CONFIDENCE = 0.6;
-/** Scorer: P(claim true | evidence) under a cheater-heavy prior (0.2, shared/prompts.json). Must reach this. */
-export const SCORE_MIN_PROBABILITY = 0.5;
+/** The lowest bar (difficulty 0) and the bar used when the bar agent fails: seal v2 behaviour. */
+export const DEFAULT_BAR = 0.5;
 export const MAX_TRACK_POINTS = 200;
 
 export type Verdict = "consistent" | "inconsistent" | "uncertain";
@@ -26,6 +27,17 @@ export interface VerificationScore {
   reasons: string[];
   model?: string;
   ranAt?: number;
+}
+
+/** v3.3: the bar this Moment's score must reach. Server-written. */
+export interface Bar {
+  value: number;
+  difficulty: number;
+  rationale: string;
+  factors: string[];
+  source: "ai" | "default";
+  model: string | null;
+  ranAt: number;
 }
 
 export interface Frame {
@@ -57,6 +69,8 @@ export interface MomentDoc {
   skeptic?: AiOpinion | null;
   /** Optional so Moments from app builds without the scorer still seal on judge + skeptic. */
   score?: VerificationScore | null;
+  /** v3: AI-set bar, written only by the Cloud Function before sealing. */
+  bar?: Bar | null;
   seal?: unknown;
   [k: string]: unknown;
 }
@@ -89,6 +103,8 @@ export interface Checks {
   physics: boolean;
   frames: boolean;
   ai: boolean;
+  /** v3: verification score >= bar.value (true when the Moment has no score: pre-scorer builds). */
+  bar: boolean;
 }
 
 export interface SealResult {
@@ -101,6 +117,12 @@ export interface SealResult {
   summary: Summary;
   track: Array<[number, number]>;
   heroFrameSeq: number | null;
+  /** v3: the client scorer's probability, clamped; null when absent or invalid. Starting point of the ladder. */
+  baseline: number | null;
+  /** v3: the bar value compared against (DEFAULT_BAR when the Moment has no bar). */
+  barValue: number;
+  /** v3: integrity + AI checks passed and a baseline score exists, so the ladder can move the score. */
+  ladderEligible: boolean;
 }
 
 // ───────────────────────────────── hashing
@@ -279,11 +301,7 @@ export function checkFrames(chunks: ChunkDoc[], payloads: Payload[]): string[] {
   return f;
 }
 
-export function checkAi(
-  judge: AiOpinion | null | undefined,
-  skeptic: AiOpinion | null | undefined,
-  score?: VerificationScore | null,
-): string[] {
+export function checkAi(judge: AiOpinion | null | undefined, skeptic: AiOpinion | null | undefined): string[] {
   const f: string[] = [];
   if (!judge) f.push("judge missing");
   else if (judge.verdict !== "consistent" || !(judge.confidence >= AI_MIN_CONFIDENCE)) {
@@ -293,16 +311,30 @@ export function checkAi(
   else if (skeptic.verdict === "inconsistent") {
     f.push("skeptic found a fake signal" + (skeptic.reasons?.[0] ? `: ${skeptic.reasons[0]}` : ""));
   }
-  if (score != null) {
-    const p = Number(score.probability);
-    if (!(Number.isFinite(p) && p >= SCORE_MIN_PROBABILITY)) {
-      f.push(
-        `verification score ${Number.isFinite(p) ? Math.round(p * 100) + "%" : "invalid"} below ${SCORE_MIN_PROBABILITY * 100}%` +
-          (score.reasons?.[0] ? ` - ${score.reasons[0]}` : ""),
-      );
-    }
-  }
   return f;
+}
+
+/** clamp01(score.probability), or null when there is no score or it is not a finite number. */
+export function baselineOf(score: VerificationScore | null | undefined): number | null {
+  if (score == null) return null;
+  const p = Number(score.probability);
+  return Number.isFinite(p) ? Math.min(1, Math.max(0, p)) : null;
+}
+
+export function barValueOf(bar: Partial<Bar> | null | undefined): number {
+  const v = Number(bar?.value);
+  return Number.isFinite(v) ? v : DEFAULT_BAR;
+}
+
+/**
+ * v3 bar check. `score` is the current verification score (baseline at seal time, after the ladder later).
+ * `hasScore` false (pre-scorer builds) passes; a present but invalid score fails.
+ */
+export function checkBar(score: number | null, barValue: number, hasScore: boolean, why?: string): string[] {
+  if (!hasScore) return [];
+  if (score == null || !Number.isFinite(score)) return ["verification score invalid"];
+  if (score >= barValue) return [];
+  return [`verification score ${score.toFixed(2)} is below the bar ${barValue.toFixed(2)}` + (why ? ` - ${why}` : "")];
 }
 
 // ───────────────────────────────── summary
@@ -347,7 +379,10 @@ export function evaluateSeal(momentId: string, m: MomentDoc, rawChunks: ChunkDoc
   const timingF = checkTiming(m, chunks, payloads);
   const physicsF = checkPhysics(payloads);
   const framesF = checkFrames(chunks, payloads);
-  const aiF = checkAi(m.judge, m.skeptic, m.score);
+  const aiF = checkAi(m.judge, m.skeptic);
+  const baseline = baselineOf(m.score);
+  const barValue = barValueOf(m.bar);
+  const barF = checkBar(baseline, barValue, m.score != null, m.score?.reasons?.[0]);
 
   const checks: Checks = {
     chain: chainF.length === 0,
@@ -355,6 +390,7 @@ export function evaluateSeal(momentId: string, m: MomentDoc, rawChunks: ChunkDoc
     physics: physicsF.length === 0,
     frames: framesF.length === 0,
     ai: aiF.length === 0,
+    bar: barF.length === 0,
   };
   const failures = [
     ...chainF.map((s) => "Chain: " + s),
@@ -362,6 +398,7 @@ export function evaluateSeal(momentId: string, m: MomentDoc, rawChunks: ChunkDoc
     ...physicsF.map((s) => "Physics: " + s),
     ...framesF.map((s) => "Frames: " + s),
     ...aiF.map((s) => "AI: " + s),
+    ...barF.map((s) => "Bar: " + s),
   ];
   const sealed = failures.length === 0;
   const summary = computeSummary(m, chunks, payloads);
@@ -373,14 +410,27 @@ export function evaluateSeal(momentId: string, m: MomentDoc, rawChunks: ChunkDoc
     sealed,
     checks,
     failures,
-    reason: sealed ? "All checks passed: chain intact, timing and physics plausible, frames match, judge and skeptic agree." : failures[0],
+    reason: sealed ? sealedReason(baseline, barValue) : failures[0],
     summary,
     track,
     heroFrameSeq: summary.heroFrameSeq,
+    baseline,
+    barValue,
+    ladderEligible: checks.chain && checks.timing && checks.physics && checks.frames && checks.ai && baseline != null,
   };
 }
 
-/** Should the function try to seal this moment now? */
+export function sealedReason(score: number | null, barValue: number): string {
+  const base = "All checks passed: chain intact, timing and physics plausible, frames match, judge and skeptic agree";
+  return score == null ? base + "." : `${base}, score ${score.toFixed(2)} reaches the bar ${barValue.toFixed(2)}.`;
+}
+
+/** v3: should the function try to seal this moment now? Needs judge, skeptic AND the server-set bar. */
 export function isReadyToSeal(m: Partial<MomentDoc> | undefined | null): boolean {
-  return !!m && m.status === "submitted" && !!m.judge && !!m.skeptic && (m.seal === null || m.seal === undefined);
+  return !!m && m.status === "submitted" && !!m.judge && !!m.skeptic && m.bar != null && (m.seal === null || m.seal === undefined);
+}
+
+/** v3: should the function compute the bar now? Once, at submit, before sealing. */
+export function needsBar(m: Partial<MomentDoc> | undefined | null): boolean {
+  return !!m && m.status === "submitted" && m.bar == null && (m.seal === null || m.seal === undefined);
 }
