@@ -130,6 +130,10 @@ final class ClipUploader {
         guard let error = error as NSError? else { return c.resume(returning: true) }
         if error.domain == StorageErrorDomain && error.code == StorageErrorCode.objectNotFound.rawValue {
           c.resume(returning: false)
+        } else if error.domain == StorageErrorDomain && error.code == StorageErrorCode.unauthorized.rawValue {
+          // Storage rules without the v4 owner `get`: can't tell, so try the upload; an existing object is then
+          // refused as an overwrite, which `ClipUpload.upload` treats as already uploaded.
+          c.resume(returning: false)
         } else {
           print("[Verified] clip metadata \(path): \(error.localizedDescription)")
           c.resume(returning: nil)
