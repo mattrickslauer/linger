@@ -6,13 +6,14 @@
 // Guest mode (docs/ARCHITECTURE.md v3.1): with no signed-in user the session writes ONLY the raw-vault journal
 // (ownerUid: null, owner: null, guest: true). Nothing is queued for Firestore; claimMoments() uploads it later.
 
-import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import type { Claim } from "./v4";
 import type { User } from "firebase/auth";
 import { cloudReview, liveCheck } from "./ai";
 import { makeChunk, sha256hex } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
-import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, MotionRow } from "./types";
+import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, Moment, MotionRow } from "./types";
 import { answerEvent, frameEvent, nextWid, openRequest, skipEvent, witnessEvent, witnessSummary, type AnswerVia, type WitnessBy, type WitnessKind, type WitnessLog, type WitnessRequest } from "./witness";
 import { forgetMoment, journalChunk, journalClip, journalMoment, journalMomentUpdate, journalOk, verifyAll } from "./vault";
 
@@ -384,6 +385,33 @@ export class Session {
   }
 }
 
+export const CLAIMS_WAIT_MS = 30_000;
+
+/** Resolves with `moments/{id}.claims.items` once the barAndClaims function wrote them, or [] after `ms`. */
+export function waitForServerClaims(momentId: string, ms: number): Promise<Claim[]> {
+  return new Promise((resolve) => {
+    let done = false;
+    let unsub: () => void = () => {};
+    const finish = (c: Claim[]) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      unsub();
+      resolve(c);
+    };
+    const timer = setTimeout(() => finish([]), ms);
+    unsub = onSnapshot(
+      doc(db!, "moments", momentId),
+      (snap) => {
+        const items = (snap.get("claims") as Moment["claims"])?.items;
+        if (Array.isArray(items) && items.length) finish(items);
+      },
+      () => finish([]),
+    );
+    if (done) unsub();
+  });
+}
+
 const reviews = new Map<string, Promise<unknown>>();
 /**
  * Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update.
@@ -393,7 +421,9 @@ export function runCloudReview(momentId: string, moment: Parameters<typeof cloud
   const inFlight = reviews.get(momentId);
   if (inFlight) return inFlight as ReturnType<typeof run>;
   const run = async () => {
-    const review = await cloudReview(moment, frames);
+    // v4.10: the judge rules on the server's claims; wait for them up to 30 s, else judge with [].
+    const claims = moment.claims?.items?.length ? moment.claims.items : await waitForServerClaims(momentId, CLAIMS_WAIT_MS);
+    const review = await cloudReview(moment, frames, claims);
     await updateDoc(doc(db!, "moments", momentId), review);
     return review;
   };

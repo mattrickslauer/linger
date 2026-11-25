@@ -5,6 +5,7 @@ import { cloudModel, judgeModel, liveCheckModel, promptModel, prompts, scorerMod
 import { fmtDistance, fmtDuration } from "./geo";
 import { fill, parseJson, pickFrames } from "./ai-util";
 import type { AiOpinion, CheckMode, LiveCheck, Moment, Summary, Verdict, VerificationScore } from "./types";
+import { judgeClaims, type Claim } from "./v4";
 
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -48,26 +49,31 @@ export function summaryText(s: Summary): string {
   return `duration ${fmtDuration(s.durationMs)}, distance ${fmtDistance(s.distanceM)}, ${s.gpsCount} GPS fixes, ${s.motionCount} motion samples, ${s.frameCount} proof frames`;
 }
 
-async function opinion(which: "judge" | "skeptic", m: Moment, frames: { t: number; jpegB64: string }[]): Promise<AiOpinion> {
+async function opinion(which: "judge" | "skeptic", m: Moment, frames: { t: number; jpegB64: string }[], claims: Claim[] = []): Promise<AiOpinion> {
   const model = which === "judge" ? judgeModel() : skepticModel();
   const p = prompts[which];
-  const text =
-    fill(p.user, promptValues(m, frames)) + '\nReply as JSON: {"verdict": "consistent"|"inconsistent"|"uncertain", "confidence": 0..1, "reasons": string[]}';
+  const shape =
+    which === "judge"
+      ? '\nReply as JSON: {"verdict": "consistent"|"inconsistent"|"uncertain", "confidence": 0..1, "reasons": string[], "claims": [{"id": string, "verdict": "backed"|"not_backed"|"unclear", "confidence": 0..1}]}'
+      : '\nReply as JSON: {"verdict": "consistent"|"inconsistent"|"uncertain", "confidence": 0..1, "reasons": string[]}';
+  const text = fill(p.user, { ...promptValues(m, frames), claims: JSON.stringify(claims) }) + shape;
   const res = await withTimeout(model.generateContent([text, ...frames.map((f) => jpegPart(f.jpegB64))], { timeout: 60_000 }), 65_000);
   const j = parseJson<AiOpinion>(res.response.text());
   const verdict: Verdict = j.verdict === "consistent" || j.verdict === "inconsistent" ? j.verdict : "uncertain";
-  return {
+  const out: AiOpinion = {
     verdict,
     confidence: Math.max(0, Math.min(1, Number(j.confidence ?? 0))),
     reasons: (Array.isArray(j.reasons) ? j.reasons : []).map(String).slice(0, 4),
     model: cloudModel(),
     ranAt: Date.now(),
   };
+  if (which === "judge") out.claims = judgeClaims(j.claims, claims);
+  return out;
 }
 
 /** The judges see the structured claim too (goal, numbers, place) when the interview produced one. */
 export function intentionForPrompt(i: Moment["intention"]): string {
-  if (i.v !== 3) return i.text;
+  if (!i.v) return i.text;
   const bits = [i.text];
   if (i.goal) bits.push(`goal: ${i.goal}`);
   if (i.quantities?.length) bits.push("numbers: " + i.quantities.map((q) => `${q.metric} ${q.value} ${q.unit} (by ${q.measuredBy})`).join(", "));
@@ -100,10 +106,13 @@ async function score(m: Moment, frames: { t: number; jpegB64: string }[]): Promi
   };
 }
 
-/** Judge, skeptic and scorer in parallel over the same frames. All three or nothing. */
-export async function cloudReview(m: Moment, frames: { seq: number; t: number; jpegB64: string }[]) {
+/**
+ * Judge, skeptic and scorer in parallel over the same frames. All three or nothing. v4: the judge also rules on each
+ * server claim (`claims` = moments/{id}.claims.items, [] when none arrived within 30 s).
+ */
+export async function cloudReview(m: Moment, frames: { seq: number; t: number; jpegB64: string }[], claims: Claim[] = []) {
   const chosen = pickFrames(frames, m.summary?.heroFrameSeq ?? null);
-  const [judge, skeptic, verification] = await Promise.all([opinion("judge", m, chosen), opinion("skeptic", m, chosen), score(m, chosen)]);
+  const [judge, skeptic, verification] = await Promise.all([opinion("judge", m, chosen, claims), opinion("skeptic", m, chosen), score(m, chosen)]);
   return { judge, skeptic, score: verification };
 }
 
@@ -140,12 +149,12 @@ export async function interviewTurn(context: object, draft: object, transcript: 
 }
 
 /** Final structuring (ONLY_IN_CLOUD). */
-export async function structureIntention(context: object, transcript: string, draft: object) {
+export async function structureIntention(context: object, transcript: string, draft: object, ms = 20_000) {
   const r = await askJson<Record<string, unknown>>(
     "structureIntention",
     { context: JSON.stringify(context), transcript, draft: JSON.stringify(draft) },
     [],
-    20_000,
+    ms,
   );
   return { fields: r.json as Record<string, unknown>, mode: r.mode };
 }

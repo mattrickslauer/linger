@@ -13,6 +13,8 @@ import Interview, { RouteChip } from "../components/Interview";
 import { WitnessAgent } from "../witnessAgent";
 import { ClipRecorder, clipSupported, MAX_CLIP_MS, sha256Bytes } from "../clip";
 import { listen, stopSpeaking, sttSupported } from "../voice";
+import { structureIntention } from "../ai";
+import { buildContext, withDraftClaims } from "../intention";
 import type { WitnessRequest } from "../witness";
 
 const EXAMPLES: Record<Category, string> = {
@@ -39,12 +41,27 @@ function Spark({ values }: { values: number[] }) {
 function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; guest: boolean; onVoice: () => void }) {
   const [cat, setCat] = useState<Category>("fishing");
   const [text, setText] = useState("");
+  const [planning, setPlanning] = useState(false);
   return (
     <form
       className="page setup"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        onStart({ text: text.trim() || EXAMPLES[cat], category: cat });
+        if (planning) return;
+        const typed: Intention = { text: text.trim() || EXAMPLES[cat], category: cat };
+        let i = typed;
+        // v4.1: a typed sentence may get claims + an evidence plan from the cloud before Start (optional, 8 s).
+        if (configured && navigator.onLine) {
+          setPlanning(true);
+          try {
+            const s = await structureIntention(buildContext(null), `me: ${typed.text}`, {}, 8000);
+            i = withDraftClaims(typed, s.fields);
+          } catch (err) {
+            console.warn("typed intention: no plan, the server sets claims at submit", err);
+          }
+          setPlanning(false);
+        }
+        onStart(i);
       }}
     >
       <h1>What are you about to do?</h1>
@@ -60,8 +77,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
           </button>
         ))}
       </div>
-      <button className="btn btn-primary btn-big" type="submit">
-        Start Moment
+      <button className="btn btn-primary btn-big" type="submit" disabled={planning} aria-busy={planning}>
+        {planning ? "Planning the evidence…" : "Start Moment"}
       </button>
       <button type="button" className="btn btn-quiet" onClick={onVoice}>
         Use the voice interview instead

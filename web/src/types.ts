@@ -1,5 +1,7 @@
 // Mirrors docs/ARCHITECTURE.md ("Data model"). Keep in sync with the contract, not the other way round.
 
+import type { Claim, ClaimScore, ModuleClaimOutcome, Plan, ServerClaims, ServerPlan, VideoReview } from "./v4";
+
 export type Category = "fishing" | "fitness" | "outdoors" | "making" | "other";
 export type Platform = "ios" | "android" | "web";
 export type CheckMode = "on_device" | "cloud" | "none";
@@ -29,6 +31,8 @@ export interface AiOpinion {
   reasons: string[];
   model: string;
   ranAt: number;
+  /** v4 judge: per-claim verdicts on the server claims ([] when none arrived in time). */
+  claims?: { id: string; verdict: "backed" | "not_backed" | "unclear"; confidence: number }[];
 }
 
 /** The scorer: probability the claim is true given the evidence, assuming most submissions cheat. */
@@ -47,6 +51,8 @@ export interface SealChecks {
   ai: boolean;
   /** v3: final verification score >= the Moment's bar. */
   bar?: boolean;
+  /** v4: true = no cheating detected. */
+  cheating?: boolean;
 }
 
 export interface Seal {
@@ -55,9 +61,11 @@ export interface Seal {
   updatedAt?: unknown;
   checks: SealChecks;
   reason: string;
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   /** v3: integrity + AI checks passed and a score exists, so the owner may run ladder modules. */
   ladderEligible?: boolean;
+  /** v4: why cheating was detected ([] when none). */
+  cheatingSignals?: string[];
 }
 
 // ---------------------------------------------------------------- v3 (docs/ARCHITECTURE.md v3.2 - v3.8)
@@ -82,7 +90,7 @@ export type InterviewMode = "on_device" | "cloud" | "mixed" | "typed";
 export interface Intention {
   text: string;
   category: Category;
-  v?: 3;
+  v?: 3 | 4;
   activity?: string;
   goal?: string;
   quantities?: Quantity[];
@@ -92,6 +100,9 @@ export interface Intention {
   assumptions?: string[];
   interview?: { turns: number; mode: InterviewMode };
   preview?: { bar: number; difficulty: number; mode: "on_device" | "cloud" } | null;
+  /** v4 client drafts (`v: 4`); the server's `moments/{id}.claims` / `.plan` are authoritative. */
+  claims?: Claim[];
+  plan?: Plan | null;
 }
 
 /** Written only by the Cloud Function at submit. */
@@ -121,17 +132,24 @@ export interface LadderResult {
   measured?: { metric: string; value: number; unit: string }[];
   model: string;
   ranAt: number;
+  /** v4: per-claim outcomes for the claims this module backs. */
+  claims?: ModuleClaimOutcome[];
 }
 
 /** Server-only: baseline score, the score after every ladder result, and whether it clears the bar. */
 export interface Verification {
-  version: 3;
+  version: 3 | 4;
   baseline: number | null;
   score: number | null;
   bar: number;
   verified: boolean;
   modules: LadderResult[];
   updatedAtServer?: unknown;
+  // v4 (docs/ARCHITECTURE.md v4.6)
+  baselineUsed?: number;
+  cheating?: { detected: boolean; signals: string[] };
+  claimsBacked?: number;
+  claims?: ClaimScore[];
 }
 
 export interface WitnessSummary {
@@ -164,6 +182,10 @@ export interface Moment {
   bar?: Bar | null;
   verification?: Verification | null;
   witness?: WitnessSummary | null;
+  // v4, server-only
+  claims?: ServerClaims | null;
+  plan?: ServerPlan | null;
+  videoReview?: VideoReview | null;
   recordedAsGuest?: boolean;
   claimedAt?: number | null;
   /** journal-only: recorded as a guest, not yet claimed by an account. Never written to Firestore. */
@@ -258,5 +280,31 @@ export interface FeedEntry {
   witness?: WitnessSummary | null;
   recordedAsGuest?: boolean;
   sealVersion?: number;
+  // v4 (docs/ARCHITECTURE.md v4.8)
+  claims?: FeedClaim[];
+  claimsBacked?: number;
+  claimsTotal?: number;
+  cheating?: boolean;
+  cheatingSignals?: string[];
+  video?: { reviewed: boolean; summary: string | null; status: VideoReview["status"] } | null;
+  plan?: { recordMode: "video" | "photo"; requirements: FeedRequirement[] } | null;
   sealedAtServer: number | null; // millis (converted from Timestamp on read)
+}
+
+export interface FeedClaim {
+  id: string;
+  kind: Claim["kind"];
+  text: string;
+  p: number;
+  backed: boolean;
+  backedBy: string[];
+  met: number;
+  total: number;
+}
+export interface FeedRequirement {
+  id: string;
+  claimId: string;
+  evidence: Plan["requirements"][number]["evidence"];
+  ask: string;
+  met: boolean;
 }

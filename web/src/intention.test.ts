@@ -10,6 +10,7 @@ import {
   normalizeIntention,
   normalizeQuantities,
   wantsToStart,
+  withDraftClaims,
 } from "./intention";
 
 describe("bar mapping reproduces shared/test-vectors-v3.json bars", () => {
@@ -36,7 +37,9 @@ describe("structured intention", () => {
       },
       { pos, start: 1000, turns: 2, mode: "mixed" },
     );
-    expect(i.v).toBe(3);
+    expect(i.v).toBe(4);
+    expect(i.claims).toEqual([]);
+    expect(i.plan).toBeNull();
     expect(i.place).toEqual({ name: "Lake Mission Viejo", lat: 33.6189, lng: -117.6681, region: null, country: "USA" });
     expect(i.quantities).toEqual([{ metric: "weight", value: 5, unit: "lb", measuredBy: "scale" }]);
     expect(i.window).toEqual({ start: 1000, expectedMinutes: 90 });
@@ -53,6 +56,35 @@ describe("structured intention", () => {
     expect(normalizeQuantities([{ metric: "reps", value: 20, unit: "", measuredBy: "telepathy" }, { value: 3 }])).toEqual([
       { metric: "reps", value: 20, unit: "", measuredBy: "claim" },
     ]);
+  });
+  it("v4: claims and plan from the model, ids renumbered, recordMode from the plan", () => {
+    const i = normalizeIntention(
+      {
+        text: "Clap 50 times",
+        claims: [
+          { id: "c1", kind: "action", text: "clapping", metric: "", value: 0, unit: "" },
+          { id: "c2", kind: "count", text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+        ],
+        plan: {
+          requirements: [{ id: "r1", claimId: "c2", evidence: "video", ask: "One continuous video of all 50 claps", minSeconds: 20 }],
+          recordMode: "photo",
+          note: "Both hands in frame.",
+        },
+      },
+      { pos: null, start: 0, turns: 1, mode: "cloud" },
+    );
+    expect(i.claims).toEqual([
+      { id: "c1", kind: "action", text: "clapping" },
+      { id: "c2", kind: "count", text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+    ]);
+    expect(i.plan?.recordMode).toBe("video");
+    expect(i.plan?.requirements).toEqual([{ id: "r1", claimId: "c2", evidence: "video", ask: "One continuous video of all 50 claps", minSeconds: 20 }]);
+  });
+  it("typed intention: withDraftClaims keeps the typed text and adds claims + plan", () => {
+    const typed = { text: "clap 50 times", category: "other" as const };
+    expect(withDraftClaims(typed, { claims: [] })).toBe(typed);
+    const i = withDraftClaims(typed, { text: "ignored", claims: [{ id: "c1", kind: "count", text: "50 claps", value: 50, metric: "claps", unit: "claps" }], plan: null });
+    expect(i).toEqual({ text: "clap 50 times", category: "other", v: 4, claims: [{ id: "c1", kind: "count", text: "50 claps", metric: "claps", value: 50, unit: "claps" }], plan: null });
   });
   it("compactIntention removes undefined keys", () => {
     const i = compactIntention(normalizeIntention({ text: "Walk" }, { pos: null, start: 0, turns: 0, mode: "typed" }));

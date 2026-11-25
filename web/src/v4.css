@@ -1,0 +1,156 @@
+/* v4: claims, the evidence plan, the record-screen checklist, per-claim scores. Uses the tokens in styles.css. */
+
+.claim-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.claim-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+  font-weight: 600;
+  min-height: 32px;
+  max-width: 100%;
+}
+.claim-chip > span:not(.claim-kind) {
+  padding-right: 6px;
+  overflow-wrap: anywhere;
+}
+.claim-kind {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.kind-count .claim-kind,
+.kind-measure .claim-kind {
+  background: color-mix(in srgb, var(--gold) 32%, var(--paper-2));
+  color: var(--ink);
+}
+.kind-place .claim-kind,
+.kind-time .claim-kind {
+  background: var(--lake-soft);
+  color: var(--lake);
+}
+.claim-chip button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.claim-chip button:hover {
+  background: var(--rule);
+  color: var(--ink);
+}
+
+/* "To get this verified" */
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r);
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.plan-h {
+  margin: 4px 0 0;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+.plan-note {
+  margin: 0;
+  color: var(--ink-2);
+}
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.plan-row {
+  display: grid;
+  grid-template-columns: 14px 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 2px;
+  border-bottom: 1px dashed var(--rule);
+}
+.plan-row:last-child {
+  border-bottom: 0;
+}
+.plan-mark {
+  color: var(--ink-3);
+  line-height: 1.45;
+  font-size: 0.8rem;
+}
+.plan-captured .plan-mark,
+.plan-met .plan-mark {
+  color: var(--ok);
+}
+.plan-unmet .plan-mark {
+  color: var(--bad);
+}
+.ev-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--lake);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.plan-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.plan-sub {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+.plan-state {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.plan-state.ok {
+  color: var(--ok);
+}
+.plan-unmet .plan-state {
+  color: var(--bad);
+}
+.plan-captured .plan-ask,
+.plan-met .plan-ask {
+  color: var(--ink-2);
+}
+.plan-compact .plan-row {
+  padding: 5px 0;
+  gap: 8px;
+}
+.plan-compact .ev-icon {
+  width: 18px;
+  height: 18px;
+}

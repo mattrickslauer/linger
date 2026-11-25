@@ -17,6 +17,8 @@ import {
 } from "../intention";
 import { CATEGORIES, type Intention, type Quantity } from "../types";
 import { listen, speak, stopSpeaking, sttSupported, ttsSupported, type Listening } from "../voice";
+import { withoutClaim } from "../v4";
+import { PlanCard } from "./Plan";
 
 const OPENER = "What are you about to do?";
 const MAX_QUESTIONS = 3;
@@ -389,6 +391,14 @@ function ClaimCard({
             </button>
           ))}
         </div>
+        <PlanCard
+          claims={i.claims ?? []}
+          plan={i.plan}
+          onRemoveClaim={(id) => {
+            const { claims, plan } = withoutClaim(i.claims ?? [], i.plan, id);
+            onChange({ ...i, claims, plan });
+          }}
+        />
         <BarPreview preview={preview} />
         <p className="muted small">
           Interview: {i.interview?.turns ?? 0} answer{i.interview?.turns === 1 ? "" : "s"}, {i.interview?.mode === "on_device" ? "on-device" : i.interview?.mode}

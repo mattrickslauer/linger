@@ -109,6 +109,24 @@ const opinionSchema = Schema.object({
   },
 });
 
+// v4 judge (shared/prompts.json `judge.schema`): the overall verdict plus one verdict per server claim.
+const judgeSchema = Schema.object({
+  properties: {
+    verdict: Schema.enumString({ enum: ["consistent", "inconsistent", "uncertain"] }),
+    confidence: Schema.number(),
+    reasons: Schema.array({ items: Schema.string() }),
+    claims: Schema.array({
+      items: Schema.object({
+        properties: {
+          id: Schema.string(),
+          verdict: Schema.enumString({ enum: ["backed", "not_backed", "unclear"] }),
+          confidence: Schema.number({ description: "0..1" }),
+        },
+      }),
+    }),
+  },
+});
+
 const scoreSchema = Schema.object({
   properties: {
     probability: Schema.number({ description: "P(claim true | evidence), 0..1" }),
@@ -169,7 +187,7 @@ function cloudOpinionModel(system: string, responseSchema = opinionSchema): Gene
 }
 
 export function judgeModel(): GenerativeModel {
-  return (judge ??= cloudOpinionModel(prompts.judge.system));
+  return (judge ??= cloudOpinionModel(prompts.judge.system, judgeSchema));
 }
 export function skepticModel(): GenerativeModel {
   return (skeptic ??= cloudOpinionModel(prompts.skeptic.system));
