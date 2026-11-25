@@ -479,7 +479,20 @@ result, no second charge.
 | `permission-denied` | `not_owner` |
 | `failed-precondition` | `not_sealed_yet` (status not sealed/rejected or seal.version < 3), `not_eligible` (`!seal.ladderEligible`), `already_run`, `unavailable_module`, `needs_frames`, `needs_gps`, `needs_witness_answered`, `needs_quantities`, `needs_video`, `clip_missing`, `clip_hash_mismatch` |
 | `resource-exhausted` | `insufficient_credits` (details also `{ balance, cost }`) |
-| `unavailable` | `model_failed` (credits refunded) |
+| `unavailable` | `model_failed` (credits refunded; the same `requestId` keeps answering `model_failed`, retry with a new one) |
+| `aborted` | `in_progress` (the same `requestId` is still running) |
+
+`clip_missing` also carries `details.bucket` and `details.path` (where to upload). While a run is in flight the function
+keeps a server-only marker `verification.pending.<module> = requestId` on the Moment (cleared on record or refund), so
+two concurrent requests for the same module cannot both spend.
+
+**Server-side model (`bar`, `module*`).** Cloud Functions call Gemini on Vertex AI in the same Firebase project with
+the function's service account (`@google/genai`, `vertexai: true`; env `CLOUD_MODEL`, default `gemini-3.5-flash`;
+`VERIFIED_AI_LOCATION`, default `global`), with the system/user/schema from `shared/prompts.json` (copied into
+`functions/lib/shared/` by `npm run build`). No key on any device. In the emulator the default engine is a
+deterministic fake (`VERIFIED_AI=fake`; set `VERIFIED_AI=vertex` to use the real model); any prompt variable containing
+`#ai-fail` makes the fake throw, which the e2e uses to test refunds. The bar agent re-runs only while `bar == null`;
+concurrent triggers may both call the model, but only the first write wins.
 
 No other callables: the bar is computed by the trigger, guest claims use ordinary rule-checked writes.
 
