@@ -395,9 +395,13 @@ final class RecorderModel {
       self.refreshChecklist()
       // Keep the clip on the phone (Photos album "Verified") while the poster is coached. v4.4: first an app-private
       // copy in the raw vault for the upload at submit (Photos may be denied, edited or offloaded to iCloud).
-      let momentId = self.momentId
+      // The vault copy is awaited (finish() awaits this task): a Finish right after the clip would otherwise start
+      // the upload before the copy exists and, with Photos slow or denied, submit without the clip for good.
+      if let momentId = self.momentId {
+        let name = processed.clip.name
+        await Task.detached { ClipStore.keepForUpload(url: url, momentId: momentId, name: name) }.value
+      }
       Task.detached {
-        if let momentId { ClipStore.keepForUpload(url: url, momentId: momentId, name: processed.clip.name) }
         let saved = await VideoClipFile.keep(url: url)
         if saved == .failed { print("[Verified] clip \(processed.clip.name) kept nowhere") }
       }

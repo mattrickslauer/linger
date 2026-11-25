@@ -306,6 +306,11 @@ nonisolated enum VaultIO {
     // v4.4: every chained clip reaches Storage before the submit update (and before the local copy may go).
     // Not uploadable yet (offline, failing): keep, don't submit; the next pass retries.
     guard await ClipUploader.shared.ensureUploaded(momentId: id, uid: uid) else { return .keep(.waiting) }
+    if serverStatus == "recording", !ClipUploader.chainClips(id).isEmpty {
+      // The upload may have taken a while and Finish sends the same submit when it ends: read the status again so
+      // the submit update is not sent twice (a second one is refused by the rules once the Moment is submitted).
+      serverStatus = try await ref().getDocument(source: .server).data()?["status"] as? String
+    }
     if serverStatus == "recording" {
       try await ref().updateData(submitUpdate(momentJSON))
     }

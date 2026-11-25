@@ -76,8 +76,8 @@ final class ClipUploader {
   private func run(momentId: String, uid: String) async -> Bool {
     let clips = await Task.detached { Self.chainClips(momentId) }.value
     guard !clips.isEmpty else { return true }
-    let bg = UIApplication.shared.beginBackgroundTask(withName: "clip-upload-\(momentId.prefix(8))")
-    defer { if bg != .invalid { UIApplication.shared.endBackgroundTask(bg) } }
+    let bg = UploadBackgroundTask(name: "clip-upload-\(momentId.prefix(8))")
+    defer { bg.end() }
 
     let total = clips.reduce(Int64(0)) { $0 + ($1.bytes < ClipUpload.maxBytes ? $1.bytes : 0) }
     var sent: Int64 = 0
@@ -140,6 +140,25 @@ final class ClipUploader {
         }
       }
     }
+  }
+}
+
+/// A UIKit background task that also ends itself when iOS says time is up: a task still open at expiry gets the app
+/// killed. The cut-off upload then simply fails and the raw vault retries it on the next pass.
+@MainActor
+final class UploadBackgroundTask {
+  private var id: UIBackgroundTaskIdentifier = .invalid
+
+  init(name: String) {
+    id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+      MainActor.assumeIsolated { self?.end() }
+    }
+  }
+
+  func end() {
+    guard id != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(id)
+    id = .invalid
   }
 }
 
