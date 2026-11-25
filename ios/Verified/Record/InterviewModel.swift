@@ -205,6 +205,40 @@ final class InterviewModel {
     phase = .done
   }
 
+  /// v4.1: a typed intention (no interview) may be structured in the cloud before Start, to get claims and the
+  /// evidence plan (`structureIntention`, ONLY_IN_CLOUD, the sentence as a one-line transcript). Optional: the server
+  /// derives claims and a plan at submit either way.
+  func structureTyped(_ text: String, category: Category) {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, !active, network.isOnline else { return }
+    reset()
+    run = Task { [weak self] in
+      guard let self else { return }
+      self.phase = .locating
+      await self.loadContext()
+      self.phase = .structuring
+      let p = Prompts.shared.structureIntention
+      let draft: [String: Any] = ["text": t, "category": category.rawValue, "goal": t]
+      let prompt = p.fill([
+        "context": HybridAI.jsonText(self.context), "transcript": "me: \(t)", "draft": HybridAI.jsonText(draft),
+      ]) + "\n\n" + HybridAI.jsonInstruction("structureIntention")
+      let j = (try? await HybridAI.cloud(system: p.system, prompt: prompt, timeout: 15))?.json
+      guard !Task.isCancelled else { return }
+      guard var r = j.flatMap({ StructuredIntention(json: $0, location: self.location) }) else {
+        self.reset()
+        return
+      }
+      r.text = String(t.prefix(200))  // the person's own sentence stays the intention text
+      r.category = category
+      r.mode = "typed"
+      r.turns = 0
+      self.result = r
+      self.phase = .previewing
+      await self.previewBar()
+      self.phase = .done
+    }
+  }
+
   /// Bar preview (PREFER_ON_DEVICE). Re-run after edits on the card.
   func previewBar() async {
     guard let r = result else { return }
