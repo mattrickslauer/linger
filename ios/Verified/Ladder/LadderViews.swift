@@ -21,6 +21,8 @@ struct LadderNeeds {
         return "Needs a number in the intention (use the interview)"
       case "video" where model.videos.isEmpty:
         return "Needs a video clip in the recording"
+      case "video" where card.ownerUid != nil && card.platform != "ios":
+        return "The clip is on the phone that recorded it"
       default: continue
       }
     }
@@ -153,7 +155,10 @@ struct LadderSheet: View {
           }
           Spacer()
           if running == m.id {
-            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Running in the cloud…").font(.caption) }
+            HStack(spacing: 6) {
+              ProgressView().controlSize(.small)
+              Text(m.id == "full_video" ? "Uploading the clip, then reviewing…" : "Running in the cloud…").font(.caption)
+            }
           } else {
             Button { confirm = m } label: {
               Label("Run", systemImage: "play.fill").font(.subheadline.weight(.semibold))
