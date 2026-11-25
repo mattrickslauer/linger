@@ -78,6 +78,14 @@ for (const size of [
       await page.getByRole("button", { name: "Type it" }).click();
       await page.getByPlaceholder("Type your answer").fill("A green crankbait");
       await page.getByRole("button", { name: "Answer", exact: true }).click();
+      // A short video clip: chained by hash, bytes kept in the vault.
+      await page.getByRole("button", { name: /^Clip/ }).click();
+      await page.waitForTimeout(2500);
+      await page.screenshot({ path: `${OUT}/record-clip-${size.name}.png`, fullPage: true });
+      await page.getByRole("button", { name: /^Stop clip/ }).click();
+      await page.getByRole("button", { name: /^Clip/ }).waitFor({ timeout: 15_000 });
+      await page.waitForTimeout(500);
+      ok("clip recorded");
       await page.waitForTimeout(RECORD_MS);
       await page.screenshot({ path: `${OUT}/record-live-${size.name}.png`, fullPage: true });
       await page.getByRole("button", { name: /^Finish/ }).click();
@@ -89,12 +97,15 @@ for (const size of [
             const r = indexedDB.open("verified-vault");
             r.onerror = () => reject(r.error);
             r.onsuccess = () => {
-              const t = r.result.transaction(["chunks", "moments"], "readonly");
+              const t = r.result.transaction(["chunks", "moments", "clips"], "readonly");
               const g = t.objectStore("chunks").getAll();
               const m = t.objectStore("moments").getAll();
+              const cl = t.objectStore("clips").getAll();
               t.oncomplete = () =>
                 resolve({
                   events: g.result.flatMap((c) => JSON.parse(c.payload).events).filter((e) => String(e.type).startsWith("witness") || e.wid),
+                  videos: g.result.flatMap((c) => JSON.parse(c.payload).events).filter((e) => String(e.type).startsWith("video")),
+                  clips: cl.result.map((c) => ({ sha256: c.sha256, bytes: c.bytes, size: c.blob.size })),
                   moment: m.result[m.result.length - 1],
                 });
             };
@@ -103,6 +114,10 @@ for (const size of [
       const types = ev.events.map((e) => `${e.type}:${e.wid}${e.via ? ":" + e.via : ""}`).join(" ");
       const want = ["witness:w1", "frame:w1", "witness_answer:w1:frame", "witness:w2", "witness_answer:w2:text"];
       want.every((w) => types.includes(w)) ? ok(`chain has witness events: ${types}`) : fail(`witness events missing: ${types}`);
+      const vid = ev.videos.find((e) => e.type === "video");
+      ev.videos.some((e) => e.type === "video_start") && vid && ev.clips.some((c) => c.sha256 === vid.sha256 && c.size === vid.bytes && c.size > 0)
+        ? ok(`chain has video_start + video (${vid.bytes} bytes, ${vid.durationMs} ms), clip in vault with matching sha256`)
+        : fail(`video evidence wrong: ${JSON.stringify({ videos: ev.videos, clips: ev.clips })}`);
       const m = ev.moment;
       m.guest === true && m.ownerUid === null && m.witness?.asked === 2 && m.witness?.answered === 2
         ? ok(`journal: guest, ownerUid null, witness ${JSON.stringify(m.witness)}, intention v${m.intention?.v}`)

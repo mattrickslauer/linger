@@ -9,12 +9,12 @@
 import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { cloudReview, liveCheck } from "./ai";
-import { makeChunk } from "./chain";
+import { makeChunk, sha256hex } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
 import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, MotionRow } from "./types";
 import { answerEvent, frameEvent, nextWid, openRequest, skipEvent, witnessEvent, witnessSummary, type AnswerVia, type WitnessBy, type WitnessKind, type WitnessLog, type WitnessRequest } from "./witness";
-import { forgetMoment, journalChunk, journalMoment, journalMomentUpdate, journalOk, verifyAll } from "./vault";
+import { forgetMoment, journalChunk, journalClip, journalMoment, journalMomentUpdate, journalOk, verifyAll } from "./vault";
 
 export const CHUNK_MS = 5000;
 export const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -285,6 +285,24 @@ export class Session {
     Object.assign(r, { outcome: "skipped", closedAt: t });
     this.events.push(skipEvent(t, r.wid, reason));
     this.emitWitness();
+  }
+
+  // ---------------------------------------------------------------- video clips (`video_start` / `video`)
+
+  videoStart() {
+    this.events.push({ t: Date.now(), type: "video_start" });
+  }
+
+  /**
+   * A finished clip: its bytes go into the vault (never the chain), the `video` event commits to their SHA-256, and
+   * the clip's middle frame is coached and chained as the proof frame of the same chunk.
+   */
+  async videoClip(c: { blob: Blob; mime: string; startedAt: number; durationMs: number; sha256: string; middle: { jpegB64: string; w: number; h: number } }) {
+    const ext = c.mime.includes("mp4") ? "mp4" : "webm";
+    const name = `verified-${this.id.slice(0, 8)}-${c.startedAt}.${ext}`;
+    await journalClip({ sha256: c.sha256, momentId: this.id, blob: c.blob, mime: c.mime, bytes: c.blob.size, durationMs: c.durationMs, name });
+    const ev: AppEvent = { t: Date.now(), type: "video", sha256: c.sha256, bytes: c.blob.size, durationMs: c.durationMs, startedAt: c.startedAt, name };
+    return this.proofShot(c.middle.jpegB64, await sha256hex(c.middle.jpegB64), c.middle.w, c.middle.h, undefined, [ev]);
   }
 
   /** Proof shot: on-device coach first, then the frame and its verdict close a chunk together. `wid` answers a witness "show". */

@@ -4,6 +4,8 @@ import { cameFromMe, canDeleteMoment } from "../canDelete";
 import ChainViewer from "../components/ChainViewer";
 import DeleteMoment from "../components/DeleteMoment";
 import Ladder from "../components/Ladder";
+import LocalClips from "../components/LocalClips";
+import { evidenceOf } from "../ladder";
 import { LADDER_DEMO } from "../credits";
 import MotionChart from "../components/MotionChart";
 import { getChunks, getMomentBundle, type MomentBundle } from "../data";
@@ -481,6 +483,8 @@ export default function Detail({ id }: { id: string }) {
           </Suspense>
         </aside>
       </section>
+
+      {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
 
       <section className="review" aria-labelledby="ai-h">
         <h2 id="ai-h">What the AIs said</h2>

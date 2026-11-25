@@ -2507,3 +2507,71 @@ path.lf-cursor {
     grid-template-columns: 1fr;
   }
 }
+
+/* Video clip toggle on the record screen */
+.btn-clip {
+  gap: 10px;
+}
+.btn-clip .rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bad);
+  flex-shrink: 0;
+}
+.btn-clip.on {
+  border-color: var(--bad);
+  color: var(--bad);
+  font-variant-numeric: tabular-nums;
+}
+.btn-clip.on .rec-dot {
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-clip.on .rec-dot {
+    animation: none;
+  }
+}
+
+/* Local video clips on the detail page */
+.clips {
+  margin-top: 40px;
+}
+.clip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.clip {
+  margin: 0;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--sheet);
+}
+.clip video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+}
+.clip figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 12px;
+}
+.clip code {
+  font-family: var(--mono);
+  color: var(--ink-3);
+}
+.clip .ok {
+  color: var(--ok);
+}
+.clip .bad {
+  color: var(--bad);
+}

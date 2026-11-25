@@ -11,6 +11,7 @@ import { CATEGORIES, type Category, type Intention, type Moment } from "../types
 import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip } from "../components/Interview";
 import { WitnessAgent } from "../witnessAgent";
+import { ClipRecorder, clipSupported, MAX_CLIP_MS, sha256Bytes } from "../clip";
 import { listen, stopSpeaking, sttSupported } from "../voice";
 import type { WitnessRequest } from "../witness";
 
@@ -152,6 +153,44 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
 
+  // Video clip: chained by hash, kept in this browser, uploaded only for the full_video ladder check.
+  const clipRef = useRef<ClipRecorder | null>(null);
+  const [clipAt, setClipAt] = useState<number | null>(null);
+  const [clipErr, setClipErr] = useState<string | null>(null);
+  async function startClip() {
+    if (!video.current || clipRef.current || shooting) return;
+    setClipErr(null);
+    try {
+      const r = new ClipRecorder(video.current);
+      clipRef.current = r;
+      session.videoStart();
+      setClipAt(r.startedAt);
+      r.done.then(
+        () => clipRef.current === r && void stopClip(),
+        () => {},
+      );
+    } catch (e) {
+      setClipErr(String((e as Error)?.message ?? e));
+    }
+  }
+  async function stopClip() {
+    const r = clipRef.current;
+    if (!r) return;
+    clipRef.current = null;
+    setClipAt(null);
+    setShooting(true);
+    try {
+      const c = await r.stop();
+      setLast(c.middle.jpegB64);
+      await session.videoClip({ ...c, sha256: await sha256Bytes(c.blob) });
+    } catch (e) {
+      setClipErr(String((e as Error)?.message ?? e));
+    } finally {
+      setShooting(false);
+    }
+  }
+  useEffect(() => () => void clipRef.current?.stop(), []);
+
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
   return (
@@ -270,13 +309,25 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
         />
       )}
       <div className="live-actions">
-        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr}>
+        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
           {shooting ? "Checking…" : "Proof shot"}
         </button>
+        {clipSupported() && (
+          <button
+            className={`btn btn-big btn-clip ${clipAt != null ? "on" : ""}`}
+            onClick={() => void (clipAt != null ? stopClip() : startClip())}
+            disabled={!!camErr || (shooting && clipAt == null)}
+            aria-pressed={clipAt != null}
+          >
+            <span className="rec-dot" aria-hidden="true" />
+            {clipAt != null ? `Stop clip ${fmtDuration(Math.min(MAX_CLIP_MS, s.elapsedMs - (clipAt - session.startedAt)))}` : "Clip"}
+          </button>
+        )}
         <button
           className="btn btn-big"
           onClick={async () => {
             try {
+              if (clipRef.current) await stopClip();
               await session.finish();
               onDone();
             } catch (e) {
@@ -293,6 +344,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           Couldn't save this Moment's raw data on this device ({s.vaultError}). Recording has stopped writing.
         </p>
       )}
+      {clipErr && <p className="notice notice-bad small">Clip: {clipErr}</p>}
       {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
     </div>
   );
