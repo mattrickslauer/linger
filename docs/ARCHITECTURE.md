@@ -816,7 +816,8 @@ serves, from `requirementId`; omitted when ""): `{"t","type":"witness","wid","as
 - **Record screen**: the checklist under the timer: `○ One continuous video of all 50 claps` → `● captured` when the
   local evidence exists. Witness prompts for unmet items first.
 - **Finish / sync**: "Uploading video · 34 MB" → "Video uploaded" → "Reviewing video" (server `running`) → sealed.
-  Waiting: "Waiting for video upload". Expired: "Video never arrived · sealed without it".
+  Offline (clip still on the device): "Video waits for a connection". Waiting (server): "Waiting for video upload".
+  Expired: "Video never arrived · sealed without it".
 - **Detail**: overall verdict on top (**Verified ✓** / **Not verified**, "score 0.52 · bar 0.52", "2/2 claims backed").
   One row per claim: `clapping ✓ backed by video review` (backed, p ≥ bar) or `50 claps · 0.40 / bar 0.52` (not
   backed), its requirements as `✓ met` / `○ not met` with `ask`, and the modules that can still back it with

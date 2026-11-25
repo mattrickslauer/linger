@@ -168,7 +168,7 @@ extension ClipUploader.State {
     switch self {
     case .uploading(let total, _): "Uploading video · \(ClipUploader.megabytes(total))"
     case .uploaded: "Video uploaded"
-    case .waiting: "Waiting for a connection to upload the video"
+    case .waiting: "Video waits for a connection"
     }
   }
 

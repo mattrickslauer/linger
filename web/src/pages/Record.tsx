@@ -625,7 +625,7 @@ function Done({ session }: { session: Session }) {
     ...(session.hasClips
       ? [
           {
-            name: submitted && (!up || up.phase !== "failed") ? "Video uploaded" : (uploadText(up) ?? (navigator.onLine ? "Uploading video…" : "Video waits for signal")),
+            name: submitted && (!up || up.phase !== "failed") ? "Video uploaded" : (uploadText(up) ?? (navigator.onLine ? "Uploading video…" : "Video waits for a connection")),
             state: submitted || up?.phase === "done" ? "done" : up?.phase === "failed" ? "bad" : "now",
           },
           {

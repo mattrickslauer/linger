@@ -117,7 +117,7 @@ private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onPlan:
         // v4.1: optional cloud structuring of the typed sentence → claims + "To get this verified" before Start.
         if (com.mattricks.verified.judge.Judging.online()) OutlinedButton(
             enabled = ui.intention.isNotBlank(), onClick = onPlan, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-        ) { Text("Plan the evidence first") }
+        ) { Text("Plan the evidence") }
         Text(
             "GPS, motion and proof shots are hash-chained as you go. Works offline — the server sets the bar and the claims when it syncs.",
             style = MaterialTheme.typography.bodySmall, color = Color.Gray,

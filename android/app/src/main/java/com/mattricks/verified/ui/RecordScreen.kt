@@ -595,7 +595,7 @@ fun VideoUploadLine(momentId: String?) {
     val u = momentId?.let { uploads[it] }
     val mb = { b: Long -> "${(b + 512 * 1024) / (1024 * 1024)} MB" }
     val (text, color) = when {
-        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection · kept on this phone") to Amber
+        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection") to Amber
         u.finished -> "Video uploaded" to Green
         u.error != null -> "Video upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Amber
         else -> "Uploading video · ${mb(u.totalBytes)}" to Green
