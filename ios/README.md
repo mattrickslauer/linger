@@ -115,6 +115,26 @@ Gemini through the `verified-99e74` project. AI Logic must be enabled there (see
    - the seal checklist
    - a chain re-verification run on the phone
 
+## v4: claims, evidence plan, video in the free baseline
+
+Contract: `docs/ARCHITECTURE.md` v4.1–v4.11. Shared math: `VerifiedCore/V4.swift` (normalization, the record screen's
+"captured" checklist, and a port of the reference `scoreV4`, tested against all of `shared/test-vectors-v4.json`).
+
+- **Interview** (`interviewTurn` on-device first, `structureIntention` in the cloud) drafts ≤ 5 **claims** and an
+  evidence **plan**; the end card shows the claims as chips (tap to drop one) and "To get this verified". A typed
+  intention can get the same with **Plan the evidence** (cloud). Written as `intention.v: 4`, `claims`, `plan`.
+- **Record screen** opens in the plan's mode (Video / Photo) and ticks requirements off as the evidence lands on the
+  phone ("captured"; the server decides "met"). The **witness** gets `{{plan}}` and `{{unmet}}`, asks for missing
+  evidence first, and chains the requirement it serves as `rid`.
+- **Clip upload at submit** (`Sync/ClipUploader.swift`): every chained clip goes to
+  `clips/{uid}/{momentId}/{sha256}.mov` before `status = "submitted"` (metadata check first, re-hash, one at a time,
+  in a background task). Offline, the Moment waits on the phone and the raw vault retries; a guest's clips go up when
+  the Moment is claimed. Each clip is also kept in the Moment's vault folder (`ClipStore`) until it is in Storage.
+- **Judge** waits ≤ 30 s for the server's claims and returns a verdict per claim (`judge.claims`).
+- **Detail**: overall verdict, "n/m claims backed", a cheating banner, one row per claim with its requirements
+  (✓ met / ○ not met), the video review's verdict, and the modules that can still back it with local previews.
+  The feed card adds the "2/2 claims backed" chip.
+
 ## Checks without Xcode
 
 The Mac mini has only the Command Line Tools. This script runs `swift test` for `VerifiedCore`. It then builds a

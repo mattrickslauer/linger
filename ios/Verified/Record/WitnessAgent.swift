@@ -11,6 +11,8 @@ import VerifiedCore
 ///
 /// Drafts run through Firebase AI Logic hybrid inference (`witnessDraft`, PREFER_ON_DEVICE: Apple Foundation Models
 /// first); online, `witnessRefine` (ONLY_IN_CLOUD, with the latest frames) may improve the draft within 4 s.
+/// v4: both prompts get the evidence plan and the requirements still missing, ask for those first, and name the
+/// requirement they serve (`requirementId` → the chained `rid`).
 /// The witness can never verify anything: it only asks.
 @Observable
 final class WitnessAgent {
@@ -22,6 +24,8 @@ final class WitnessAgent {
     /// "on_device" | "cloud": which model produced the final ask.
     let by: String
     let askedAt: Int64
+    /// v4.10: the plan requirement this request serves (chained as the witness event's `rid`), nil if none.
+    var rid: String? = nil
     var outcome: Outcome?
     var id: String { wid }
   }
@@ -44,6 +48,11 @@ final class WitnessAgent {
     var online: Bool
     /// Up to 3 latest frames: (JPEG, offset s from start).
     var frames: [(Data, Int)]
+    /// v4: the evidence plan (`{{plan}}`) and the requirements not captured yet (`{{unmet}}`, plan order).
+    var plan: [String: Any]? = nil
+    var unmet: [[String: Any]] = []
+    /// Valid `requirementId`s (anything else from the model is dropped).
+    var requirementIds: Set<String> = []
   }
 
   /// Pacing (contract v3.4).
@@ -99,7 +108,7 @@ final class WitnessAgent {
   }
 
   /// Drafts (and maybe refines) the next ask; `post` chains it and returns the request to deliver.
-  func draft(_ ctx: Context, post: @escaping (String, WitnessEvents.Kind, String) -> Request?) {
+  func draft(_ ctx: Context, post: @escaping (String, WitnessEvents.Kind, String, String?) -> Request?) {
     thinking = true
     lastAttempt = nowMs()
     draftTask = Task { [weak self] in
@@ -107,9 +116,9 @@ final class WitnessAgent {
       let result = await Self.propose(ctx, asked: self.askedJSON)
       self.thinking = false
       guard !Task.isCancelled, let result, self.open == nil, self.requests.count < Self.maxRequests else { return }
-      guard let req = post(result.ask, result.kind, result.by) else { return }
+      guard let req = post(result.ask, result.kind, result.by, result.rid) else { return }
       self.requests.append(Request(wid: req.wid, ask: req.ask, kind: req.kind, why: result.why, by: req.by,
-                                   askedAt: req.askedAt))
+                                   askedAt: req.askedAt, rid: req.rid))
       self.lastActivity = req.askedAt
       self.deliver(req.ask)
     }
@@ -172,7 +181,7 @@ final class WitnessAgent {
     })
   }
 
-  private struct Proposal { let ask: String; let kind: WitnessEvents.Kind; let why: String; let by: String }
+  private struct Proposal { let ask: String; let kind: WitnessEvents.Kind; let why: String; let by: String; let rid: String? }
 
   private static func propose(_ ctx: Context, asked: String) async -> Proposal? {
     let intention = HybridAI.jsonText(ctx.intention)
@@ -181,13 +190,17 @@ final class WitnessAgent {
       "frameLabels": Array(ctx.frameLabels.suffix(8)), "gps": ctx.gps, "motion": ctx.motion, "videoClips": ctx.clips,
     ] as [String: Any])
     let p = Prompts.shared.witnessDraft
-    let values = ["intention": intention, "session": session, "asked": asked]
+    let values = [
+      "intention": intention, "session": session, "asked": asked,
+      "plan": ctx.plan.map { HybridAI.jsonText($0) } ?? "null", "unmet": HybridAI.jsonText(ctx.unmet),
+    ]
     guard let draft = try? await HybridAI.preferOnDevice(
       system: p.system, prompt: p.fill(values) + "\n\n" + HybridAI.jsonInstruction("witnessDraft"),
       online: ctx.online, timeout: 20),
       let d = draft.json
     else { return nil }
-    var best = parse(d, by: draft.mode == .onDevice ? "on_device" : "cloud")
+    let ids = ctx.requirementIds
+    var best = parse(d, by: draft.mode == .onDevice ? "on_device" : "cloud", ids: ids)
 
     // Online: let Gemini look at the latest frames and keep or improve the draft (4 s, else keep the draft).
     if ctx.online, !ctx.frames.isEmpty {
@@ -198,20 +211,22 @@ final class WitnessAgent {
       if let refined = try? await HybridAI.cloud(system: r.system, prompt: r.fill(rv),
                                                  images: ctx.frames.map(\.0), timeout: 4),
          let rj = refined.json {
-        best = parse(rj, by: "cloud") ?? best
+        best = parse(rj, by: "cloud", ids: ids) ?? best
       }
     }
     return best
   }
 
-  private static func parse(_ j: [String: Any], by: String) -> Proposal? {
+  private static func parse(_ j: [String: Any], by: String, ids: Set<String>) -> Proposal? {
     let ask = (j["ask"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let gain = (j["gain"] as? NSNumber)?.doubleValue ?? 0
     guard !ask.isEmpty, gain >= minGain else { return nil }
     let words = ask.split(separator: " ")
     let short = words.count > 14 ? words.prefix(14).joined(separator: " ") : ask
     let kind = WitnessEvents.Kind(rawValue: (j["kind"] as? String ?? "").lowercased()) ?? .show
-    return Proposal(ask: String(short.prefix(120)), kind: kind, why: String((j["why"] as? String ?? "").prefix(100)), by: by)
+    let rid = (j["requirementId"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+    return Proposal(ask: String(short.prefix(120)), kind: kind, why: String((j["why"] as? String ?? "").prefix(100)), by: by,
+                    rid: ids.contains(rid) ? rid : nil)
   }
 }
 

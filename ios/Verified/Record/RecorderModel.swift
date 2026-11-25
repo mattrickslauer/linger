@@ -1,4 +1,5 @@
 import AVFoundation
+@preconcurrency import FirebaseAuth
 import CoreLocation
 import Foundation
 import Observation
@@ -43,6 +44,11 @@ final class RecorderModel {
   private(set) var videoCount = 0
   /// Start time (ms) of the clip being recorded right now, nil when not recording video.
   private(set) var clipStartedAt: Int64?
+  /// v4.2: the evidence plan this Moment records against (from the interview), nil for a typed intention.
+  private(set) var plan: EvidencePlan?
+  private(set) var claims: [Claim] = []
+  /// Plan requirement ids whose evidence exists on this phone ("captured", never "verified": the server decides "met").
+  private(set) var captured: Set<String> = []
 
   // Camera controls (kept across Moments and re-applied on start, like the controller's session).
   private(set) var videoMode = false
@@ -80,6 +86,8 @@ final class RecorderModel {
   /// For the witness: labels of every frame so far and the 3 latest JPEGs with their offsets.
   @ObservationIgnored private var frameLabels: [String] = []
   @ObservationIgnored private var recentFrames: [(Data, Int)] = []
+  /// What the checklist counts (v4.2): clips, frames, good GPS fixes, motion span, answered witness rids.
+  @ObservationIgnored private var evidence = V4.LocalEvidence()
 
   init(network: NetworkMonitor) {
     self.network = network
@@ -156,6 +164,15 @@ final class RecorderModel {
     frameLabels = []
     recentFrames = []
     witness.reset(startedAt: t)
+    plan = structured?.plan
+    claims = structured?.claims ?? []
+    evidence = V4.LocalEvidence()
+    captured = []
+    // v4.11: the record screen opens in the plan's mode ("Video" / "Photo").
+    if let plan {
+      videoMode = plan.isVideo
+      if videoMode && flash == .auto { flash = .off }
+    }
     WitnessNotifier.requestPermission()
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
     do {
@@ -194,13 +211,17 @@ final class RecorderModel {
     lastFix = s
     track.append(CLLocationCoordinate2D(latitude: s.lat, longitude: s.lng))
     buffer.gps.append(s)
+    evidence.addGPS(accuracyM: s.accuracyM)
+    refreshChecklist()
   }
 
   private func addMotion(_ s: MotionSample) {
     guard phase != .idle, s.t > lastMotionT else { return }
     lastMotionT = s.t
     buffer.motion.append(s)
+    evidence.addMotion(t: s.t, values: [s.ax, s.ay, s.az, s.gx, s.gy, s.gz])
     motionDecimate += 1
+    if motionDecimate % 10 == 0 { refreshChecklist() }  // once a second is plenty for "≥ N s of motion"
     if motionDecimate % 2 == 0 {
       motionTrace.append((s.ax * s.ax + s.ay * s.ay + s.az * s.az).squareRoot())
       if motionTrace.count > 60 { motionTrace.removeFirst(motionTrace.count - 60) }
@@ -370,7 +391,16 @@ final class RecorderModel {
         return
       }
       self.videoCount += 1
-      // Keep the clip on the phone (Photos album "Verified") while the poster is coached.
+      self.evidence.clipDurationsMs.append(processed.clip.durationMs)
+      self.refreshChecklist()
+      // Keep the clip on the phone (Photos album "Verified") while the poster is coached. v4.4: first an app-private
+      // copy in the raw vault for the upload at submit (Photos may be denied, edited or offloaded to iCloud).
+      // The vault copy is awaited (finish() awaits this task): a Finish right after the clip would otherwise start
+      // the upload before the copy exists and, with Photos slow or denied, submit without the clip for good.
+      if let momentId = self.momentId {
+        let name = processed.clip.name
+        await Task.detached { ClipStore.keepForUpload(url: url, momentId: momentId, name: name) }.value
+      }
       Task.detached {
         let saved = await VideoClipFile.keep(url: url)
         if saved == .failed { print("[Verified] clip \(processed.clip.name) kept nowhere") }
@@ -404,8 +434,11 @@ final class RecorderModel {
     if let wid {
       // Same chunk as the frame (contract v3.4).
       buffer.events.append(WitnessEvents.answer(t: frame.t, wid: wid, via: .frame))
+      answered(wid)
       witness.close(wid, .answered(.frame, nil))
     }
+    evidence.frameCount += 1
+    refreshChecklist()
     frameLabels.append(check.label)
     recentFrames.append((frame.jpeg, Int((frame.t - startedAt) / 1000)))
     if recentFrames.count > 3 { recentFrames.removeFirst(recentFrames.count - 3) }
@@ -435,17 +468,39 @@ final class RecorderModel {
   private func considerWitness() {
     let now = nowMs()
     guard phase == .recording, witness.due(now: now) else { return }
+    // v4.10: the witness sees the plan and what is still missing, and asks for unmet requirements first.
     let ctx = WitnessAgent.Context(
       intention: intentionData(startedAt: startedAt), elapsedS: Int((now - startedAt) / 1000), distanceM: distanceM,
       frameCount: frameCount, frameLabels: frameLabels, gps: lastFix != nil, motion: !motionTrace.isEmpty,
-      clips: videoCount, online: network.isOnline, frames: recentFrames)
-    witness.draft(ctx) { [weak self] ask, kind, by in
+      clips: videoCount, online: network.isOnline, frames: recentFrames,
+      plan: plan?.firestoreData, unmet: unmetRequirements.map {
+        ["id": $0.id, "claimId": $0.claimId, "evidence": $0.evidence.rawValue, "ask": $0.ask] as [String: Any]
+      }, requirementIds: Set(plan?.requirements.map(\.id) ?? []))
+    witness.draft(ctx) { [weak self] ask, kind, by, rid in
       guard let self, self.phase == .recording else { return nil }
       let t = max(nowMs(), self.chunkT0)
       let wid = self.witness.nextWid
-      self.buffer.events.append(WitnessEvents.witness(t: t, wid: wid, ask: ask, kind: kind, by: by))
-      return WitnessAgent.Request(wid: wid, ask: ask, kind: kind, why: "", by: by, askedAt: t)
+      self.buffer.events.append(WitnessEvents.witness(t: t, wid: wid, ask: ask, kind: kind, by: by, rid: rid))
+      return WitnessAgent.Request(wid: wid, ask: ask, kind: kind, why: "", by: by, askedAt: t, rid: rid)
     }
+  }
+
+  // MARK: - Plan checklist (v4.2)
+
+  /// Requirements whose evidence is not on the phone yet, in plan order.
+  var unmetRequirements: [Requirement] { (plan?.requirements ?? []).filter { !captured.contains($0.id) } }
+
+  private func refreshChecklist() {
+    guard let plan else { return }
+    let now = Set(plan.requirements.filter { V4.captured($0, evidence) }.map(\.id))
+    if now != captured { captured = now }
+  }
+
+  /// An answered request ticks off the requirement it targeted.
+  private func answered(_ wid: String) {
+    guard let rid = witness.requests.first(where: { $0.wid == wid })?.rid else { return }
+    evidence.answeredRids.insert(rid)
+    refreshChecklist()
   }
 
   /// "Show": switches to photo mode and arms the shutter; the next proof shot answers the request.
@@ -461,6 +516,7 @@ final class RecorderModel {
     let clean = text.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)) }
     if via == .voice || via == .text, clean?.isEmpty ?? true { return }
     buffer.events.append(WitnessEvents.answer(t: max(nowMs(), chunkT0), wid: open.wid, via: via, text: clean))
+    answered(open.wid)
     witness.close(open.wid, .answered(via, clean))
   }
 
@@ -489,11 +545,13 @@ final class RecorderModel {
     closeChunk()
     let endedAt = max(stopT, chunks.last?.t1 ?? stopT)
     let summary = MomentSummary.compute(startedAt: startedAt, endedAt: endedAt, chunks: chunks)
+    // v4.4: chained clips go to Storage before `status = "submitted"` (signed in; guests upload at the claim).
+    let uploadFirst = !isGuest && videoCount > 0
     do {
       try MomentStore.submit(
         momentId: id, endedAt: endedAt, chunkCount: chunks.count, headHash: chain.lastHash,
         summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes),
-        witness: witnessSummary, guest: isGuest)
+        witness: witnessSummary, guest: isGuest, sendNow: !uploadFirst)
     } catch {
       // Raw vault: not journaled means not submitted; the Moment stays `recording` on the server.
       self.error = "Could not save this Moment on the phone, so it was not submitted: \(error.localizedDescription)"
@@ -503,8 +561,13 @@ final class RecorderModel {
       return
     }
     if !isGuest {
-      // Give the queued writes a head start, then check the server has every chunk.
+      let uid = Auth.auth().currentUser?.uid
       Task {
+        if uploadFirst, let uid, await ClipUploader.shared.ensureUploaded(momentId: id, uid: uid) {
+          MomentStore.sendSubmitFromJournal(momentId: id)
+        }
+        // Give the queued writes a head start, then check the server has every chunk (and, v4, every clip; the
+        // vault submits a Moment whose clips could not be uploaded yet as soon as they are).
         try? await Task.sleep(for: .seconds(5))
         await Vault.shared.verifyAll()
       }

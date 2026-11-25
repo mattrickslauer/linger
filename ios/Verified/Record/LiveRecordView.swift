@@ -17,6 +17,10 @@ struct LiveRecordView: View {
     let rec = app.recorder
     VStack(spacing: 0) {
       header(rec)
+      if let plan = rec.plan, !plan.requirements.isEmpty {
+        PlanChecklist(plan: plan, claims: rec.claims, captured: rec.captured)
+          .padding(.horizontal, 8).padding(.bottom, 6)
+      }
       ZStack {
         if mapBig { trackMap(rec, compact: false) } else { cameraView(rec) }
       }
@@ -239,6 +243,49 @@ struct LiveRecordView: View {
     if rec.videoCount > 0 { s += " · \(rec.videoCount) \(rec.videoCount == 1 ? "clip" : "clips")" }
     s += " · " + (rec.lastFix.map { "GPS ±\(Int($0.accuracyM)) m" } ?? "GPS…")
     return s
+  }
+}
+
+/// The plan's checklist under the timer (v4.11): `○ ask` → `● captured` as the evidence lands on the phone.
+/// Collapsed it shows the progress and the next missing item; tap to see every requirement.
+struct PlanChecklist: View {
+  let plan: EvidencePlan
+  let claims: [Claim]
+  let captured: Set<String>
+  @State private var expanded = false
+
+  var body: some View {
+    let done = plan.requirements.filter { captured.contains($0.id) }.count
+    let next = plan.requirements.first { !captured.contains($0.id) }
+    VStack(alignment: .leading, spacing: 8) {
+      Button { withAnimation(.snappy) { expanded.toggle() } } label: {
+        HStack(spacing: 8) {
+          Image(systemName: done == plan.requirements.count ? "checkmark.seal.fill" : "checklist")
+            .foregroundStyle(Theme.accent)
+          Text("To get this verified").font(.footnote.weight(.semibold))
+          Spacer(minLength: 4)
+          Text("\(done)/\(plan.requirements.count) captured").font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(done == plan.requirements.count ? Theme.accent : .secondary)
+          Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+            .rotationEffect(.degrees(expanded ? 180 : 0))
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("To get this verified: \(done) of \(plan.requirements.count) captured")
+      .accessibilityHint(expanded ? "Collapse the checklist" : "Show every requirement")
+      if expanded {
+        ForEach(plan.requirements) { r in
+          RequirementRow(requirement: r, claim: claims.first { $0.id == r.claimId },
+                         state: captured.contains(r.id) ? .captured : .missing, compact: true)
+        }
+      } else if let next {
+        RequirementRow(requirement: next, state: .missing, compact: true)
+      }
+    }
+    .padding(.horizontal, 12).padding(.vertical, 9)
+    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+    .animation(.snappy, value: captured)
   }
 }
 

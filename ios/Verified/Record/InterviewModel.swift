@@ -4,7 +4,8 @@ import MapKit
 import Observation
 import VerifiedCore
 
-/// The voice interview (docs/ARCHITECTURE.md v3.2): a few spoken turns → a structured intention → a bar preview.
+/// The voice interview (docs/ARCHITECTURE.md v3.2, v4.1–v4.2): a few spoken turns → a structured intention with its
+/// claims and evidence plan → a bar preview.
 ///  - turns: `interviewTurn`, PREFER_ON_DEVICE (Apple Foundation Models first, Gemini fallback)
 ///  - final: `structureIntention`, ONLY_IN_CLOUD; offline or failing → the last on-device draft
 ///  - preview: `barPreview`, PREFER_ON_DEVICE → `bar = round2(0.5 + 0.45·difficulty)` (the binding bar is server-side)
@@ -96,6 +97,8 @@ final class InterviewModel {
   func removeAssumption(_ a: String) { result?.assumptions.removeAll { $0 == a } }
   func removeCondition(_ c: String) { result?.conditions.removeAll { $0 == c } }
   func removeQuantity(_ q: StructuredIntention.Quantity) { result?.quantities.removeAll { $0 == q } }
+  /// v4: drop a claim the AI got wrong (and its requirements).
+  func removeClaim(_ id: String) { result?.removeClaim(id) }
 
   private func reset() {
     phase = .idle
@@ -200,6 +203,40 @@ final class InterviewModel {
     phase = .previewing
     await previewBar()
     phase = .done
+  }
+
+  /// v4.1: a typed intention (no interview) may be structured in the cloud before Start, to get claims and the
+  /// evidence plan (`structureIntention`, ONLY_IN_CLOUD, the sentence as a one-line transcript). Optional: the server
+  /// derives claims and a plan at submit either way.
+  func structureTyped(_ text: String, category: Category) {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, !active, network.isOnline else { return }
+    reset()
+    run = Task { [weak self] in
+      guard let self else { return }
+      self.phase = .locating
+      await self.loadContext()
+      self.phase = .structuring
+      let p = Prompts.shared.structureIntention
+      let draft: [String: Any] = ["text": t, "category": category.rawValue, "goal": t]
+      let prompt = p.fill([
+        "context": HybridAI.jsonText(self.context), "transcript": "me: \(t)", "draft": HybridAI.jsonText(draft),
+      ]) + "\n\n" + HybridAI.jsonInstruction("structureIntention")
+      let j = (try? await HybridAI.cloud(system: p.system, prompt: prompt, timeout: 15))?.json
+      guard !Task.isCancelled else { return }
+      guard var r = j.flatMap({ StructuredIntention(json: $0, location: self.location) }) else {
+        self.reset()
+        return
+      }
+      r.text = String(t.prefix(200))  // the person's own sentence stays the intention text
+      r.category = category
+      r.mode = "typed"
+      r.turns = 0
+      self.result = r
+      self.phase = .previewing
+      await self.previewBar()
+      self.phase = .done
+    }
   }
 
   /// Bar preview (PREFER_ON_DEVICE). Re-run after edits on the card.

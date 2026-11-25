@@ -1,4 +1,5 @@
 import Foundation
+import VerifiedCore
 
 /// shared/ladder.json (bundled): the verification-ladder modules, their cost and strength (docs/ARCHITECTURE.md v3.6).
 /// Clients only show offers and previews; the `runLadderModule` Cloud Function runs a module and recomputes the score.
@@ -11,6 +12,12 @@ nonisolated struct LadderCatalog: Decodable, Sendable {
     let strength: Double
     let available: Bool
     let needs: [String]
+    /// v4: claim kinds this module can back (moves only those claims' scores).
+    let backs: [String]?
+    /// witness_review: only claims whose requirements an answered witness request targeted.
+    let backsTargetedOnly: Bool?
+
+    var backKinds: [String] { backs ?? ClaimKind.allCases.map(\.rawValue) }
   }
 
   let freeCredits: Int

@@ -25,9 +25,12 @@ public enum WitnessEvents {
   public enum Kind: String, Sendable { case show, tell, `do` }
   public enum Via: String, Sendable { case frame, voice, text, done }
 
-  public static func witness(t: Int64, wid: String, ask: String, kind: Kind, by: String) -> MomentEvent {
-    MomentEvent(t: t, type: .witness,
-                extras: [("wid", .string(wid)), ("ask", .string(ask)), ("kind", .string(kind.rawValue)), ("by", .string(by))])
+  /// v4.10: `rid` (the plan requirement the request serves) is an optional last key, omitted when nil or "".
+  public static func witness(t: Int64, wid: String, ask: String, kind: Kind, by: String, rid: String? = nil) -> MomentEvent {
+    var extras: [(String, JSONValue)] =
+      [("wid", .string(wid)), ("ask", .string(ask)), ("kind", .string(kind.rawValue)), ("by", .string(by))]
+    if let rid, !rid.isEmpty { extras.append(("rid", .string(rid))) }
+    return MomentEvent(t: t, type: .witness, extras: extras)
   }
 
   public static func answer(t: Int64, wid: String, via: Via, text: String? = nil) -> MomentEvent {

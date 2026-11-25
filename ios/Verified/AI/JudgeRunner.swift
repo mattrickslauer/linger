@@ -2,10 +2,13 @@
 @preconcurrency import FirebaseFirestore
 import Foundation
 import Observation
+import VerifiedCore
 
 /// After a Moment is submitted and the phone is online, asks the cloud judge, skeptic and scorer
 /// (ONLY_IN_CLOUD, with images) via Firebase AI Logic and writes all three to the moment in one write.
 /// The Cloud Function then seals it.
+/// v4.10: first waits (≤ 30 s) for the server's claims (`barAndClaims` at submit) so the judge can give a verdict per
+/// claim (`judge.claims`); without them `{{claims}}` is `[]` and the seal uses the judge's overall verdict.
 @Observable
 final class JudgeRunner {
   private(set) var running: Set<String> = []
@@ -66,15 +69,17 @@ final class JudgeRunner {
       frames.append((cd.int("seq") ?? 0, f.i64("t") ?? 0, data))
     }
     let picked = Self.pickFrames(frames, heroSeq: heroSeq)
+    let claims = await Self.serverClaims(momentId: momentId, initial: d)
 
     let values = [
       "intention": intention.str("text") ?? "",
       "category": intention.str("category") ?? "other",
       "summary": Self.describe(summary, onDevice: d.obj("onDevice")),
       "frameOffsets": picked.map { "\(max(0, ($0.t - startedAt) / 1000))s" }.joined(separator: ", "),
+      "claims": HybridAI.jsonText(claims.map(\.firestoreData)),
     ]
     let images = picked.map(\.jpeg)
-    async let judge = Self.opinion(Prompts.shared.judge, values: values, images: images)
+    async let judge = Self.judge(Prompts.shared.judge, values: values, images: images, claimIds: Set(claims.map(\.id)))
     async let skeptic = Self.opinion(Prompts.shared.skeptic, values: values, images: images)
     async let score = Self.score(Prompts.shared.scorer, values: values, images: images)
     let (j, s, v) = try await (judge, skeptic, score)
@@ -82,6 +87,23 @@ final class JudgeRunner {
   }
 
   /// Hero frame first, then up to 3 more spread over the session, in time order.
+  /// The server's claims (`moments/{id}.claims.items`), waiting up to 30 s for `barAndClaims`; [] if none arrive.
+  private static func serverClaims(momentId: String, initial: [String: Any]) async -> [Claim] {
+    func items(_ d: [String: Any]?) -> [Claim]? {
+      guard let raw = d?.obj("claims")?["items"] as? [[String: Any]], !raw.isEmpty else { return nil }
+      return V4.normalizeClaims(raw).claims
+    }
+    if let c = items(initial) { return c }
+    let deadline = Date().addingTimeInterval(30)
+    while Date() < deadline {
+      try? await Task.sleep(for: .seconds(3))
+      if let snap = try? await MomentStore.moment(momentId).getDocument(source: .server), let c = items(snap.data()) {
+        return c
+      }
+    }
+    return []
+  }
+
   static func pickFrames(_ frames: [(seq: Int, t: Int64, jpeg: Data)], heroSeq: Int?)
     -> [(seq: Int, t: Int64, jpeg: Data)] {
     guard frames.count > 4 else { return frames }
@@ -116,6 +138,18 @@ final class JudgeRunner {
     "reasons": .array(items: .string()),
   ])
 
+  /// v4 judge: the opinion plus one verdict per claim.
+  private static let judgeSchema = Schema.object(properties: [
+    "verdict": .enumeration(values: ["consistent", "inconsistent", "uncertain"]),
+    "confidence": .double(),
+    "reasons": .array(items: .string()),
+    "claims": .array(items: .object(properties: [
+      "id": .string(),
+      "verdict": .enumeration(values: ["backed", "not_backed", "unclear"]),
+      "confidence": .double(),
+    ])),
+  ])
+
   private static let scoreSchema = Schema.object(properties: [
     "probability": .double(),
     "reasons": .array(items: .string()),
@@ -148,6 +182,24 @@ final class JudgeRunner {
     return AiOpinion(
       verdict: verdict, confidence: min(1, max(0, raw.confidence)),
       reasons: Array(raw.reasons.prefix(4)), model: name, ranAt: nowMs())
+  }
+
+  /// Judge (v4): verdict + confidence + reasons + `claims[{id, verdict, confidence}]` for the given claim ids.
+  static func judge(_ p: Prompts.Prompt, values: [String: String], images: [Data], claimIds: Set<String>) async throws -> AiOpinion {
+    let (json, name) = try await generate(p, schema: judgeSchema, values: values, images: images)
+    struct C: Decodable { let id: String; let verdict: String; let confidence: Double? }
+    struct Raw: Decodable { let verdict: String; let confidence: Double; let reasons: [String]; let claims: [C]? }
+    let raw = try JSONDecoder().decode(Raw.self, from: json)
+    let verdict = ["consistent", "inconsistent", "uncertain"].contains(raw.verdict) ? raw.verdict : "uncertain"
+    var seen = Set<String>()
+    let claims = (raw.claims ?? []).compactMap { c -> V4.Verdict? in
+      guard claimIds.contains(c.id), seen.insert(c.id).inserted else { return nil }
+      let v = ["backed", "not_backed", "unclear"].contains(c.verdict) ? c.verdict : "unclear"
+      return V4.Verdict(id: c.id, verdict: v, confidence: min(1, max(0, c.confidence ?? 0)))
+    }
+    return AiOpinion(
+      verdict: verdict, confidence: min(1, max(0, raw.confidence)),
+      reasons: Array(raw.reasons.prefix(4)), model: name, ranAt: nowMs(), claims: claims)
   }
 
   /// Scorer: P(claim true | evidence) under an adversarial (mostly-cheating) prior.

@@ -38,8 +38,21 @@ struct RecordView: View {
               .onChange(of: rec.intention) { _, v in
                 if v.count > 200 { rec.intention = String(v.prefix(200)) }
               }
-            Text("\(rec.intention.count)/200").font(.caption2).foregroundStyle(.tertiary)
-              .frame(maxWidth: .infinity, alignment: .trailing)
+            HStack {
+              if rec.structured == nil && !app.interview.active && app.network.isOnline
+                && !rec.intention.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button {
+                  focused = false
+                  app.interview.structureTyped(rec.intention, category: rec.category)
+                } label: {
+                  Label("Plan the evidence", systemImage: "checklist").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+                Chip(text: "cloud", systemImage: "cloud", color: .blue)
+              }
+              Spacer()
+              Text("\(rec.intention.count)/200").font(.caption2).foregroundStyle(.tertiary)
+            }
           }
 
           VStack(alignment: .leading, spacing: 8) {
@@ -131,6 +144,7 @@ private struct SubmittedBanner: View {
           .controlSize(.small)
           .padding(.top, 4)
         } else {
+        VideoStatusLine(momentId: done.id)
         Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
              : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
              : "Offline: it will sync and be judged when you're back online.")
