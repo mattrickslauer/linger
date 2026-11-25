@@ -445,52 +445,18 @@ a {
   border: 2px dashed var(--bad);
 }
 
-/* ---------------------------------------------------------------- feed hero */
+/* ---------------------------------------------------------------- landing: pitch + feed */
 
-.hero {
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: 40px var(--gutter) 24px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  gap: 16px 40px;
-  align-items: center;
-}
-.hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.hero h1 {
-  font-size: clamp(2.8rem, 7.4vw, 5.6rem);
-  line-height: 0.95;
-  letter-spacing: -0.045em;
-  font-weight: 800;
-  font-variation-settings: "opsz" 96;
-}
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
 }
-.hero-art {
-  width: 100%;
-  height: auto;
-  overflow: hidden;
-  -webkit-mask-image: radial-gradient(ellipse 70% 66% at 55% 48%, #000 60%, transparent 100%);
-  mask-image: radial-gradient(ellipse 70% 66% at 55% 48%, #000 60%, transparent 100%);
-}
 .contours path {
   fill: none;
   stroke: var(--contour);
   stroke-width: 1.2;
-}
-.hero-track-shadow {
-  fill: none;
-  stroke: var(--paper);
-  stroke-width: 10;
-  stroke-linecap: round;
 }
 .hero-track {
   fill: none;
@@ -501,72 +467,22 @@ a {
   stroke-dashoffset: 1;
   animation: draw 2.4s cubic-bezier(0.5, 0, 0.2, 1) 0.2s forwards;
 }
-.hero-frame {
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: pop 0.35s ease-out forwards;
-}
-.hero-frame rect {
-  fill: var(--sheet);
-  stroke: var(--ink);
-  stroke-width: 2;
-}
-.hero-frame circle {
-  fill: var(--track);
-  stroke: var(--paper);
-  stroke-width: 2;
-}
-.hero-frame line {
-  stroke: var(--ink);
-  stroke-width: 2;
-}
-.hero-seal {
-  opacity: 0;
-  animation: stamp 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) 2.5s forwards;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.hero-seal rect {
-  fill: var(--gold);
-}
-.hero-seal .inner {
-  fill: none;
-  stroke: var(--gold-ink);
-  stroke-width: 2;
-}
-.hero-seal text {
-  font: 800 19px var(--font);
-  fill: var(--gold-ink);
-}
 @keyframes draw {
   to {
     stroke-dashoffset: 0;
   }
 }
-@keyframes pop {
-  from {
-    opacity: 0;
-    scale: 0.6;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes stamp {
-  from {
-    opacity: 0;
-    scale: 1.6;
-  }
-  to {
-    opacity: 1;
-    scale: 1;
-  }
-}
 
 /* How it works: a real sequence, joined by a dashed track. */
+.how-wrap {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 8px var(--gutter) 72px;
+}
+.how-wrap h2 {
+  margin-bottom: 8px;
+}
 .how {
-  grid-column: 1 / -1;
   list-style: none;
   margin: 24px 0 0;
   padding: 0;
@@ -1547,14 +1463,6 @@ path.lf-cursor {
 /* ---------------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
-  .hero {
-    grid-template-columns: 1fr;
-    padding-top: 28px;
-  }
-  .hero-art {
-    max-width: 560px;
-    justify-self: center;
-  }
   .how {
     grid-template-columns: 1fr 1fr;
   }
@@ -1705,4 +1613,269 @@ path.lf-cursor {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+/* ---------------------------------------------------------------- v3: landing pitch, record CTA, sheets */
+
+.pitch {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+.pitch-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.9;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 45%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 45%, #000 100%);
+}
+.pitch-art .hero-track {
+  stroke-width: 3;
+  opacity: 0.85;
+}
+.pitch-in {
+  position: relative;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: clamp(24px, 4.5vw, 52px) var(--gutter) clamp(24px, 4vw, 44px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px 48px;
+}
+.pitch-copy {
+  flex: 1 1 520px;
+}
+.pitch h1 {
+  font-size: clamp(2.3rem, 5.4vw, 4.4rem);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  font-weight: 800;
+  font-variation-settings: "opsz" 96;
+  max-width: 12ch;
+}
+.pitch-sub {
+  margin-top: 14px;
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.pitch-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 320px;
+}
+.pitch-note {
+  font-size: 0.88rem;
+  color: var(--ink-2);
+}
+/* The way in: a big record button with a live-record dot, on the gold of the seal it leads to. */
+.btn-record {
+  min-height: 64px;
+  padding: 16px 30px 16px 24px;
+  font-size: 1.22rem;
+  font-weight: 750;
+  background: var(--gold);
+  color: var(--gold-ink);
+  border: 2px solid var(--gold-ink);
+  box-shadow: 0 4px 0 var(--gold-ink);
+}
+.btn-record:hover {
+  background: color-mix(in srgb, var(--gold) 88%, #fff);
+}
+.btn-record:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--gold-ink);
+}
+.rec-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--track);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--track) 25%, transparent);
+  flex: none;
+}
+.fab {
+  display: none;
+}
+@media (max-width: 700px) {
+  .fab {
+    position: fixed;
+    z-index: 20;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 56px;
+    padding: 0 22px 0 18px;
+    border-radius: 999px;
+    background: var(--gold);
+    color: var(--gold-ink);
+    border: 2px solid var(--gold-ink);
+    font-weight: 750;
+    text-decoration: none;
+    box-shadow: 0 4px 0 var(--gold-ink), 0 10px 28px rgb(0 0 0 / 0.18);
+  }
+  .pitch-in {
+    align-items: flex-start;
+    gap: 18px;
+  }
+  .pitch-art {
+    opacity: 0.45;
+  }
+  .btn-record {
+    min-height: 56px;
+    font-size: 1.1rem;
+  }
+  .pitch-cta {
+    max-width: none;
+  }
+}
+.feed-head .filters .cat-chip {
+  text-transform: none;
+}
+.feed-head .filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+}
+@media (min-width: 760px) {
+  .card-lead {
+    grid-column: span 2;
+  }
+  .card-lead .card-media {
+    aspect-ratio: 16 / 9;
+  }
+  .card-lead .card-body h3 {
+    font-size: 1.5rem;
+  }
+}
+.scoreline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.scoreline-meter {
+  position: relative;
+  flex: 0 0 96px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--paper-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.scoreline-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--ok);
+}
+.scoreline-low .scoreline-fill {
+  background: var(--bad);
+}
+.scoreline-bar {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ink);
+}
+.chip-ladder {
+  background: var(--gold);
+  color: var(--gold-ink);
+  border-color: var(--gold-ink);
+}
+.signin-top {
+  white-space: nowrap;
+}
+
+/* Sheets: sign in on write, claim guest Moments, ladder, interview card */
+.sheet {
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 16px;
+  background: var(--sheet);
+  color: var(--ink);
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.28);
+}
+.sheet::backdrop {
+  background: color-mix(in srgb, var(--paper) 40%, rgb(0 0 0 / 0.55));
+}
+.sheet-box {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sheet h2 {
+  font-size: 1.35rem;
+}
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+}
+@media (max-width: 600px) {
+  .sheet {
+    margin: auto 0 0;
+    width: 100vw;
+    max-width: 100vw;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+  }
+}
+.claim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--rule);
+}
+.claim-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.claim-list li > div:first-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.claim-kept {
+  opacity: 0.55;
+}
+.claim-row-actions {
+  display: flex;
+  gap: 4px;
+}
+.local-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  padding: 14px 18px;
+  border-radius: var(--r);
+  border: 1.5px dashed var(--ink-3);
+  background: var(--sheet);
 }

@@ -10,8 +10,13 @@
 // Offline, an error, or any mismatch: the local copy stays.
 // Deleted Moments (docs/ARCHITECTURE.md "Deleting a Moment"): forgetMoment() drops the journal before the Firestore
 // delete, and a Moment missing on the server is re-created only when it has no deleted/{id} tombstone.
+//
+// Guest mode (docs/ARCHITECTURE.md v3.1): a guest's Moment lives ONLY here, with ownerUid: null, owner: null,
+// guest: true, and is never written to Firestore. claimMoments() binds it to the signed-in account in the journal;
+// the next verify pass then finds it missing on the server and re-creates it exactly like a lost Moment. The chain
+// binds only the momentId (GENESIS:<id>), so no chunk needs rewriting.
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   collection,
   doc,
@@ -24,7 +29,7 @@ import {
   waitForPendingWrites,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import type { Chunk } from "./types";
+import type { Chunk, Moment } from "./types";
 import { compareVault, type VaultChunk } from "./vaultCheck";
 
 const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -34,8 +39,12 @@ type Fields = Record<string, unknown>;
 type StoredMoment = Fields & { id: string };
 type StoredChunk = Chunk & { momentId: string };
 
-const SUBMIT_FIELDS = ["status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "submittedAtServer"];
-const enabled = () => typeof indexedDB !== "undefined" && db != null;
+const SUBMIT_FIELDS = ["status", "endedAt", "chunkCount", "headHash", "summary", "onDevice", "witness", "submittedAtServer"];
+/** Journal-only keys: kept on this device, never sent to Firestore. */
+const JOURNAL_ONLY = ["guest", "transcript"];
+/** The journal works without Firebase (guests, sample-data builds); the server check needs Firestore. */
+export const journalOk = () => typeof indexedDB !== "undefined";
+const enabled = () => journalOk() && db != null;
 
 // ---------------------------------------------------------------- held state (id -> why it is still here)
 
@@ -46,6 +55,18 @@ function setHeld(next: Record<string, VaultState>) {
   listeners.forEach((l) => l());
 }
 const mark = (id: string, s: VaultState) => setHeld({ ...held, [id]: s });
+// Local Moments list (guest + held), for Me and the claim sheet. Bumped on every journal change.
+let localVersion = 0;
+const localListeners = new Set<() => void>();
+function bumpLocal() {
+  localVersion++;
+  localListeners.forEach((l) => l());
+}
+export function subscribeLocal(l: () => void) {
+  localListeners.add(l);
+  return () => localListeners.delete(l);
+}
+export const localVersionNow = () => localVersion;
 const unmark = (id: string) => {
   const { [id]: _, ...rest } = held;
   setHeld(rest);
@@ -64,10 +85,13 @@ export const useVaultHeld = () => useSyncExternalStore(subscribeVault, vaultHeld
 let dbp: Promise<IDBDatabase> | null = null;
 function open(): Promise<IDBDatabase> {
   return (dbp ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const r = indexedDB.open("verified-vault", 1);
+    const r = indexedDB.open("verified-vault", 2);
     r.onupgradeneeded = () => {
-      r.result.createObjectStore("moments", { keyPath: "id" });
-      r.result.createObjectStore("chunks", { keyPath: ["momentId", "seq"] });
+      const names = r.result.objectStoreNames;
+      if (!names.contains("moments")) r.result.createObjectStore("moments", { keyPath: "id" });
+      if (!names.contains("chunks")) r.result.createObjectStore("chunks", { keyPath: ["momentId", "seq"] });
+      // v2: recorded video clips (Blob), keyed by their SHA-256, uploaded only for the full_video ladder module.
+      if (!names.contains("clips")) r.result.createObjectStore("clips", { keyPath: "sha256" });
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error ?? new Error("vault: could not open IndexedDB"));
@@ -111,14 +135,15 @@ function askPersist() {
 // Each throws rather than silently skipping: a Moment that isn't journaled must not be written.
 
 export async function journalMoment(id: string, fields: Fields): Promise<void> {
-  if (!enabled()) return;
+  if (!journalOk()) return;
   askPersist();
   await tx(["moments"], "readwrite", (t) => t.objectStore("moments").put({ ...plain(fields), id }));
-  mark(id, "waiting");
+  if (!fields.guest) mark(id, "waiting");
+  bumpLocal();
 }
 
 export async function journalMomentUpdate(id: string, fields: Fields): Promise<void> {
-  if (!enabled()) return;
+  if (!journalOk()) return;
   const d = await open();
   await new Promise<void>((resolve, reject) => {
     const t = d.transaction(["moments"], "readwrite", { durability: "strict" });
@@ -129,10 +154,11 @@ export async function journalMomentUpdate(id: string, fields: Fields): Promise<v
     t.onerror = () => reject(t.error ?? new Error("vault: transaction failed"));
     t.onabort = () => reject(t.error ?? new Error("vault: transaction aborted"));
   });
+  bumpLocal();
 }
 
 export async function journalChunk(id: string, c: Chunk): Promise<void> {
-  if (!enabled()) return;
+  if (!journalOk()) return;
   const rec: StoredChunk = {
     momentId: id,
     seq: c.seq,
@@ -165,8 +191,93 @@ const deletedHere = new Set<string>();
  */
 export async function forgetMoment(id: string): Promise<void> {
   deletedHere.add(id);
-  if (enabled()) await forget(id);
+  if (journalOk()) await forget(id);
   unmark(id);
+  bumpLocal();
+}
+
+// ---------------------------------------------------------------- local reads (guest Moments, offline detail)
+
+export type LocalMoment = Moment & { transcript?: string[] };
+
+/** Every Moment this browser still holds, newest first. */
+export async function listLocalMoments(): Promise<LocalMoment[]> {
+  if (!journalOk()) return [];
+  const all = (await allMoments()) as unknown as LocalMoment[];
+  return all.filter((m) => !deletedHere.has(m.id)).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}
+export async function localMoment(id: string): Promise<LocalMoment | null> {
+  if (!journalOk()) return null;
+  const m = await tx<StoredMoment | undefined>(["moments"], "readonly", (t) => t.objectStore("moments").get(id) as IDBRequest<StoredMoment | undefined>);
+  return (m as unknown as LocalMoment) ?? null;
+}
+export async function localChunks(id: string): Promise<Chunk[]> {
+  if (!journalOk()) return [];
+  return (await chunksOf(id)).sort((a, b) => a.seq - b.seq).map(({ momentId: _m, ...c }) => c);
+}
+/** Guest Moments that finished recording and wait to be claimed by an account. */
+export const unclaimed = (ms: LocalMoment[]) => ms.filter((m) => m.guest && m.ownerUid == null && m.status === "submitted");
+
+/** Hook: the local journal, refreshed on every journal change. */
+export function useLocalMoments(): LocalMoment[] | null {
+  const v = useSyncExternalStore(subscribeLocal, localVersionNow, localVersionNow);
+  const [list, setList] = useState<LocalMoment[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    listLocalMoments().then(
+      (l) => live && setList(l),
+      () => live && setList([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [v]);
+  return list;
+}
+
+/**
+ * Claim guest Moments for the signed-in account (docs/ARCHITECTURE.md v3.1 step 2). Journal first: ownerUid, owner,
+ * recordedAsGuest, claimedAt, guest = false. The verify pass then re-creates each one on the server (status
+ * recording with these fields), uploads every chunk and sends the submit fields. A Moment already owned is skipped.
+ */
+export async function claimMoments(ids: string[], user: { uid: string; displayName: string | null; photoURL: string | null }): Promise<string[]> {
+  const done: string[] = [];
+  for (const id of ids) {
+    const m = await localMoment(id);
+    if (!m || m.ownerUid != null || !m.guest) continue;
+    await journalMomentUpdate(id, {
+      ownerUid: user.uid,
+      owner: { name: user.displayName || "Anonymous", photoURL: user.photoURL ?? null },
+      recordedAsGuest: true,
+      claimedAt: Date.now(),
+      guest: false,
+    });
+    mark(id, "waiting");
+    done.push(id);
+  }
+  if (done.length) await verifyAll();
+  return done;
+}
+
+// ---------------------------------------------------------------- clips (video evidence, step 6)
+
+export interface StoredClip {
+  sha256: string;
+  momentId: string;
+  blob: Blob;
+  mime: string;
+  bytes: number;
+  durationMs: number;
+  name: string;
+}
+export async function journalClip(c: StoredClip): Promise<void> {
+  if (!journalOk()) return;
+  await tx(["clips"], "readwrite", (t) => t.objectStore("clips").put(c));
+}
+export async function clipsOf(momentId: string): Promise<StoredClip[]> {
+  if (!journalOk()) return [];
+  const all = await tx<StoredClip[]>(["clips"], "readonly", (t) => t.objectStore("clips").getAll() as IDBRequest<StoredClip[]>);
+  return all.filter((c) => c.momentId === momentId);
 }
 
 class Deleted extends Error {}
@@ -203,7 +314,7 @@ async function pass() {
   const moments = await allMoments();
   // Reflect the journal in the held state (e.g. on first run after a reload), keeping known states.
   const next: Record<string, VaultState> = {};
-  for (const m of moments) if (!deletedHere.has(m.id)) next[m.id] = held[m.id] ?? "waiting";
+  for (const m of moments) if (!deletedHere.has(m.id) && !m.guest && m.ownerUid != null) next[m.id] = held[m.id] ?? "waiting";
   setHeld(next);
 
   const uid = auth?.currentUser?.uid;
@@ -212,7 +323,7 @@ async function pass() {
   await withTimeout(waitForPendingWrites(db!), 15_000);
 
   for (const m of moments) {
-    if (deletedHere.has(m.id)) continue;
+    if (deletedHere.has(m.id) || m.guest || m.ownerUid == null) continue; // guest Moments stay local until claimed
     let ok = false;
     try {
       ok = await verify(m, uid);
@@ -223,6 +334,7 @@ async function pass() {
     if (ok) {
       await forget(m.id);
       unmark(m.id);
+      bumpLocal();
       console.info(`vault: verified on server, local copy removed: ${m.id}`);
     }
   }
@@ -263,7 +375,7 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     mark(id, "repairing");
     console.warn(`vault: ${id}: missing on server, re-creating from the journal`);
     const { id: _id, ...create } = local as Fields;
-    for (const k of SUBMIT_FIELDS) delete create[k];
+    for (const k of [...SUBMIT_FIELDS, ...JOURNAL_ONLY]) delete create[k];
     Object.assign(create, { status: "recording", seal: null, judge: null, skeptic: null, score: null, createdAtServer: serverTimestamp() });
     stopIfDeleted(id);
     await setDoc(ref, create);
@@ -285,6 +397,8 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
   if (server.get("status") === "recording") {
     const submit: Fields = {};
     for (const k of SUBMIT_FIELDS) submit[k] = k === "submittedAtServer" ? serverTimestamp() : (local[k] ?? null);
+    // The intention may ride the submit update (it is frozen after); harmless when unchanged.
+    if (local.intention) submit.intention = local.intention;
     stopIfDeleted(id);
     await updateDoc(ref, submit);
   }

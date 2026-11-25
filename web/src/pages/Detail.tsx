@@ -8,7 +8,11 @@ import { getChunks, getMomentBundle, type MomentBundle } from "../data";
 import { FIXTURES } from "../firebase";
 import { decodeChunks, downsample, fmtDistance, fmtDuration } from "../geo";
 import { recordingMomentId } from "../recorder";
-import type { AiOpinion, Chunk, SealChecks } from "../types";
+import type { AiOpinion, Chunk, Moment, SealChecks } from "../types";
+import { localChunks, localMoment } from "../vault";
+import { claimAndVerify, markClaimPrompted } from "../claim";
+import { configured } from "../firebase";
+import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
 
 const TrackMap = lazy(() => import("../components/TrackMap"));
@@ -96,6 +100,46 @@ function Opinion({ who, o, fallback }: { who: "Judge" | "Skeptic"; o: AiOpinion 
   );
 }
 
+/** A Moment that exists only in this browser: say so, and offer the one thing that needs an account. */
+function LocalBanner({ id, guest, finished, onUploaded }: { id: string; guest: boolean; finished: boolean; onUploaded: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="local-banner" role="status">
+      <div>
+        <strong>{guest ? "On this device · sign in to verify" : "On this device · waiting to sync"}</strong>
+        <p className="muted small">
+          {guest
+            ? "Recorded as a guest. Nobody else can see it until you upload it; then the cloud review and the seal run as usual."
+            : "This browser keeps the raw copy until the server confirms every chunk."}
+        </p>
+        {err && <p className="notice notice-bad small">{err}</p>}
+      </div>
+      {guest && finished && configured && (
+        <button
+          className="btn btn-primary btn-small"
+          disabled={!!busy}
+          onClick={async () => {
+            setErr(null);
+            try {
+              markClaimPrompted();
+              const u = await requireSignIn("upload this Moment and get it verified");
+              await claimAndVerify([id], u, setBusy);
+              onUploaded();
+            } catch (e) {
+              if (!isDeclined(e)) setErr(`Upload failed: ${String((e as Error)?.message ?? e)}`);
+            } finally {
+              setBusy(null);
+            }
+          }}
+        >
+          {busy ?? "Upload and verify"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Detail({ id }: { id: string }) {
   const [bundle, setBundle] = useState<MomentBundle | null>(null);
   const [chunks, setChunks] = useState<Chunk[] | null>(null);
@@ -105,17 +149,39 @@ export default function Detail({ id }: { id: string }) {
   const { user } = useUser();
   const fromMe = cameFromMe(location.search);
 
+  const [local, setLocal] = useState(false);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let live = true;
-    getMomentBundle(id).then((b) => live && setBundle(b), (e) => live && setErr(String(e?.message ?? e)));
-    getChunks(id).then(
-      (c) => live && setChunks(c),
-      () => live && setChunks([]),
-    );
+    // Server (or fixtures) first; a Moment only this browser holds (a guest's, or one not yet synced) comes from the
+    // raw-vault journal instead, chunks included.
+    const fromVault = async () => {
+      const lm = await localMoment(id).catch(() => null);
+      if (!lm) return false;
+      const lc = await localChunks(id);
+      if (!live) return true;
+      setLocal(true);
+      setBundle({ feed: null, moment: lm as Moment });
+      setChunks(lc);
+      return true;
+    };
+    getMomentBundle(id)
+      .catch(() => ({ feed: null, moment: null }) as MomentBundle)
+      .then(async (b) => {
+        if (!live) return;
+        if (!b.feed && !b.moment && (await fromVault())) return;
+        setLocal(false);
+        setBundle(b);
+        getChunks(id).then(
+          (c) => live && setChunks(c),
+          () => live && setChunks([]),
+        );
+      })
+      .catch((e) => live && setErr(String(e?.message ?? e)));
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, reload]);
 
   const decoded = useMemo(() => decodeChunks(chunks ?? []), [chunks]);
   const feed = bundle?.feed ?? null;
@@ -171,7 +237,8 @@ export default function Detail({ id }: { id: string }) {
     );
 
   const intention = moment?.intention ?? feed!.intention;
-  const owner = moment?.owner ?? feed!.owner;
+  const guestLocal = local && moment?.ownerUid == null;
+  const owner = moment ? moment.owner : feed!.owner;
   const platform = moment?.platform ?? feed!.platform;
   const mode = moment?.onDevice.mode ?? feed!.onDeviceMode;
   const checks = moment?.seal?.checks ?? feed?.checks ?? null;
@@ -189,12 +256,20 @@ export default function Detail({ id }: { id: string }) {
         </Link>
         {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet" />}
       </div>
+      {local && (
+        <LocalBanner
+          id={id}
+          guest={guestLocal}
+          finished={moment?.status === "submitted"}
+          onUploaded={() => setReload((n) => n + 1)}
+        />
+      )}
       <header className="detail-head">
         <div>
           <p className="cat">{intention.category}</p>
           <h1>{intention.text}</h1>
           <p className="muted">
-            {owner?.name}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
+            {owner?.name ?? "You, as a guest"}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
             {moment?.device ? `, ${moment.device.model}` : ""}
           </p>
           <Chips platform={platform} mode={mode} />

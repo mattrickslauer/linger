@@ -3,6 +3,8 @@
 // replays them in order when the network returns. Each one is first journaled (awaited) to the raw vault
 // (vault.ts), so this browser keeps its own copy until the server provably has every chunk. Order matters for the security rules: the last
 // chunk is queued before the moment flips to "submitted".
+// Guest mode (docs/ARCHITECTURE.md v3.1): with no signed-in user the session writes ONLY the raw-vault journal
+// (ownerUid: null, owner: null, guest: true). Nothing is queued for Firestore; claimMoments() uploads it later.
 
 import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
@@ -10,8 +12,8 @@ import { cloudReview, liveCheck } from "./ai";
 import { makeChunk } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
-import type { AppEvent, Category, CheckMode, Chunk, GpsRow, LiveCheck, MotionRow } from "./types";
-import { forgetMoment, journalChunk, journalMoment, journalMomentUpdate, verifyAll } from "./vault";
+import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, MotionRow } from "./types";
+import { forgetMoment, journalChunk, journalMoment, journalMomentUpdate, journalOk, verifyAll } from "./vault";
 
 export const CHUNK_MS = 5000;
 export const pad6 = (n: number) => String(n).padStart(6, "0");
@@ -79,11 +81,12 @@ export class Session {
   state: LiveState;
   onChange: (s: LiveState) => void = () => {};
 
+  readonly guest: boolean;
   constructor(
-    private user: User,
-    readonly intention: string,
-    readonly category: Category,
+    private user: User | null,
+    public intentionObj: Intention,
   ) {
+    this.guest = !user;
     this.state = {
       elapsedMs: 0,
       distanceM: 0,
@@ -108,14 +111,22 @@ export class Session {
     this.onChange(this.state);
   }
 
+  get intention(): string {
+    return this.intentionObj.text;
+  }
+  get category() {
+    return this.intentionObj.category;
+  }
+
   /** Journals and queues the moment create; rejects if the raw vault can't be written. */
   async start() {
-    if (!db) throw new Error("Firebase is not configured");
-    const ref = doc(db, "moments", this.id);
+    if (this.guest ? !journalOk() : !db) throw new Error(this.guest ? "This browser can't store Moments (IndexedDB is unavailable)." : "Firebase is not configured");
+    const u = this.user;
     const fields = {
-      ownerUid: this.user.uid,
-      owner: { name: this.user.displayName || "Anonymous", photoURL: this.user.photoURL ?? null },
-      intention: { text: this.intention.slice(0, 200), category: this.category },
+      ownerUid: u ? u.uid : null,
+      owner: u ? { name: u.displayName || "Anonymous", photoURL: u.photoURL ?? null } : null,
+      ...(u ? {} : { guest: true }),
+      intention: { ...this.intentionObj, text: this.intentionObj.text.slice(0, 200) },
       platform: "web",
       device: deviceInfo(),
       status: "recording",
@@ -136,7 +147,7 @@ export class Session {
     // Journal first, inside the write queue so the create still precedes every chunk.
     const create = this.queue.then(async () => {
       await journalMoment(this.id, fields);
-      setDoc(ref, fields).catch((e) => console.error("moment create failed", e));
+      if (!this.guest) setDoc(doc(db!, "moments", this.id), fields).catch((e) => console.error("moment create failed", e));
     });
     this.queue = create;
     await create;
@@ -204,6 +215,10 @@ export class Session {
       this.prevHash = c.hash;
       await journalChunk(this.id, c); // raw vault first; throws (and stops the queue) rather than skip
       this.chunks.push(c);
+      if (this.guest) {
+        this.emit({ chunks: this.chunks.length });
+        return;
+      }
       this.pending.add(seq);
       setDoc(doc(db!, "moments", this.id, "chunks", pad6(seq)), c).then(
         () => {
@@ -281,6 +296,7 @@ export class Session {
       submittedAtServer: serverTimestamp(),
     };
     await journalMomentUpdate(this.id, submit);
+    if (this.guest) return;
     updateDoc(doc(db!, "moments", this.id), submit).catch((e) => console.error("submit failed", e));
     void verifyAll();
   }
@@ -290,11 +306,22 @@ export class Session {
   }
 }
 
-/** Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update. */
-export async function runCloudReview(momentId: string, moment: Parameters<typeof cloudReview>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
-  const review = await cloudReview(moment, frames);
-  await updateDoc(doc(db!, "moments", momentId), review);
-  return review;
+const reviews = new Map<string, Promise<unknown>>();
+/**
+ * Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update.
+ * One run per Moment at a time: the Done screen and the guest-claim flow may both ask for the same one.
+ */
+export function runCloudReview(momentId: string, moment: Parameters<typeof cloudReview>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
+  const inFlight = reviews.get(momentId);
+  if (inFlight) return inFlight as ReturnType<typeof run>;
+  const run = async () => {
+    const review = await cloudReview(moment, frames);
+    await updateDoc(doc(db!, "moments", momentId), review);
+    return review;
+  };
+  const p = run().finally(() => reviews.delete(momentId));
+  reviews.set(momentId, p);
+  return p;
 }
 
 /** Grab a proof frame from a playing <video>: longest side 640 px, JPEG q0.6, under ~120 KB base64. */

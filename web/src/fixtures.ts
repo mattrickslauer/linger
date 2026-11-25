@@ -280,7 +280,7 @@ async function buildOne(spec: Spec, seed: number) {
   const hero = chunks.find((c) => c.seq === heroSeq)?.frame?.jpegB64 ?? null;
   const feed: FeedEntry = {
     momentId: spec.id,
-    owner: moment.owner,
+    owner: moment.owner!,
     intention: moment.intention,
     platform: spec.platform,
     summary,

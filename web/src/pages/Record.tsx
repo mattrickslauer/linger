@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import type { User } from "firebase/auth";
-import { signInWithGoogle } from "../auth";
+import { claimAndVerify, markClaimPrompted } from "../claim";
 import { sha256hex } from "../chain";
 import { configured, db, loadCloudModel } from "../firebase";
+import { isDeclined, requireSignIn } from "../signin";
 import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
-import { CATEGORIES, type Category, type Moment } from "../types";
+import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
 
 const EXAMPLES: Record<Category, string> = {
@@ -29,24 +30,7 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-function SignInGate() {
-  const [err, setErr] = useState<string | null>(null);
-  return (
-    <div className="page gate">
-      <h1>Record a Moment</h1>
-      <p className="lede">Sign in so your Moments are yours. Watching the feed never needs an account.</p>
-      <button
-        className="btn btn-primary"
-        onClick={() => signInWithGoogle().catch((e) => setErr(e?.code === "auth/popup-closed-by-user" ? null : String(e?.message ?? e)))}
-      >
-        Sign in with Google
-      </button>
-      {err && <p className="notice notice-bad">Sign-in failed: {err}</p>}
-    </div>
-  );
-}
-
-function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) {
+function Setup({ onStart, guest }: { onStart: (i: Intention) => void; guest: boolean }) {
   const [cat, setCat] = useState<Category>("fishing");
   const [text, setText] = useState("");
   return (
@@ -54,7 +38,7 @@ function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) 
       className="page setup"
       onSubmit={(e) => {
         e.preventDefault();
-        onStart(text.trim() || EXAMPLES[cat], cat);
+        onStart({ text: text.trim() || EXAMPLES[cat], category: cat });
       }}
     >
       <h1>What are you about to do?</h1>
@@ -73,7 +57,10 @@ function Setup({ onStart }: { onStart: (text: string, cat: Category) => void }) 
       <button className="btn btn-primary btn-big" type="submit">
         Start Moment
       </button>
-      <p className="muted small">Uses your location, motion sensor and camera while recording. Works offline; it syncs when you're back online.</p>
+      <p className="muted small">
+        Uses your location, motion sensor and camera while recording. Works offline.{" "}
+        {guest ? "As a guest, the Moment stays on this device until you sign in to upload it." : "It syncs when you're back online."}
+      </p>
     </form>
   );
 }
@@ -219,8 +206,10 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               {s.retakes ? <span className="g-small muted"> ({s.retakes} retake)</span> : null}
             </span>
           </div>
-          <p className={`sync ${s.online ? "" : "sync-off"}`} role="status">
-            {s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
+          <p className={`sync ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
+            {session.guest
+              ? `On this device · ${s.chunks} chunks chained`
+              : s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
           </p>
         </div>
       </div>
@@ -249,6 +238,52 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
         </p>
       )}
       {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
+    </div>
+  );
+}
+
+/** A guest's Moment is finished and chained in this browser; uploading it is the first thing that needs an account. */
+function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="page done">
+      <h1>Moment recorded.</h1>
+      <p className="lede">{session.intention}</p>
+      <ol className="steps">
+        <li className="step step-done">Recorded and chained on this device ({session.chunks.length} chunks)</li>
+        <li className="step step-now">On this device · sign in to verify</li>
+        <li className="step step-todo">Cloud judge, skeptic + scorer</li>
+        <li className="step step-todo">Deterministic seal by Cloud Function</li>
+      </ol>
+      {err && <p className="notice notice-bad small">{err}</p>}
+      <div className="hero-actions">
+        <button
+          className="btn btn-primary"
+          disabled={!!busy || !configured}
+          onClick={async () => {
+            setErr(null);
+            try {
+              markClaimPrompted(); // this action claims it; don't also pop the "recorded as a guest" sheet
+              const user = await requireSignIn("upload this Moment and get it verified");
+              await claimAndVerify([session.id], user, setBusy);
+              onClaimed();
+            } catch (e) {
+              setBusy(null);
+              if (!isDeclined(e)) setErr(`Upload failed: ${String((e as Error)?.message ?? e)}. It stays on this device.`);
+            }
+          }}
+        >
+          {busy ?? "Upload and verify"}
+        </button>
+        <Link to={`/m/${session.id}`} className="btn">
+          Open it
+        </Link>
+        <Link to="/me" className="btn btn-quiet">
+          Moments on this device
+        </Link>
+      </div>
+      {!configured && <p className="muted small">This sample-data build can't upload; the Moment stays in this browser.</p>}
     </div>
   );
 }
@@ -346,31 +381,25 @@ function Done({ session }: { session: Session }) {
 export default function Record({ user, ready }: { user: User | null; ready: boolean }) {
   const [session, setSession] = useState<Session | null>(null);
   const [done, setDone] = useState(false);
+  const [claimed, setClaimed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => () => session?.dispose(), [session]);
 
-  if (!configured)
-    return (
-      <div className="page gate">
-        <h1>Record a Moment</h1>
-        <p className="notice">Recording needs Firebase. This build is showing sample data only (VITE_FIXTURES=true).</p>
-      </div>
-    );
-  if (!ready) return <div className="page" aria-busy="true" />;
-  if (!user) return <SignInGate />;
-  if (session && done) return <Done session={session} />;
+  if (configured && !ready) return <div className="page" aria-busy="true" />;
+  if (session && done) return session.guest && !claimed ? <GuestDone session={session} onClaimed={() => setClaimed(true)} /> : <Done session={session} />;
   if (session) return <Live session={session} onDone={() => setDone(true)} />;
   return (
     <>
       {err && <p className="notice notice-bad page">{err}</p>}
       <Setup
-        onStart={async (text, cat) => {
+        guest={!user}
+        onStart={async (intention) => {
           try {
             // iOS Safari gates motion behind a user gesture.
             const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
             await DME?.requestPermission?.().catch(() => "denied");
             void loadCloudModel();
-            const s = new Session(user, text, cat);
+            const s = new Session(user, intention);
             await s.start(); // rejects if the raw vault can't be written: nothing is recorded
             setSession(s);
           } catch (e) {
