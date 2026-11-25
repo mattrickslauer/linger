@@ -75,6 +75,9 @@ export function unmetNeedV4(mod: { needs: string[] }, facts: ChainFacts, claims:
 export function eligibility(m: MomentDoc, module: ModuleId, requestId: string): string | null {
   const seal = m.seal as SealV3 | null | undefined;
   if (!(m.status === "sealed" || m.status === "rejected") || !seal || !(Number(seal.version) >= 3)) return "not_sealed_yet";
+  // v5: a seal revoked by a challenge never comes back; the ladder waits while a challenge is being reviewed.
+  if ((seal as { revoked?: unknown }).revoked) return "overturned";
+  if ((m.challenge as { status?: string } | null | undefined)?.status === "reviewing") return "in_review";
   if (!seal.ladderEligible) return "not_eligible";
   const v = m.verification as Verification | undefined;
   if (v?.modules?.some((r) => r.module === module)) return "already_run";
