@@ -117,7 +117,16 @@ struct MomentCard: View {
         if let bar = item.bar {
           ScoreBarLine(score: item.displayScore, bar: bar.value, ladderCount: item.ladder.count, verified: item.isVerified)
         }
+        if item.cheating && item.status == "rejected" {
+          // v4.11: "Not verified · cheating detected"
+          Label("Not verified · cheating detected", systemImage: "exclamationmark.octagon.fill")
+            .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.bad)
+        }
         HStack(spacing: 6) {
+          if item.isV4 && item.claimsTotal > 0 && !item.claimScores.isEmpty {
+            // v4.8: "2/2 claims backed"
+            ClaimsBackedChip(backed: item.claimsBacked ?? 0, total: item.claimsTotal)
+          }
           Chip(text: item.platform.isEmpty ? "?" : platformName(item.platform), systemImage: platformIcon(item.platform))
           if item.onDeviceMode == "on_device" {
             Chip(text: "checked on-device", systemImage: "cpu", color: Theme.accent)

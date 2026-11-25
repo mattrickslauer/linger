@@ -25,6 +25,7 @@ struct MomentDetailView: View {
       VStack(alignment: .leading, spacing: 18) {
         header(m)
         if let s = m.structured { section("Intention", icon: "text.quote") { IntentionDetails(intention: s) } }
+        if ClaimsSection.visible(m) { section("Claims", icon: "checklist") { ClaimsSection(model: model) } }
         if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
           section("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
         }
@@ -312,8 +313,20 @@ struct SealChecklist: View {
   let chainVerified: Bool?
   let chunkCount: Int
 
-  /// Seal v3 moves the score gate from `ai` to the new `bar` check (docs/ARCHITECTURE.md v3.5).
+  /// Seal v3 moves the score gate from `ai` to the new `bar` check (docs/ARCHITECTURE.md v3.5); seal v4 adds
+  /// `cheating` and makes `bar` per claim (v4.5).
   var rows: [(key: String, title: String)] {
+    if (card.sealVersion ?? 0) >= 4 || card.checks["cheating"] != nil {
+      return [
+        ("chain", "Hash chain intact"),
+        ("timing", "Timing consistent (≥ 20 s, in order)"),
+        ("physics", "Physics plausible (no GPS jumps)"),
+        ("frames", "Proof frames match their hashes"),
+        ("ai", "Proof frames don't contradict the intention"),
+        ("cheating", "No cheating detected"),
+        ("bar", "Every claim reaches the bar" + (card.bar.map { String(format: " (%.2f)", $0.value) } ?? "")),
+      ]
+    }
     let v3 = (card.sealVersion ?? 0) >= 3 || card.checks["bar"] != nil
     var r: [(key: String, title: String)] = [
       ("chain", "Hash chain intact"),
@@ -356,7 +369,9 @@ struct SealChecklist: View {
     case "recording": "Still recording."
     case "submitted":
       card.judge == nil ? "Waiting for the cloud judge, skeptic and scorer (runs when the owner's phone is online)."
-        : card.bar == nil ? "Waiting for the cloud to set the bar, then the seal." : "Waiting for the seal function."
+        : card.bar == nil ? "Waiting for the cloud to set the bar, then the seal."
+        : card.videoReview?.status == "waiting" ? "Waiting for video upload."
+        : card.videoReview?.status == "running" ? "Reviewing video, then the seal." : "Waiting for the seal function."
     default: ""
     }
   }
