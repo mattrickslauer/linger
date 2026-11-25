@@ -267,6 +267,8 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var platform: String
   var status: String  // recording | submitted | sealed | rejected
   var startedAt: Int64
+  /// Feed only: `sealedAtServer` (set by FeedStore, which reads the Firestore Timestamp).
+  var sealedAt: Date? = nil
   var summary: SummaryInfo?
   var onDeviceMode: String
   var heroJpegB64: String?

@@ -20,7 +20,12 @@ final class FeedStore {
           if let err { self.error = err.localizedDescription }
           guard let snap else { return }
           self.error = nil
-          self.items = snap.documents.map { MomentCardData.fromFeed(id: $0.documentID, $0.data()) }
+          self.items = snap.documents.map { doc in
+            let data = doc.data()
+            var item = MomentCardData.fromFeed(id: doc.documentID, data)
+            item.sealedAt = (data["sealedAtServer"] as? Timestamp)?.dateValue()
+            return item
+          }
           self.loaded = true
         }
       }
