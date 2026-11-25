@@ -3,6 +3,7 @@ package com.mattricks.verified
 import android.app.Application
 import android.util.Log
 import com.google.firebase.Firebase
+import com.google.firebase.app
 import com.google.firebase.appcheck.appCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
@@ -33,6 +34,11 @@ class VerifiedApp : Application() {
 
         if (BuildConfig.DEBUG) {
             // Debug token is logged by DebugAppCheckProvider; register it in the console (App Check > Apps).
+            // Judge builds carry one fixed registered token: seed it where DebugAppCheckProvider stores its secret.
+            if (BuildConfig.APPCHECK_DEBUG_TOKEN.isNotEmpty()) {
+                getSharedPreferences("com.google.firebase.appcheck.debug.store.${Firebase.app.persistenceKey}", MODE_PRIVATE)
+                    .edit().putString("com.google.firebase.appcheck.debug.DEBUG_SECRET", BuildConfig.APPCHECK_DEBUG_TOKEN).apply()
+            }
             Firebase.appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
         } else {
             // Release (Play installs): Play Integrity. Needs the Play app-signing SHA-256 in Firebase App Check.
