@@ -56,6 +56,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # A recording Moment keeps its GPS track (and the witness) going with the screen locked.
+        UIBackgroundModes: [location]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         NSCameraUsageDescription: Verified takes proof shots and video clips of your Moment.

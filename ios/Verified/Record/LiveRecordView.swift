@@ -11,6 +11,7 @@ struct LiveRecordView: View {
   @Environment(AppModel.self) private var app
   @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
   @State private var mapBig = false
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     let rec = app.recorder
@@ -27,7 +28,16 @@ struct LiveRecordView: View {
         if let since = rec.clipStartedAt { recPill(since).padding(.leading, 10).padding(.top, 64) }
       }
       .overlay(alignment: .topTrailing) { miniWindow(rec).padding(.trailing, 10).padding(.top, 64) }
-      .overlay(alignment: .bottom) { modeToggle(rec).padding(12) }
+      .overlay(alignment: .bottom) {
+        VStack(spacing: 10) {
+          if let open = rec.witness.open {
+            WitnessCard(request: open).id(open.wid).padding(.horizontal, 10)
+          }
+          modeToggle(rec)
+        }
+        .padding(.bottom, 12)
+        .animation(.snappy, value: rec.witness.open?.wid)
+      }
       .overlay(alignment: .bottomTrailing) {
         if !mapBig { cameraButtons(rec).padding(12) }
       }
@@ -40,6 +50,11 @@ struct LiveRecordView: View {
     .background(Color(.systemGroupedBackground))
     .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
     .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+    // Witness: remind with a local notification when the app leaves the screen with a request open.
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .background { rec.witness.didEnterBackground() }
+      if phase == .active { WitnessNotifier.clear() }
+    }
   }
 
   // MARK: - Top: intention, timer, distance, sync badge
@@ -144,6 +159,7 @@ struct LiveRecordView: View {
   /// Flash (only when the lens has one; torch in video mode) and front/back flip.
   @ViewBuilder private func cameraButtons(_ rec: RecorderModel) -> some View {
     VStack(spacing: 10) {
+      WitnessToggle()
       if CameraController.hasFlash(rec.position) {
         let ui = flashUI(rec)
         Button { rec.cycleFlash() } label: { roundIcon(ui.icon, enabled: true) }
@@ -186,7 +202,8 @@ struct LiveRecordView: View {
           }
           .frame(maxWidth: .infinity, alignment: .leading)
 
-          Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting) {
+          Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting,
+                  witness: rec.witness.armed != nil) {
             if !rec.videoMode { rec.proofShot() }
             else if rec.clipStartedAt == nil { rec.startVideo() }
             else { rec.stopVideo() }
@@ -230,6 +247,8 @@ private struct Shutter: View {
   let video: Bool
   let recording: Bool
   let busy: Bool
+  /// The witness asked to be shown something: the shutter glows.
+  var witness = false
   let action: () -> Void
 
   var body: some View {
@@ -248,6 +267,8 @@ private struct Shutter: View {
         }
       }
       .frame(width: 78, height: 78)
+      .background(Circle().fill(Theme.accent.opacity(witness ? 0.35 : 0)).scaleEffect(witness ? 1.25 : 1))
+      .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: witness)
       .contentShape(Circle())
     }
     .buttonStyle(.plain)

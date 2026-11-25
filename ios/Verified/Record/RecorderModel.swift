@@ -57,6 +57,8 @@ final class RecorderModel {
 
   let sync = ChunkSyncMonitor()
   let camera = CameraController()
+  /// The realtime witness (v3.4): asks for evidence during the Moment; its asks and answers are chained here.
+  let witness = WitnessAgent()
 
   /// Seal rule: a Moment must last at least 20 s.
   static let minDurationMs: Int64 = 20_000
@@ -75,6 +77,9 @@ final class RecorderModel {
   @ObservationIgnored private var lastMotionT: Int64 = 0
   @ObservationIgnored private var modesUsed: Set<FrameCheck.Mode> = []
   @ObservationIgnored private var motionDecimate = 0
+  /// For the witness: labels of every frame so far and the 3 latest JPEGs with their offsets.
+  @ObservationIgnored private var frameLabels: [String] = []
+  @ObservationIgnored private var recentFrames: [(Data, Int)] = []
 
   init(network: NetworkMonitor) {
     self.network = network
@@ -148,6 +153,10 @@ final class RecorderModel {
     error = nil
     lastSubmitted = nil
     isGuest = owner == nil
+    frameLabels = []
+    recentFrames = []
+    witness.reset(startedAt: t)
+    WitnessNotifier.requestPermission()
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
     do {
       try MomentStore.create(id: id, owner: owner, intention: intentionData(startedAt: t), startedAt: t)
@@ -168,6 +177,7 @@ final class RecorderModel {
         try? await Task.sleep(for: .seconds(Self.chunkSeconds))
         guard let self, !Task.isCancelled, self.phase == .recording else { return }
         self.closeChunk()
+        self.considerWitness()
       }
     }
   }
@@ -231,7 +241,9 @@ final class RecorderModel {
     guard phase == .recording, !shooting else { return }
     shooting = true
     coach = Coach(kind: .checking, text: LiveCoach.onDeviceAvailable ? "Checking on-device…" : "Checking…")
-    let intentionText = intention
+    // A shot taken after the witness's "Show" answers that request; the coach checks it against the ask.
+    let answering = witness.armedRequest
+    let intentionText = answering.map { "\(intention) — witness asked: \($0.ask)" } ?? intention
     shotTask = Task { [weak self] in
       guard let self else { return }
       defer { self.shooting = false }
@@ -256,7 +268,7 @@ final class RecorderModel {
       self.lastFrame = frame
       let check = await LiveCoach.check(intention: intentionText, labels: frame.labels, online: self.network.isOnline)
       guard self.phase != .idle else { return }
-      self.record(frame: frame, check: check)
+      self.record(frame: frame, check: check, answering: answering?.wid)
     }
   }
 
@@ -376,14 +388,26 @@ final class RecorderModel {
   }
 
   /// Chains a proof frame (a photo, or a clip's poster with its `video` event right after `frame`) and its check.
-  private func record(frame: ProofFrame, check: FrameCheck, clip: VideoClip? = nil) {
+  private func record(frame: ProofFrame, check: FrameCheck, clip: VideoClip? = nil, answering wid: String? = nil) {
     let tc = max(nowMs(), frame.t)
     checks += 1
     if !check.ok { retakes += 1 }
     if check.mode != .none { modesUsed.insert(check.mode) }
     frameCount += 1
-    buffer.events.append(MomentEvent(t: frame.t, type: .frame, extras: [("w", .int(Int64(frame.w))), ("h", .int(Int64(frame.h)))]))
+    var frameExtras: [(String, JSONValue)] = [("w", .int(Int64(frame.w))), ("h", .int(Int64(frame.h)))]
+    // Only a request still open when the shot lands (it may have been skipped meanwhile).
+    let wid = wid.flatMap { w in witness.open?.wid == w ? w : nil }
+    if let wid { frameExtras.append(("wid", .string(wid))) }
+    buffer.events.append(MomentEvent(t: frame.t, type: .frame, extras: frameExtras))
     if let clip { buffer.events.append(clip.event(t: frame.t)) }
+    if let wid {
+      // Same chunk as the frame (contract v3.4).
+      buffer.events.append(WitnessEvents.answer(t: frame.t, wid: wid, via: .frame))
+      witness.close(wid, .answered(.frame, nil))
+    }
+    frameLabels.append(check.label)
+    recentFrames.append((frame.jpeg, Int((frame.t - startedAt) / 1000)))
+    if recentFrames.count > 3 { recentFrames.removeFirst(recentFrames.count - 3) }
     buffer.events.append(MomentEvent(
       t: tc, type: check.ok ? .check : .retake,
       extras: [("ok", .bool(check.ok)), ("mode", .string(check.mode.rawValue))]))
@@ -402,7 +426,48 @@ final class RecorderModel {
   }
 
   /// `moments/{id}.witness` at submit (v3.4); informational, the server recounts from the chain.
-  var witnessSummary: [String: Any] { ["asked": 0, "answered": 0, "skipped": 0, "mode": "none"] }
+  var witnessSummary: [String: Any] { witness.summary }
+
+  // MARK: - Witness (v3.4)
+
+  /// Called every chunk tick: drafts the next ask when the pacing allows it.
+  private func considerWitness() {
+    let now = nowMs()
+    guard phase == .recording, witness.due(now: now) else { return }
+    let ctx = WitnessAgent.Context(
+      intention: intentionData(startedAt: startedAt), elapsedS: Int((now - startedAt) / 1000), distanceM: distanceM,
+      frameCount: frameCount, frameLabels: frameLabels, gps: lastFix != nil, motion: !motionTrace.isEmpty,
+      clips: videoCount, online: network.isOnline, frames: recentFrames)
+    witness.draft(ctx) { [weak self] ask, kind, by in
+      guard let self, self.phase == .recording else { return nil }
+      let t = max(nowMs(), self.chunkT0)
+      let wid = self.witness.nextWid
+      self.buffer.events.append(WitnessEvents.witness(t: t, wid: wid, ask: ask, kind: kind, by: by))
+      return WitnessAgent.Request(wid: wid, ask: ask, kind: kind, why: "", by: by, askedAt: t)
+    }
+  }
+
+  /// "Show": switches to photo mode and arms the shutter; the next proof shot answers the request.
+  func witnessShow() {
+    guard let open = witness.open, open.kind == .show else { return }
+    if videoMode && clipStartedAt == nil { setVideoMode(false) }
+    witness.arm(open.wid)
+  }
+
+  /// A spoken or typed answer (≤ 200 chars), or "Done" for a `do` request.
+  func witnessAnswer(via: WitnessEvents.Via, text: String? = nil) {
+    guard phase == .recording, let open = witness.open else { return }
+    let clean = text.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)) }
+    if via == .voice || via == .text, clean?.isEmpty ?? true { return }
+    buffer.events.append(WitnessEvents.answer(t: max(nowMs(), chunkT0), wid: open.wid, via: via, text: clean))
+    witness.close(open.wid, .answered(via, clean))
+  }
+
+  func witnessSkip(reason: String? = nil) {
+    guard phase != .idle, let open = witness.open else { return }
+    buffer.events.append(WitnessEvents.skip(t: max(nowMs(), chunkT0), wid: open.wid, reason: reason))
+    witness.close(open.wid, .skipped(reason))
+  }
 
   // MARK: - Finish
 
@@ -416,6 +481,8 @@ final class RecorderModel {
     motion.stop()
     camera.stop()
 
+    witnessSkip(reason: "stopped")  // an open request is skipped at Finish (contract v3.4)
+    witness.stop()
     let stopT = max(nowMs(), chunkT0)
     buffer.events.append(MomentEvent(t: stopT, type: .stop))
     closeChunk()
