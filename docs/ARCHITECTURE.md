@@ -100,9 +100,9 @@ frame: { jpegB64: string, w: number, h: number, t: number } | null   // NOT in p
 }
 ```
 A chunk closes every **5 s** or immediately when a proof frame is taken (one frame max per chunk).
-Optional events (Android today; the seal ignores unknown types):
+Optional events (Android and iOS today; the seal ignores unknown types):
 - `video_start` — a video clip began. `video` `{sha256, bytes, durationMs, startedAt, name}` — the clip stays on the
-  phone (gallery, Movies/Verified); the chain commits to the SHA-256 of its file bytes. The clip's middle frame is the
+  phone (gallery: Movies/Verified on Android, Photos album "Verified" on iOS); the chain commits to the SHA-256 of its file bytes. The clip's middle frame is the
   proof frame of the same chunk (coached + judged like a photo), so `video` sits next to the `frame` event.
 - `hr` `{bpm}` — ~1 Hz heart rate from a Bluetooth LE Heart Rate (0x180D) device connected in Settings.
 Frames: JPEG, longest side **640 px**, quality 0.6, target < 120 KB base64 (Firestore doc limit 1 MB).

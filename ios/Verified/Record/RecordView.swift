@@ -74,6 +74,7 @@ struct RecordView: View {
           let recorder = app.recorder
           Task {
             _ = await CameraController.requestAccess()
+            _ = await CameraController.requestMicAccess()  // clip sound; without it clips are video-only
             recorder.start(owner: user)
           }
         } label: {
@@ -118,7 +119,7 @@ private struct HowItWorks: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       row("location.fill", "GPS, motion and app events are recorded as a time series.")
-      row("camera.fill", "Take proof shots. The on-device coach says “keep going” or “retake”.")
+      row("camera.fill", "Take proof shots or video clips. The on-device coach says “keep going” or “retake”.")
       row("link", "Every 5 s the data is sealed into a SHA-256 chain, offline or not.")
       row("checkmark.seal.fill", "Online again: a cloud judge and skeptic weigh in, then code seals it.")
     }

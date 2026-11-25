@@ -20,7 +20,13 @@ public struct MotionSample: Sendable, Equatable {
 
 /// An app event: {"t":..., "type":..., ...extras in order}.
 public struct MomentEvent: Sendable, Equatable {
-  public enum Kind: String, Sendable { case start, frame, check, retake, pause, resume, stop }
+  public enum Kind: String, Sendable {
+    case start, frame, check, retake, pause, resume, stop
+    /// A video clip began recording (no extras).
+    case videoStart = "video_start"
+    /// A finished video clip: extras from `VideoClip.extras`, placed next to the clip's poster `frame` event.
+    case video
+  }
   public var t: Int64
   public var type: Kind
   public var extras: [(String, JSONValue)]

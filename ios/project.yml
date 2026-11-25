@@ -56,7 +56,11 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        NSCameraUsageDescription: Verified takes proof shots of your Moment.
+        NSCameraUsageDescription: Verified takes proof shots and video clips of your Moment.
+        NSMicrophoneUsageDescription: Verified records sound with the video clips you take during a Moment.
+        NSPhotoLibraryAddUsageDescription: Verified saves your Moment's video clips to Photos.
+        # Full access only to find or create the "Verified" album for clips (limited access saves them without it).
+        NSPhotoLibraryUsageDescription: Verified keeps your Moment's video clips together in a "Verified" album in Photos.
         NSLocationWhenInUseUsageDescription: Verified records your GPS track while a Moment is recording.
         NSMotionUsageDescription: Verified records motion while a Moment is recording, as evidence it was real.
         NSLocalNetworkUsageDescription: Used only in developer mode to reach the Firebase Emulator Suite on your Mac.
