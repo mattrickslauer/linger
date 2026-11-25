@@ -1,0 +1,622 @@
+/* Feed: one Moment a screen.
+   Always dark: the proof photo is the page. Each slide is the same template, a thread with three
+   waypoints (intent, proof, result) drawn like the GPS track the Moment recorded. The seal is still
+   the one loud thing. */
+
+body.immersive {
+  overflow: hidden;
+  background: #071419;
+}
+body.immersive .top {
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: linear-gradient(#071419cc, #07141900);
+  border-bottom: 0;
+  backdrop-filter: none;
+  color: #e8ece4;
+}
+body.immersive .top nav a {
+  color: #e8ece4cc;
+}
+body.immersive .top nav a:hover {
+  background: #ffffff1f;
+  color: #fff;
+}
+body.immersive .top nav a.on {
+  background: #e8ece4;
+  color: #071419;
+}
+body.immersive .theme {
+  display: none;
+}
+
+.tok {
+  --t-ink: #e8ece4;
+  --t-ink-2: #e8ece4b8;
+  --t-line: #e8ece44d;
+  --t-bg: #071419;
+  --t-ok: #8fdcaa;
+  --t-bad: #ff9a85;
+  --t-track: #ff8a4c;
+  --col: min(100vw, calc(100dvh * 0.62));
+  color: var(--t-ink);
+}
+.tok-scroll {
+  position: fixed;
+  inset: 0;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  outline: none;
+}
+.tok-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.slide {
+  position: relative;
+  height: 100dvh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--t-bg);
+}
+/* On a wide screen: a phone-shaped column over a blurred copy of the same photo. */
+.slide-back {
+  position: absolute;
+  inset: 0;
+}
+.slide-back img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  filter: blur(40px) saturate(1.2) brightness(0.45);
+  transform: scale(1.15);
+}
+.slide-frame {
+  position: relative;
+  width: var(--col);
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+}
+.slide-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  z-index: -2;
+}
+.slide-nophoto {
+  background:
+    repeating-radial-gradient(circle at 30% 40%, #1f6f7833 0 2px, transparent 2px 26px),
+    linear-gradient(160deg, #10343b, #071419);
+}
+.slide-no .slide-photo {
+  filter: grayscale(0.7) contrast(0.95);
+}
+.slide-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(#071419e6 0%, #07141966 26%, #07141900 40%, #07141900 46%, #071419b3 62%, #071419f2 100%);
+}
+.slide-hit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  padding: 0;
+}
+
+/* -------- the thread */
+
+.thread {
+  --dot: 14px;
+  position: absolute;
+  inset: 116px 76px calc(28px + env(safe-area-inset-bottom)) 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+/* Intent takes the slack, so the photo shows between it and the proof; the dashed track joins each
+   waypoint to the next and stops at the result. */
+.wp-intent {
+  flex: 1;
+}
+.wp:not(.wp-result)::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--dot) / 2 - 1px);
+  top: calc(var(--dot) + 8px);
+  bottom: 4px;
+  width: 2px;
+  background: repeating-linear-gradient(var(--t-track) 0 7px, transparent 7px 12px);
+  transform-origin: top;
+  opacity: 0.85;
+}
+.slide-no .wp:not(.wp-result)::after {
+  background: repeating-linear-gradient(var(--t-ink-2) 0 7px, transparent 7px 12px);
+}
+.wp {
+  position: relative;
+  padding-left: calc(var(--dot) + 14px);
+  padding-bottom: 24px;
+  text-shadow: 0 1px 3px #0009;
+}
+.wp::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--t-bg);
+  border: 2.5px solid var(--t-track);
+}
+.wp-proof::before {
+  background: var(--t-track);
+}
+.wp-result::before {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 4px #e7b42540;
+}
+.slide-no .wp::before {
+  border-color: var(--t-ink-2);
+}
+.slide-no .wp-proof::before {
+  background: var(--t-ink-2);
+}
+.slide-no .wp-result::before {
+  background: var(--t-bad);
+  border-color: var(--t-bad);
+  box-shadow: 0 0 0 4px #ff9a8540;
+}
+.wp-label {
+  margin: 0 0 6px;
+  font-weight: 750;
+  font-size: 0.95rem;
+  letter-spacing: -0.005em;
+}
+.wp-label span {
+  font-weight: 450;
+  color: var(--t-ink-2);
+  margin-left: 6px;
+}
+.intent-text {
+  font-size: clamp(1.5rem, calc(var(--col) * 0.075), 2.15rem);
+  font-weight: 760;
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  max-width: 15ch;
+  text-wrap: balance;
+}
+.intent-text::before {
+  content: "\201C";
+  color: var(--t-track);
+}
+.intent-text::after {
+  content: "\201D";
+  color: var(--t-track);
+}
+.slide-no .intent-text::before,
+.slide-no .intent-text::after {
+  color: var(--t-ink-2);
+}
+
+.proof-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.proof-track {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 48px;
+  border-radius: 8px;
+  background: #07141999;
+  border: 1px solid var(--t-line);
+  color: var(--t-track);
+}
+.proof-track .sketch-end {
+  fill: var(--gold);
+}
+.proof-stats {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+}
+.proof-stats div {
+  display: flex;
+  justify-content: flex-end;
+  flex-direction: column-reverse;
+}
+.proof-stats dt {
+  font-size: 0.75rem;
+  color: var(--t-ink-2);
+}
+.proof-stats dd {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  background: #07141999;
+  border: 1px solid var(--t-line);
+  text-shadow: none;
+}
+.pip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--t-ok);
+}
+.pip-bad {
+  color: var(--t-bad);
+  border-color: #ff9a8580;
+}
+.pip-bad i {
+  background: none;
+  border: 1.5px solid var(--t-bad);
+  width: 8px;
+  height: 8px;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+/* The seal, at full size: the one loud thing. */
+.seal {
+  display: inline-block;
+  font-weight: 820;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 11px 16px;
+  border-radius: 7px;
+  transform: rotate(-4deg);
+  text-shadow: none;
+  white-space: nowrap;
+}
+.seal-ok {
+  background: var(--gold);
+  color: #10242b;
+  box-shadow:
+    0 0 0 2px var(--gold),
+    0 0 0 3.5px #10242b inset,
+    0 8px 24px #0008;
+}
+.seal-no {
+  color: var(--t-bad);
+  border: 2.5px dashed var(--t-bad);
+  background: #071419cc;
+}
+.result-score {
+  font-size: 0.95rem;
+  color: var(--t-ink-2);
+}
+.result-score b {
+  font-size: 1.4rem;
+  color: var(--t-ink);
+  font-variant-numeric: tabular-nums;
+}
+.result-why {
+  margin: 10px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--t-ink-2);
+  max-width: 36ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* -------- the one reveal: the thread draws, waypoints arrive in order, the seal lands */
+
+@media (prefers-reduced-motion: no-preference) {
+  .slide-on .wp::after {
+    animation: tok-draw 0.5s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  }
+  .slide-on .wp-intent::after {
+    animation-delay: 0.1s;
+  }
+  .slide-on .wp-proof::after {
+    animation-delay: 0.35s;
+  }
+  .slide-on .wp {
+    animation: tok-arrive 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .slide-on .wp-proof {
+    animation-delay: 0.25s;
+  }
+  .slide-on .wp-result {
+    animation-delay: 0.5s;
+  }
+  .slide-on .seal {
+    animation: tok-stamp 0.42s cubic-bezier(0.3, 1.5, 0.5, 1) 0.8s both;
+  }
+}
+@keyframes tok-draw {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes tok-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes tok-stamp {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(1.9);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-4deg) scale(1);
+  }
+}
+
+/* -------- right rail */
+
+.rail {
+  position: absolute;
+  right: 12px;
+  bottom: calc(160px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+}
+.rail-btn {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--t-ink);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-shadow: 0 1px 2px #000a;
+}
+.rail-btn .disc {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e8ece426;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.12s;
+}
+.rail-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-primary .disc {
+  background: var(--t-ink);
+  color: var(--t-bg);
+}
+.rail-btn:active .disc {
+  transform: scale(0.9);
+}
+.rail-btn:focus-visible {
+  outline: none;
+}
+.rail-btn:focus-visible .disc {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+/* -------- tabs and arrows */
+
+.tok-tabs {
+  position: fixed;
+  z-index: 9;
+  top: 62px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.tok-tab {
+  pointer-events: auto;
+  border: 0;
+  background: none;
+  color: #e8ece4a6;
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.95rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-shadow: 0 1px 2px #000a;
+}
+.tok-tab[aria-pressed="true"] {
+  color: #fff;
+  box-shadow: inset 0 -2px 0 #fff;
+}
+.tok-nav {
+  position: fixed;
+  z-index: 9;
+  right: max(20px, calc((100vw - var(--col)) / 2 - 76px));
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 10px;
+}
+.tok-nav button {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 0;
+  background: #e8ece41f;
+  color: #e8ece4;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.tok-nav button:hover {
+  background: #e8ece440;
+}
+@media (max-width: 760px) {
+  .tok-nav {
+    display: none;
+  }
+}
+
+/* -------- intro, messages, end */
+
+.slide-intro {
+  background:
+    radial-gradient(120% 70% at 80% 0%, #1f6f7855, transparent 60%),
+    var(--t-bg);
+}
+.intro {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 110px 26px 40px;
+}
+.intro h1 {
+  font-size: clamp(2.4rem, calc(var(--col) * 0.12), 3.4rem);
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+.intro .lede {
+  color: var(--t-ink-2);
+  margin: 14px 0 22px;
+  max-width: 32ch;
+}
+.thread-static {
+  position: relative;
+  inset: auto;
+  gap: 18px;
+  pointer-events: auto;
+}
+.thread-static .wp-intent {
+  flex: none;
+}
+.thread-static .wp {
+  padding-bottom: 18px;
+}
+.thread-static p {
+  margin: 0;
+  color: var(--t-ink-2);
+  font-size: 0.93rem;
+  max-width: 34ch;
+}
+.thread-static .wp-label {
+  color: var(--t-ink);
+}
+.intro-count {
+  margin: 22px 0 14px;
+  font-size: 0.9rem;
+  color: var(--t-ink-2);
+}
+.intro-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.tok .btn {
+  border-color: var(--t-ink);
+  color: var(--t-ink);
+}
+.tok .btn:hover {
+  background: #e8ece41f;
+}
+.tok .btn-primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #10242b;
+}
+.tok .btn-primary:hover {
+  background: #f2c94a;
+  border-color: #f2c94a;
+  color: #10242b;
+}
+.swipe-hint {
+  color: var(--t-ink-2);
+  font-size: 0.9rem;
+}
+.swipe-hint::after {
+  content: " \2191";
+  display: inline-block;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .swipe-hint::after {
+    animation: tok-nudge 1.6s ease-in-out infinite;
+  }
+}
+@keyframes tok-nudge {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.slide-msg .end,
+.slide-msg .notice {
+  width: var(--col);
+  padding: 0 26px;
+}
+.end p {
+  color: var(--t-ink-2);
+  margin: 10px 0 20px;
+}
+.slide-skeleton {
+  background: linear-gradient(160deg, #10343b, #071419);
+}
+@media (max-height: 640px) {
+  .intent-text {
+    font-size: 1.35rem;
+  }
+  .result-why {
+    display: none;
+  }
+  .wp {
+    padding-bottom: 12px;
+  }
+}

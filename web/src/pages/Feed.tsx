@@ -1,154 +1,241 @@
-import { useEffect, useMemo, useState } from "react";
+// The feed: one Moment a screen, swiped up like TikTok. Every slide is the same template, read top to
+// bottom as a thread with three waypoints: what they said they would do (intent), what the phone
+// captured (proof), and what the seal decided (result). Tap through to the Moment's evidence room.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { subscribeFeed } from "../data";
 import { FIXTURES } from "../firebase";
 import { fmtDistance, fmtDuration } from "../geo";
-import type { FeedEntry } from "../types";
-import { ago, Chips, jpegSrc, Link, Stamp, TrackSketch } from "../ui";
+import { navigate } from "../router";
+import type { FeedEntry, SealChecks } from "../types";
+import { ago, jpegSrc, Link, TrackSketch } from "../ui";
+import "../feed.css";
 
-// ------------------------------------------------------------------ hero art
-
-/** Contour lines around two summits, deterministic so the page never shifts between loads. */
-function contours(): string[] {
-  const peaks = [
-    { x: 300, y: 150, r0: 18, n: 11, wob: 0.16, ph: 0.4 },
-    { x: 520, y: 300, r0: 14, n: 8, wob: 0.2, ph: 2.1 },
-  ];
-  const out: string[] = [];
-  for (const p of peaks) {
-    for (let i = 0; i < p.n; i++) {
-      const r = p.r0 + i * 26;
-      let d = "";
-      for (let a = 0; a <= 64; a++) {
-        const th = (a / 64) * Math.PI * 2;
-        const k = 1 + p.wob * Math.sin(th * 3 + p.ph + i * 0.35) + 0.07 * Math.sin(th * 7 - i);
-        const x = p.x + Math.cos(th) * r * k * 1.25;
-        const y = p.y + Math.sin(th) * r * k * 0.85;
-        d += `${a ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-      }
-      out.push(d + "Z");
-    }
-  }
-  return out;
-}
-
-const TRACK = "M60,330 C110,300 130,340 170,300 S230,250 250,262 S300,230 290,200 S330,170 360,184 S420,150 430,120";
-const FRAMES = [
-  { x: 170, y: 300 },
-  { x: 290, y: 200 },
-  { x: 430, y: 120 },
+export const CHECK_ORDER: { key: keyof SealChecks; name: string }[] = [
+  { key: "chain", name: "Chain" },
+  { key: "timing", name: "Timing" },
+  { key: "physics", name: "Physics" },
+  { key: "frames", name: "Frames" },
+  { key: "ai", name: "AI" },
 ];
 
-function HeroArt() {
-  const lines = useMemo(contours, []);
+type Filter = "all" | "sealed" | "rejected";
+const FILTERS: [Filter, string][] = [
+  ["all", "All"],
+  ["sealed", "Verified"],
+  ["rejected", "Not verified"],
+];
+const LAST_KEY = "feed.last"; // the slide to come back to from an evidence room
+
+const save = (k: string, v: string) => {
+  try {
+    sessionStorage.setItem(k, v);
+  } catch {
+    /* private mode */
+  }
+};
+const load = (k: string) => {
+  try {
+    return sessionStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+
+export const pct = (p: number | null | undefined) => (p == null ? null : Math.round(p * 100));
+
+// ------------------------------------------------------------------ pieces
+
+/** The five deterministic checks as pips: filled when passed, struck when failed. */
+export function Pips({ checks }: { checks: SealChecks }) {
+  const passed = CHECK_ORDER.filter((c) => checks[c.key]).length;
   return (
-    <svg className="hero-art" viewBox="0 0 640 400" role="img" aria-label="A recorded track crossing contour lines, with three proof shots and a seal at the end">
-      <g className="contours">
-        {lines.map((d, i) => (
-          <path key={i} d={d} />
-        ))}
-      </g>
-      <path className="hero-track-shadow" d={TRACK} />
-      <path className="hero-track" d={TRACK} pathLength={1} />
-      {FRAMES.map((f, i) => (
-        <g key={i} className="hero-frame" style={{ animationDelay: `${0.5 + i * 0.55}s` }} transform={`translate(${f.x} ${f.y})`}>
-          <rect x="-15" y="-34" width="30" height="24" rx="3" />
-          <circle cx="0" cy="0" r="5" />
-          <line x1="0" y1="-10" x2="0" y2="-5" />
-        </g>
+    <div className="pips" role="img" aria-label={`${passed} of 5 seal checks passed`}>
+      {CHECK_ORDER.map((c) => (
+        <span key={c.key} className={`pip ${checks[c.key] ? "pip-ok" : "pip-bad"}`}>
+          <i aria-hidden="true" />
+          {c.name}
+        </span>
       ))}
-      <g className="hero-seal" transform="translate(470 92) rotate(-8)">
-        <rect x="-4" y="-22" width="128" height="44" rx="6" />
-        <rect className="inner" x="1" y="-17" width="118" height="34" rx="4" />
-        <text x="60" y="6" textAnchor="middle">
-          Verified ✓
-        </text>
-      </g>
-    </svg>
+    </div>
   );
 }
 
-const STEPS = [
-  { title: "On-device coach", text: "Gemini Nano looks at each proof shot on your device and says keep going or retake. It can never verify." },
-  { title: "Offline sync", text: "No signal at the lake? Every 5-second chunk is hashed and queued on the phone, then syncs itself." },
-  { title: "Cloud judge, skeptic + scorer", text: "One model weighs the evidence, a second hunts for screens, stock photos and staging, and a third scores how likely the claim is true assuming most people cheat." },
-  { title: "Deterministic seal", text: "A Cloud Function re-hashes the chain, checks timing and physics, and alone writes the seal." },
-];
-
-function Hero() {
+function Share({ e }: { e: FeedEntry }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${location.origin}/m/${e.momentId}`;
   return (
-    <section className="hero">
-      <div className="hero-copy">
-        <h1>Proof it happened.</h1>
-        <p className="lede">
-          Record a moment as it happens. An AI on your phone coaches the proof, two AIs in the cloud argue about it, and plain code
-          seals it so nothing can be changed afterwards.
-        </p>
-        <div className="hero-actions">
-          <Link to="/record" className="btn btn-primary">
-            Record a Moment
-          </Link>
-          <a href="#feed" className="btn btn-quiet">
-            Browse sealed Moments
-          </a>
+    <button
+      className="rail-btn"
+      onClick={async (ev) => {
+        ev.stopPropagation();
+        try {
+          if (navigator.share) await navigator.share({ title: e.intention.text, url });
+          else {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+          }
+        } catch {
+          /* dismissed */
+        }
+      }}
+      aria-label="Share this Moment"
+    >
+      <span className="disc" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 3v12M7 8l5-5 5 5M5 14v5h14v-5" />
+        </svg>
+      </span>
+      {copied ? "Copied" : "Share"}
+    </button>
+  );
+}
+
+function Slide({ e, index, active }: { e: FeedEntry; index: number; active: boolean }) {
+  const sealed = e.status === "sealed";
+  const score = pct(e.verificationScore);
+  const reason = sealed ? (e.scoreReasons?.[0] ?? e.judgeReasons?.[0]) : e.sealReason;
+  const open = () => {
+    save(LAST_KEY, e.momentId);
+    navigate(`/m/${e.momentId}`);
+  };
+  return (
+    <section
+      className={`slide ${sealed ? "slide-ok" : "slide-no"} ${active ? "slide-on" : ""}`}
+      data-id={e.momentId}
+      data-i={index}
+      aria-label={`${e.intention.text}, ${sealed ? "verified" : "not verified"}`}
+    >
+      <div className="slide-back" aria-hidden="true">
+        {e.heroJpegB64 && <img src={jpegSrc(e.heroJpegB64)} alt="" />}
+      </div>
+      <div className="slide-frame">
+        {e.heroJpegB64 ? (
+          <img className="slide-photo" src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} />
+        ) : (
+          <div className="slide-photo slide-nophoto" />
+        )}
+        <div className="slide-shade" aria-hidden="true" />
+        {/* The whole slide opens the room; the buttons below stop the click. */}
+        <button className="slide-hit" onClick={open} aria-label={`Inspect the evidence for: ${e.intention.text}`} tabIndex={-1} />
+
+        <ol className="thread">
+          <li className="wp wp-intent">
+            <p className="wp-label">
+              Intent <span>{e.owner?.name ?? "Someone"} set out to</span>
+            </p>
+            <h2 className="intent-text">{e.intention.text}</h2>
+          </li>
+          <li className="wp wp-proof">
+            <p className="wp-label">
+              Proof <span>captured live, {ago(e.sealedAtServer)}</span>
+            </p>
+            <div className="proof-row">
+              {e.track?.length > 1 && (
+                <span className="proof-track">
+                  <TrackSketch track={e.track} w={64} h={48} />
+                </span>
+              )}
+              <dl className="proof-stats">
+                <div>
+                  <dt>time</dt>
+                  <dd>{fmtDuration(e.summary.durationMs)}</dd>
+                </div>
+                <div>
+                  <dt>moved</dt>
+                  <dd>{fmtDistance(e.summary.distanceM)}</dd>
+                </div>
+                <div>
+                  <dt>shots</dt>
+                  <dd>{e.summary.frameCount}</dd>
+                </div>
+              </dl>
+            </div>
+            <Pips checks={e.checks} />
+          </li>
+          <li className="wp wp-result">
+            <p className="wp-label">Result</p>
+            <div className="result-row">
+              <span className={`seal ${sealed ? "seal-ok" : "seal-no"}`}>{sealed ? "Verified ✓" : "Not verified"}</span>
+              {score != null && (
+                <span className="result-score">
+                  <b>{score}%</b> likely true
+                </span>
+              )}
+            </div>
+            {reason && <p className="result-why">{reason}</p>}
+          </li>
+        </ol>
+
+        <div className="rail">
+          <button
+            className="rail-btn rail-primary"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              open();
+            }}
+          >
+            <span className="disc" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="10.5" cy="10.5" r="6" />
+                <path d="M15 15l5 5" />
+              </svg>
+            </span>
+            Evidence
+          </button>
+          <Share e={e} />
         </div>
       </div>
-      <HeroArt />
-      <ol className="how" aria-label="How it works">
-        {STEPS.map((s, i) => (
-          <li key={s.title}>
-            <span className="how-n">{i + 1}</span>
-            <h3>{s.title}</h3>
-            <p>{s.text}</p>
-          </li>
-        ))}
-      </ol>
     </section>
   );
 }
 
-// ------------------------------------------------------------------ feed
-
-function Card({ e }: { e: FeedEntry }) {
-  const sealed = e.status === "sealed";
+function Intro({ count, sealed }: { count: number | null; sealed: number }) {
   return (
-    <Link to={`/m/${e.momentId}`} className={`card ${sealed ? "" : "card-rejected"}`}>
-      <div className="card-media">
-        {e.heroJpegB64 ? <img src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} /> : <div className="card-noimg" />}
-        <Stamp sealed={sealed} />
-        {e.track?.length > 1 && (
-          <span className="card-track">
-            <TrackSketch track={e.track} />
-          </span>
-        )}
-      </div>
-      <div className="card-body">
-        <h3>{e.intention.text}</h3>
-        <p className="card-meta">
-          {e.owner?.name ?? "Someone"}, {ago(e.sealedAtServer)}
+    <section className="slide slide-intro" aria-label="About Verified">
+      <div className="slide-frame intro">
+        <h1>Proof it happened.</h1>
+        <p className="lede">Every post here was recorded live, argued over by AI, and sealed by code. Each one reads the same way:</p>
+        <ol className="thread thread-static">
+          <li className="wp wp-intent">
+            <p className="wp-label">Intent</p>
+            <p>What the person said they would do, before they started.</p>
+          </li>
+          <li className="wp wp-proof">
+            <p className="wp-label">Proof</p>
+            <p>GPS, motion and proof shots, hashed into a chain as it happened. Gemini Nano coaches on the phone; it can never verify.</p>
+          </li>
+          <li className="wp wp-result">
+            <p className="wp-label">Result</p>
+            <p>A judge, a skeptic and a scorer weigh it in the cloud. Then a Cloud Function checks the chain and alone writes the seal.</p>
+          </li>
+        </ol>
+        <p className="intro-count">
+          {count == null ? "Connecting…" : `${sealed} verified, ${count - sealed} not${FIXTURES ? " (sample data)" : ""}`}
         </p>
-        <dl className="stats">
-          <div>
-            <dt>time</dt>
-            <dd>{fmtDuration(e.summary.durationMs)}</dd>
-          </div>
-          <div>
-            <dt>distance</dt>
-            <dd>{fmtDistance(e.summary.distanceM)}</dd>
-          </div>
-          <div>
-            <dt>frames</dt>
-            <dd>{e.summary.frameCount}</dd>
-          </div>
-        </dl>
-        <Chips platform={e.platform} mode={e.onDeviceMode} />
+        <div className="intro-actions">
+          <Link to="/record" className="btn btn-primary">
+            Record a Moment
+          </Link>
+          <span className="swipe-hint" aria-hidden="true">
+            Swipe up
+          </span>
+        </div>
       </div>
-    </Link>
+    </section>
   );
 }
+
+// ------------------------------------------------------------------ page
 
 export default function Feed() {
   const [entries, setEntries] = useState<FeedEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [active, setActive] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const restored = useRef(false);
+
   useEffect(
     () =>
       subscribeFeed(
@@ -160,37 +247,112 @@ export default function Feed() {
       ),
     [],
   );
+
+  const shown = useMemo(() => (entries ?? []).filter((e) => filter === "all" || e.status === filter), [entries, filter]);
   const sealedCount = entries?.filter((e) => e.status === "sealed").length ?? 0;
+
+  // Which slide is on screen: drives the one reveal and the keyboard.
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    const io = new IntersectionObserver(
+      (items) => {
+        for (const it of items) if (it.isIntersecting) setActive((it.target as HTMLElement).dataset.id ?? "intro");
+      },
+      { root, threshold: 0.6 },
+    );
+    root.querySelectorAll(".slide").forEach((n) => io.observe(n));
+    return () => io.disconnect();
+  }, [shown]);
+
+  // Coming back from an evidence room: land on the slide you left.
+  useEffect(() => {
+    if (restored.current || !entries) return;
+    restored.current = true;
+    const last = load(LAST_KEY);
+    const node = last ? scroller.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(last)}"]`) : null;
+    if (node) scroller.current!.scrollTop = node.offsetTop;
+  }, [entries]);
+
+  const go = useCallback((dir: 1 | -1) => {
+    const root = scroller.current;
+    if (!root) return;
+    root.scrollBy({ top: dir * root.clientHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "ArrowDown" || e.key === "j" || e.key === "PageDown") {
+        e.preventDefault();
+        go(1);
+      } else if (e.key === "ArrowUp" || e.key === "k" || e.key === "PageUp") {
+        e.preventDefault();
+        go(-1);
+      } else if (e.key === "Enter" && active && active !== "intro" && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement)) {
+        save(LAST_KEY, active);
+        navigate(`/m/${active}`);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go, active]);
+
   return (
-    <>
-      <Hero />
-      <section id="feed" className="feed">
-        <header className="feed-head">
-          <h2>Sealed Moments</h2>
-          <p className="live">
-            <span className="live-dot" aria-hidden="true" />
-            {entries ? `${sealedCount} verified, ${entries.length - sealedCount} not` : "Connecting"}
-            {FIXTURES ? " (sample data)" : ", updating live"}
-          </p>
-        </header>
-        {error && <p className="notice notice-bad">Couldn't load the feed: {error}</p>}
-        {entries && entries.length === 0 && (
-          <div className="empty">
-            <p>Nothing sealed yet. Record the first Moment and it will appear here within a minute of syncing.</p>
-            <Link to="/record" className="btn btn-primary">
-              Record a Moment
-            </Link>
-          </div>
+    <div className="tok">
+      <div className="tok-tabs" role="group" aria-label="Show">
+        {FILTERS.map(([k, label]) => (
+          <button
+            key={k}
+            className="tok-tab"
+            aria-pressed={filter === k}
+            onClick={() => {
+              setFilter(k);
+              scroller.current?.scrollTo({ top: 0 });
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="tok-scroll" ref={scroller} tabIndex={-1}>
+        <Intro count={entries ? entries.length : null} sealed={sealedCount} />
+        {error && (
+          <section className="slide slide-msg">
+            <p className="notice notice-bad">Couldn't load the feed: {error}</p>
+          </section>
         )}
-        {!entries && !error && <div className="grid">{[0, 1, 2].map((i) => <div key={i} className="card card-skeleton" />)}</div>}
-        {entries && entries.length > 0 && (
-          <div className="grid">
-            {entries.map((e) => (
-              <Card key={e.momentId} e={e} />
-            ))}
-          </div>
+        {!entries && !error && <section className="slide slide-msg slide-skeleton" aria-busy="true" />}
+        {shown.map((e, i) => (
+          <Slide key={e.momentId} e={e} index={i} active={active === e.momentId} />
+        ))}
+        {entries && (
+          <section className="slide slide-msg" data-id="end">
+            <div className="end">
+              <h2>{shown.length ? "That's every Moment." : "Nothing here yet."}</h2>
+              <p>{shown.length ? "Record one of your own and it shows up here once it's sealed." : "Record the first one and it shows up here once it's sealed."}</p>
+              <div className="intro-actions">
+                <Link to="/record" className="btn btn-primary">
+                  Record a Moment
+                </Link>
+                {shown.length > 0 && (
+                  <button className="btn" onClick={() => scroller.current?.scrollTo({ top: 0 })}>
+                    Back to the top
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
         )}
-      </section>
-    </>
+      </div>
+      <div className="tok-nav" aria-hidden="true">
+        <button tabIndex={-1} onClick={() => go(-1)} title="Previous (k)">
+          ↑
+        </button>
+        <button tabIndex={-1} onClick={() => go(1)} title="Next (j)">
+          ↓
+        </button>
+      </div>
+    </div>
   );
 }
