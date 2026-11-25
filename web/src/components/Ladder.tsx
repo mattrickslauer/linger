@@ -102,8 +102,9 @@ function Offers(p: Props & { score: number; bar: number }) {
   const [result, setResult] = useState<RunResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  // One idempotency key per confirmed attempt: a retry after a dropped connection can't charge twice.
-  const requestId = useRef<string | null>(null);
+  // One idempotency key per module attempt: a retry of the SAME module after a dropped connection reuses it, so it
+  // can't charge twice. Keyed by module so an unsettled key is never sent with a different module.
+  const requestId = useRef<{ module: string; id: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -129,12 +130,13 @@ function Offers(p: Props & { score: number; bar: number }) {
   async function run(o: Offer) {
     setErr(null);
     setResult(null);
-    requestId.current ??= newRequestId();
+    if (requestId.current?.module !== o.module.id) requestId.current = { module: o.module.id, id: newRequestId() };
+    const rid = requestId.current.id;
     try {
       const u = LADDER_DEMO ? { uid: "demo" } : await requireSignIn("run a check");
       setRunning("Starting…");
       const clipSha = o.module.id === "full_video" ? ev.videos[ev.videos.length - 1] : undefined;
-      const r = await runLadderModule({ uid: u.uid, momentId: p.momentId, module: o.module.id, requestId: requestId.current, clipSha, score: p.score, bar: p.bar }, setRunning);
+      const r = await runLadderModule({ uid: u.uid, momentId: p.momentId, module: o.module.id, requestId: rid, clipSha, score: p.score, bar: p.bar }, setRunning);
       requestId.current = null;
       setResult(r);
       setCredits((c) => (c ? { ...c, balance: r.balance, spent: c.spent + r.cost } : c));
@@ -143,8 +145,10 @@ function Offers(p: Props & { score: number; bar: number }) {
     } catch (e) {
       if (isDeclined(e)) return setConfirm(null);
       const le = e instanceof LadderError ? e : null;
-      // These failures were not charged (or were refunded): a new attempt gets a new key.
-      if (le && le.reason !== "unknown") requestId.current = null;
+      // Settled failures were not charged (or were refunded; model_failed keeps answering for its key): a new attempt
+      // gets a new key. A dropped connection ("unknown") or a run still in flight ("in_progress") keeps it, so the
+      // retry returns that run's result instead of spending again.
+      if (le && le.reason !== "unknown" && le.reason !== "in_progress") requestId.current = null;
       setErr(le ? reasonText(le.reason, le.details) : String((e as Error)?.message ?? e));
       if (le?.details.balance != null) setCredits((c) => (c ? { ...c, balance: le.details.balance! } : c));
     } finally {

@@ -142,7 +142,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   }
 
   async function shoot(wid?: string) {
-    if (!video.current || shooting) return;
+    if (!video.current || shooting || clipRef.current) return; // a clip chains its own middle frame
     setShooting(true);
     try {
       const f = captureFrame(video.current);
@@ -288,7 +288,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           </div>
           <p className={`sync ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
             {session.guest
-              ? `On this device · ${s.chunks} chunks chained`
+              ? `On this device · ${s.chunks} chunk${s.chunks === 1 ? "" : "s"} chained`
               : s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
           </p>
         </div>
@@ -305,7 +305,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           onShow={() => void shoot(s.witnessOpen!.wid)}
           onAnswer={(via, text) => session.witnessAnswer(via, text)}
           onSkip={() => session.witnessSkip()}
-          canShoot={!camErr}
+          canShoot={!camErr && clipAt == null}
         />
       )}
       <div className="live-actions">

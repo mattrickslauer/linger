@@ -9,10 +9,21 @@ import type { Session } from "./recorder";
 import { speak } from "./voice";
 import { askedText, canAsk, sessionText, worthAsking } from "./witness";
 
+const REFINE_BUDGET_MS = 4000;
+const QUIET_BACKOFF_MS = 20_000;
+const ERROR_BACKOFF_MS = 30_000;
+function budget<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const t = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error("witness refine over budget")), ms)));
+  return Promise.race([p, t]).finally(() => clearTimeout(timer));
+}
+
 export class WitnessAgent {
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
   private stopped = false;
+  /** Earliest next model call: after a quiet draft or a failure the witness backs off instead of re-asking the model every tick. */
+  private nextTryAt = 0;
   voice = true;
   /** Last reason the witness stayed quiet, for the record screen. */
   status: "idle" | "thinking" | "unavailable" = "idle";
@@ -45,7 +56,7 @@ export class WitnessAgent {
   async tick() {
     const s = this.session;
     if (this.demo) return this.demoTick();
-    if (this.busy || this.stopped || !canAsk(Date.now(), s.startedAt, s.witness)) return;
+    if (this.busy || this.stopped || Date.now() < this.nextTryAt || !canAsk(Date.now(), s.startedAt, s.witness)) return;
     this.busy = true;
     this.set("thinking");
     try {
@@ -56,18 +67,23 @@ export class WitnessAgent {
       if (navigator.onLine) {
         const frames = s.framesForJudge().slice(-3);
         try {
-          const r = await witnessRefine(intention, session, asked, a, frames, s.startedAt);
+          // Contract v3.4: a 4 s budget for the cloud refinement, then the on-device draft stands.
+          const r = await budget(witnessRefine(intention, session, asked, a, frames, s.startedAt), REFINE_BUDGET_MS);
           if (r.ask.trim()) a = { ...r, mode: "cloud" };
         } catch {
           /* 4 s budget or offline: keep the on-device draft */
         }
       }
-      if (this.stopped || !worthAsking(a) || !canAsk(Date.now(), s.startedAt, s.witness)) return this.set("idle");
+      if (this.stopped || !worthAsking(a) || !canAsk(Date.now(), s.startedAt, s.witness)) {
+        this.nextTryAt = Date.now() + QUIET_BACKOFF_MS; // nothing worth asking yet: look again a little later
+        return this.set("idle");
+      }
       const req = s.witnessAsk(a.ask, a.kind, a.why, a.mode);
       this.deliver(req.ask, req.wid);
       this.set("idle");
     } catch (e) {
       console.warn("witness unavailable", e);
+      this.nextTryAt = Date.now() + ERROR_BACKOFF_MS; // e.g. offline with no on-device model: don't retry every tick
       this.set("unavailable");
     } finally {
       this.busy = false;

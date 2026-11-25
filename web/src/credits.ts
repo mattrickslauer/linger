@@ -106,16 +106,19 @@ export async function getCredits(): Promise<Credits> {
 }
 
 /** Uploads the chained clip from this browser's vault, if it holds it (create-only: an existing upload is fine). */
-async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s: string) => void): Promise<void> {
+async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s: string) => void): Promise<"uploaded" | "refused" | "absent"> {
   const clip = (await clipsOf(momentId)).find((c) => c.sha256 === sha);
-  if (!clip) return; // maybe uploaded earlier, or recorded elsewhere: the function says clip_missing if not
+  if (!clip) return "absent"; // maybe uploaded earlier, or recorded elsewhere: the function says clip_missing if not
   const ext = clip.mime.includes("mp4") ? "mp4" : clip.mime.includes("quicktime") ? "mov" : "webm";
   onStep(`Uploading clip (${(clip.bytes / 1e6).toFixed(1)} MB)…`);
   try {
     await uploadBytes(ref(bucket(), `clips/${uid}/${momentId}/${sha}.${ext}`), clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
+    return "uploaded";
   } catch (e) {
-    // Rules allow create only; a second upload of the same clip is refused and the first one stands.
+    // Rules allow create only; a second upload of the same clip is refused and the first one stands. If the server
+    // then says clip_missing, the refusal was a real permissions problem (runLadderModule reports it as such).
     if ((e as { code?: string })?.code !== "storage/unauthorized") throw new LadderError("upload_failed", `Clip upload failed: ${(e as Error)?.message ?? e}`);
+    return "refused";
   }
 }
 
@@ -124,7 +127,7 @@ export async function runLadderModule(
   onStep: (s: string) => void = () => {},
 ): Promise<RunResult> {
   if (LADDER_DEMO) return demoRun(a, onStep);
-  if (a.module === "full_video" && a.clipSha) await uploadClip(a.uid, a.momentId, a.clipSha, onStep);
+  const upload = a.module === "full_video" && a.clipSha ? await uploadClip(a.uid, a.momentId, a.clipSha, onStep) : null;
   onStep("Running in a Cloud Function…");
   try {
     const r = await httpsCallable<object, RunResult>(functions(), "runLadderModule", { timeout: 180_000 })({
@@ -135,7 +138,9 @@ export async function runLadderModule(
     });
     return r.data;
   } catch (e) {
-    throw wrap(e);
+    const le = wrap(e);
+    if (le.reason === "clip_missing" && upload === "refused") throw new LadderError("clip_refused", le.message, le.details);
+    throw le;
   }
 }
 

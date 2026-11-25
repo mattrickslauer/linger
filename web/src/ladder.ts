@@ -122,8 +122,17 @@ export function reasonText(reason: string | undefined, details?: { balance?: num
       return NEED_TEXT[reason.slice(6) as Need];
     case "clip_missing":
       return "The clip hasn't reached the server. It uploads from the device that recorded it.";
+    case "clip_refused":
+      return "Cloud Storage refused the clip upload, so the server can't see it. No credits were spent.";
     case "clip_hash_mismatch":
       return "The uploaded clip doesn't match the fingerprint in the chain. No credits were spent.";
+    case "in_progress":
+      return "This check is still running. Try again in a few seconds to see its result; you won't be charged twice.";
+    case "bad_request":
+    case "bad_module":
+      return "The app sent a request the server didn't accept. Reload the page and try again.";
+    case "upload_failed":
+      return "The clip couldn't be uploaded. Check your connection and try again. No credits were spent.";
     case "model_failed":
       return "The check couldn't run right now. Your credits were refunded.";
     case "moment_missing":

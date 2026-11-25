@@ -4,7 +4,7 @@
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
-const BASE = process.env.BASE || "http://127.0.0.1:5391";
+const BASE = process.env.BASE || "http://localhost:5391"; // vite binds localhost (may be IPv6 only)
 const OUT = process.env.OUT || "shots";
 const CHROME = process.env.CHROME || "/usr/bin/google-chrome";
 const RECORD_MS = Number(process.env.RECORD_MS || 4000);
