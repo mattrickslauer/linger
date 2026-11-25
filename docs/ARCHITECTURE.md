@@ -5,7 +5,8 @@
 
 ## The product in one loop
 
-1. **Open the app as a guest** (web, iOS, Android: no sign-in wall). **Sign in with Google** (Firebase Auth) only
+1. **Open the app as a guest** (web, iOS, Android: no sign-in wall). **Sign in** (accounts.mattrickslauer.com OIDC +
+   PKCE → Firebase custom token, same uid on every platform; the Auth emulator fakes Google instead) only
    when something must be written to the server; guest Moments are kept on the device and claimed at sign-in (v3.1).
 2. **Declare an intention** by a short voice interview (v3.2) or by typing one sentence ("Catch and release a
    largemouth bass at Lake Mission Viejo") plus a category. A Cloud Function sets the bar it must reach (v3.3).

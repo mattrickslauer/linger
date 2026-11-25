@@ -111,8 +111,9 @@ All prompts and JSON schemas live in one file shared by all three platforms and 
 
 - **App Check**: reCAPTCHA Enterprise (web), Play Integrity (Android), App Attest with DeviceCheck fallback
   (iOS); debug providers for development builds. Required by Firebase AI Logic.
-- **Authentication**: Google sign-in, requested only when an action writes to the server (guest mode everywhere
-  else; no anonymous accounts).
+- **Authentication**: Firebase Auth with custom tokens: every platform signs in (with Google) through one OIDC
+  provider, so a person has the same uid on web, Android and iOS. Requested only when an action writes to the
+  server (guest mode everywhere else; no anonymous accounts).
 - **Cloud Firestore**: offline persistence; security rules make chunks append-only and the seal and feed
   server-only, and the bar, verification score and credits ledger Functions-only ([`firestore.rules`](firestore.rules),
   tested in [`functions/test/rules.test.ts`](functions/test/rules.test.ts)).
@@ -256,9 +257,9 @@ everything in this repository was written during it. Disclosed pre-existing work
 
 - **Design patterns** (not code) from my earlier Google hackathon entry, *Warrant*: "AI proposes, deterministic
   code decides", a separate skeptic model, and a server-side seal.
-- **Mobile sign-in** goes through my own existing accounts service (an OIDC provider that hands back a Firebase
-  custom token); the Android and iOS loopback-redirect sign-in flow is adapted from another of my apps. The web
-  app uses Firebase Auth Google sign-in directly.
+- **Sign-in** on all three platforms goes through my own existing accounts service (an OIDC provider that hands
+  back a Firebase custom token); the Android and iOS loopback-redirect sign-in flow is adapted from another of my
+  apps, and the web uses the same service with a PKCE popup (full-page redirect if popups are blocked).
 - Open-source libraries listed in each platform's package manifest (Firebase SDKs, React, Leaflet, Jetpack
   Compose, AppAuth, Mapbox, and others), used under their licenses.
 

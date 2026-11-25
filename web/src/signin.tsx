@@ -4,7 +4,7 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { User } from "firebase/auth";
-import { signInWithGoogle } from "./auth";
+import { signIn, SignInCancelled } from "./auth";
 import { auth, configured } from "./firebase";
 
 export class SignInDeclined extends Error {
@@ -48,6 +48,7 @@ export function SignInSheet() {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
   const [busy, setBusy] = useState(false);
+  const abort = useRef<AbortController | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,7 +62,8 @@ export function SignInSheet() {
   }, [ask]);
 
   const cancel = () => {
-    if (busy || !ask) return;
+    if (!ask) return;
+    abort.current?.abort();
     ask.reject(new SignInDeclined());
     set(null);
   };
@@ -70,13 +72,16 @@ export function SignInSheet() {
     setBusy(true);
     setErr(null);
     try {
-      const u = await signInWithGoogle();
+      abort.current = new AbortController();
+      const u = await signIn(abort.current.signal);
       ask.resolve(u);
       set(null);
     } catch (e) {
       const code = (e as { code?: string })?.code;
-      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") setErr(String((e as Error)?.message ?? e));
+      if (!(e instanceof SignInCancelled) && code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request")
+        setErr(String((e as Error)?.message ?? e));
     } finally {
+      abort.current = null;
       setBusy(false);
     }
   };
@@ -101,9 +106,9 @@ export function SignInSheet() {
         {err && <p className="notice notice-bad small">Sign-in failed: {err}</p>}
         <div className="sheet-actions">
           <button className="btn btn-primary" onClick={go} disabled={busy} autoFocus>
-            {busy ? "Signing in…" : "Continue with Google"}
+            {busy ? "Finish in the sign-in window…" : "Continue with Google"}
           </button>
-          <button className="btn btn-quiet" onClick={cancel} disabled={busy}>
+          <button className="btn btn-quiet" onClick={cancel}>
             Not now
           </button>
         </div>
