@@ -95,6 +95,8 @@ export interface WitnessRequest {
   ask: string;
   kind: string;
   by: string;
+  /** v4: the plan requirement this request serves (optional trailing key of the witness event). */
+  rid: string | null;
   answer: { t: number; via: string; text?: string; frameSeq?: number } | null;
   skip: { t: number; reason?: string } | null;
 }
@@ -104,6 +106,7 @@ export interface VideoFact {
   sha256: string;
   bytes: number | null;
   durationMs: number | null;
+  startedAt: number | null;
   name: string | null;
 }
 
@@ -141,7 +144,7 @@ export function chainFacts(rawChunks: ChunkDoc[]): ChainFacts {
     for (const e of p.events) {
       const wid = str(e.wid);
       if (e.type === "witness" && wid && !byWid.has(wid)) {
-        const w: WitnessRequest = { wid, t: e.t, ask: str(e.ask).slice(0, 200), kind: str(e.kind), by: str(e.by), answer: null, skip: null };
+        const w: WitnessRequest = { wid, t: e.t, ask: str(e.ask).slice(0, 200), kind: str(e.kind), by: str(e.by), rid: str(e.rid) || null, answer: null, skip: null };
         byWid.set(wid, w);
         out.witness.push(w);
       } else if (e.type === "witness_answer" && byWid.has(wid)) {
@@ -155,7 +158,7 @@ export function chainFacts(rawChunks: ChunkDoc[]): ChainFacts {
         const w = byWid.get(wid)!;
         if (!w.answer && !w.skip) w.skip = { t: e.t, ...(typeof e.reason === "string" ? { reason: e.reason } : {}) };
       } else if (e.type === "video" && /^[0-9a-f]{64}$/.test(str(e.sha256))) {
-        out.videos.push({ t: e.t, sha256: str(e.sha256), bytes: num(e.bytes), durationMs: num(e.durationMs), name: str(e.name) || null });
+        out.videos.push({ t: e.t, sha256: str(e.sha256), bytes: num(e.bytes), durationMs: num(e.durationMs), startedAt: num(e.startedAt), name: str(e.name) || null });
       }
     }
   }

@@ -1,7 +1,8 @@
 // Pure helpers for the v3.7 callables: request validation, eligibility and typed errors. No Firebase app needed,
 // so unit tests import this without initializing anything.
 import { HttpsError } from "firebase-functions/v2/https";
-import type { LadderResult, SealV3 } from "./ladder";
+import type { ChainFacts, LadderResult, SealV3 } from "./ladder";
+import type { Claim } from "./v4";
 import type { MomentDoc } from "./seal";
 import { ModuleId, getModule } from "./shared";
 
@@ -50,6 +51,24 @@ export function validateRunRequest(data: unknown): RunRequest {
   if (d.clipSha != null && !okId(d.clipSha, /^[0-9a-f]{64}$/)) throw fail("invalid-argument", "bad_request", "clipSha must be a lowercase sha256 hex.");
   if (typeof d.module !== "string" || !getModule(d.module)) throw fail("invalid-argument", "bad_module", "Unknown module.");
   return { momentId: d.momentId as string, module: d.module as ModuleId, requestId: d.requestId as string, ...(d.clipSha ? { clipSha: d.clipSha as string } : {}) };
+}
+
+/**
+ * v4 needs (v4.6): as v3, except `quantities` means a server claim of kind count/measure (so a typed "clap 50 times"
+ * is countable). Returns `needs_<need>` for the first unmet need, or null.
+ */
+export function unmetNeedV4(mod: { needs: string[] }, facts: ChainFacts, claims: Claim[]): string | null {
+  for (const n of mod.needs) {
+    const ok =
+      n === "frames" ? facts.frames.length > 0
+      : n === "gps" ? facts.gps.length > 0
+      : n === "witness_answered" ? facts.witness.some((w) => w.answer)
+      : n === "quantities" ? claims.some((c) => c.kind === "count" || c.kind === "measure")
+      : n === "video" ? facts.videos.length > 0
+      : false;
+    if (!ok) return `needs_${n}`;
+  }
+  return null;
 }
 
 /** Eligibility from the Moment alone (status, seal version, ladderEligible, already run / in flight). */
