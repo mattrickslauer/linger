@@ -181,28 +181,46 @@ export interface WitnessAsk {
   kind: "show" | "tell" | "do";
   why: string;
   gain: number;
+  /** v4: the plan requirement this request serves ("" if none). */
+  requirementId: string;
 }
 const toAsk = (j: Partial<WitnessAsk>): WitnessAsk => ({
   ask: String(j.ask ?? "").trim().slice(0, 100),
   kind: j.kind === "tell" || j.kind === "do" ? j.kind : "show",
   why: String(j.why ?? "").slice(0, 100),
   gain: Math.max(0, Math.min(1, Number(j.gain) || 0)),
+  requirementId: typeof j.requirementId === "string" ? j.requirementId.trim().slice(0, 4) : "",
 });
 
+/** `{{plan}}` and `{{unmet}}` (v4.10): the evidence plan and the requirements not captured yet. */
+export interface WitnessPlanVars {
+  plan: string;
+  unmet: string;
+}
+
 /** Witness draft (PREFER_ON_DEVICE). */
-export async function witnessDraft(intention: string, session: string, asked: string) {
-  const r = await askJson<WitnessAsk>("witnessDraft", { intention, session, asked }, [], 15_000);
+export async function witnessDraft(intention: string, session: string, asked: string, pv: WitnessPlanVars) {
+  const r = await askJson<WitnessAsk>("witnessDraft", { intention, session, asked, ...pv }, [], 15_000);
   return { ...toAsk(r.json), mode: r.mode };
 }
 
 /** Witness refine (ONLY_IN_CLOUD) over the latest frames. Callers give it a 4 s budget. */
-export async function witnessRefine(intention: string, session: string, asked: string, draft: WitnessAsk, frames: { t: number; jpegB64: string }[], startedAt: number) {
+export async function witnessRefine(
+  intention: string,
+  session: string,
+  asked: string,
+  draft: WitnessAsk,
+  frames: { t: number; jpegB64: string }[],
+  startedAt: number,
+  pv: WitnessPlanVars,
+) {
   const r = await askJson<WitnessAsk>(
     "witnessRefine",
     {
       intention,
       session,
       asked,
+      ...pv,
       draft: JSON.stringify(draft),
       frameOffsets: frames.map((f) => Math.round((f.t - startedAt) / 1000) + "s").join(", ") || "none",
     },

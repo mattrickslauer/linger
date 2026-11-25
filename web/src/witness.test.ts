@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import v3 from "../../shared/test-vectors-v3.json";
 import { chunkHash, sha256hex, verifyChain } from "./chain";
 import type { AppEvent, Chunk } from "./types";
-import { answerEvent, askedText, canAsk, frameEvent, nextWid, skipEvent, witnessEvent, witnessSummary, worthAsking, type WitnessLog } from "./witness";
+import v4 from "../../shared/test-vectors-v4.json";
+import { answerEvent, askedText, canAsk, frameEvent, nextWid, skipEvent, validRid, witnessEvent, witnessSummary, worthAsking, type WitnessLog } from "./witness";
 
 const g = v3.guestChain;
 
@@ -41,6 +42,31 @@ describe("guest chain with witness events (shared/test-vectors-v3.json)", () => 
     // frames are not in the vector (only their sha), so only check links and head here
     expect(r.links.every((l) => l.status === "ok" || l.status === "bad-frame")).toBe(true);
     expect(r.headOk).toBe(true);
+  });
+});
+
+describe("v4 video chain with a plan-tagged witness request (shared/test-vectors-v4.json videoChain)", () => {
+  const vc = v4.videoChain;
+  const rebuild4 = (e: Record<string, unknown>): AppEvent =>
+    e.type === "witness" ? witnessEvent(e.t as number, e.wid as string, e.ask as string, e.kind as "do", e.by as "on_device", e.rid as string | undefined) : rebuild(e);
+  it("rid is the last key of the witness event and the payload bytes reproduce", () => {
+    for (const c of vc.chunks) {
+      const p = JSON.parse(c.payload);
+      expect(JSON.stringify({ ...p, events: p.events.map(rebuild4) })).toBe(c.payload);
+    }
+    expect(Object.keys(witnessEvent(1, "w1", "a", "do", "cloud", "r2")).pop()).toBe("rid");
+    expect(witnessEvent(1, "w1", "a", "do", "cloud", "")).not.toHaveProperty("rid");
+  });
+  it("hashes and head reproduce", async () => {
+    for (const c of vc.chunks) expect(await chunkHash(c.seq, c.t0, c.t1, c.prevHash, c.payload)).toBe(c.hash);
+    expect(vc.chunks[vc.chunks.length - 1].hash).toBe(vc.headHash);
+  });
+  it("validRid keeps only ids of this plan", () => {
+    const plan = { requirements: [{ id: "r1" }, { id: "r2" }] };
+    expect(validRid("r2", plan)).toBe("r2");
+    expect(validRid("r7", plan)).toBeUndefined();
+    expect(validRid("", plan)).toBeUndefined();
+    expect(validRid("r1", null)).toBeUndefined();
   });
 });
 

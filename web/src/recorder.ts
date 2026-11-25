@@ -7,7 +7,7 @@
 // (ownerUid: null, owner: null, guest: true). Nothing is queued for Firestore; claimMoments() uploads it later.
 
 import { deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import type { Claim } from "./v4";
+import { clipExt, FactsBuilder, type ChainFacts, type Claim } from "./v4";
 import type { User } from "firebase/auth";
 import { cloudReview, liveCheck } from "./ai";
 import { makeChunk, sha256hex } from "./chain";
@@ -39,6 +39,8 @@ export interface LiveState {
   witnessOpen: WitnessRequest | null; // the witness's open request, if any (v3.4)
   witnessAsked: number;
   witnessAnswered: number;
+  /** v4: what the chain holds so far, for the plan checklist ("captured") and the witness's `{{unmet}}`. */
+  facts: ChainFacts;
 }
 
 function deviceInfo() {
@@ -86,6 +88,7 @@ export class Session {
   readonly witness: WitnessLog = { requests: [] };
   /** Coach labels of the proof frames so far, for the witness's `{{session}}`. */
   readonly labels: string[] = [];
+  private factsB = new FactsBuilder();
   gpsCount = 0;
   state: LiveState;
   onChange: (s: LiveState) => void = () => {};
@@ -117,12 +120,24 @@ export class Session {
       witnessOpen: null,
       witnessAsked: 0,
       witnessAnswered: 0,
+      facts: this.factsB.facts,
     };
   }
 
   private emit(patch: Partial<LiveState> = {}) {
-    this.state = { ...this.state, ...patch, elapsedMs: Date.now() - this.startedAt, online: navigator.onLine };
+    this.state = { ...this.state, ...patch, elapsedMs: Date.now() - this.startedAt, online: navigator.onLine, facts: this.factsB.facts };
     this.onChange(this.state);
+  }
+
+  /** Every chain event goes through here so the checklist sees it at once (it rides the next chunk). */
+  private pushEvent(e: AppEvent) {
+    this.events.push(e);
+    this.factsB.event(e);
+  }
+
+  /** v4 client draft plan (the server plan is authoritative; this drives the record screen). */
+  get plan() {
+    return this.intentionObj.plan ?? null;
   }
 
   get intention(): string {
@@ -176,6 +191,7 @@ export class Session {
           const row: GpsRow = [p.timestamp || Date.now(), c.latitude, c.longitude, c.accuracy, c.altitude ?? null, c.speed ?? null];
           this.gps.push(row);
           this.allGps.push(row);
+          this.factsB.gps([row]);
           this.gpsCount++;
           this.emit({ gps: row, gpsError: null, distanceM: trackDistanceM(this.allGps) });
         },
@@ -208,6 +224,7 @@ export class Session {
       i === 0 ? v : Math.round(v * 1000) / 1000,
     ) as MotionRow;
     this.motion.push(row);
+    this.factsB.motion([row]);
     const tail = [...this.state.motionTail, Math.hypot(row[1], row[2], row[3])].slice(-60);
     this.state = { ...this.state, motionOn: true, motionTail: tail };
   };
@@ -217,6 +234,8 @@ export class Session {
     const t1 = Math.max(Date.now(), this.lastT);
     const t0 = this.lastT;
     this.lastT = t1;
+    for (const e of extra.events ?? []) this.factsB.event(e);
+    if (extra.frameSha) this.factsB.frame();
     const payload = {
       gps: this.gps.splice(0),
       motion: this.motion.splice(0),
@@ -261,10 +280,10 @@ export class Session {
   }
 
   /** Record a witness request in the chain and open it. */
-  witnessAsk(ask: string, kind: WitnessKind, why: string, by: WitnessBy): WitnessRequest {
-    const r: WitnessRequest = { wid: nextWid(this.witness), ask, kind, why, by, at: Date.now() };
+  witnessAsk(ask: string, kind: WitnessKind, why: string, by: WitnessBy, rid?: string): WitnessRequest {
+    const r: WitnessRequest = { wid: nextWid(this.witness), ask, kind, why, by, at: Date.now(), ...(rid ? { rid } : {}) };
     this.witness.requests.push(r);
-    this.events.push(witnessEvent(r.at, r.wid, ask, kind, by));
+    this.pushEvent(witnessEvent(r.at, r.wid, ask, kind, by, rid));
     this.emitWitness();
     return r;
   }
@@ -275,7 +294,7 @@ export class Session {
     if (!r) return;
     const t = Date.now();
     Object.assign(r, { outcome: "answered", via, text: text?.slice(0, 200), closedAt: t });
-    this.events.push(answerEvent(t, r.wid, via, text));
+    this.pushEvent(answerEvent(t, r.wid, via, text));
     this.emitWitness();
   }
 
@@ -284,14 +303,14 @@ export class Session {
     if (!r) return;
     const t = Date.now();
     Object.assign(r, { outcome: "skipped", closedAt: t });
-    this.events.push(skipEvent(t, r.wid, reason));
+    this.pushEvent(skipEvent(t, r.wid, reason));
     this.emitWitness();
   }
 
   // ---------------------------------------------------------------- video clips (`video_start` / `video`)
 
   videoStart() {
-    this.events.push({ t: Date.now(), type: "video_start" });
+    this.pushEvent({ t: Date.now(), type: "video_start" });
   }
 
   /**
@@ -299,7 +318,7 @@ export class Session {
    * the clip's middle frame is coached and chained as the proof frame of the same chunk.
    */
   async videoClip(c: { blob: Blob; mime: string; startedAt: number; durationMs: number; sha256: string; middle: { jpegB64: string; w: number; h: number } }) {
-    const ext = c.mime.includes("mp4") ? "mp4" : "webm";
+    const ext = clipExt(c.mime);
     const name = `verified-${this.id.slice(0, 8)}-${c.startedAt}.${ext}`;
     await journalClip({ sha256: c.sha256, momentId: this.id, blob: c.blob, mime: c.mime, bytes: c.blob.size, durationMs: c.durationMs, name });
     const ev: AppEvent = { t: Date.now(), type: "video", sha256: c.sha256, bytes: c.blob.size, durationMs: c.durationMs, startedAt: c.startedAt, name };

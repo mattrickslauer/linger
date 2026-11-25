@@ -154,3 +154,62 @@
   width: 18px;
   height: 18px;
 }
+
+/* Record screen: Video / Photo mode and the live checklist under the timer */
+.mode-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+}
+.mode-switch button {
+  min-height: 36px;
+  min-width: 84px;
+  padding: 4px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.mode-switch button.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.mode-switch button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.live-plan {
+  grid-column: 1 / -1;
+  padding: 10px 14px 6px;
+  border-radius: var(--r-sm);
+  background: var(--sheet);
+  border-left: 3px solid var(--gold);
+}
+.live-plan h2 {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+.btn-clip.btn-primary.on {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.btn-clip.btn-primary.on .rec-dot {
+  background: #fff;
+}
+.clip-need {
+  opacity: 0.75;
+  font-weight: 500;
+}
+.clip-need.ok {
+  opacity: 1;
+}
+.clip-need.ok::after {
+  content: " ✓";
+}

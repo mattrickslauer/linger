@@ -11,7 +11,9 @@ import { CATEGORIES, type Category, type Intention, type Moment } from "../types
 import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip } from "../components/Interview";
 import { WitnessAgent } from "../witnessAgent";
-import { ClipRecorder, clipSupported, MAX_CLIP_MS, sha256Bytes } from "../clip";
+import { clipCapMs, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
+import { captured, type Requirement } from "../v4";
+import { PlanList } from "../components/Plan";
 import { listen, stopSpeaking, sttSupported } from "../voice";
 import { structureIntention } from "../ai";
 import { buildContext, withDraftClaims } from "../intention";
@@ -170,15 +172,20 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
 
-  // Video clip: chained by hash, kept in this browser, uploaded only for the full_video ladder check.
+  // Video clip: chained by hash as a `video` event, kept in the vault, uploaded at submit and reviewed as video (v4.4).
   const clipRef = useRef<ClipRecorder | null>(null);
   const [clipAt, setClipAt] = useState<number | null>(null);
   const [clipErr, setClipErr] = useState<string | null>(null);
+  // v4: the plan decides how the record screen opens ("Video" when any requirement needs a continuous clip).
+  const plan = session.plan;
+  const [mode, setMode] = useState<"video" | "photo">(plan?.recordMode === "video" && clipSupported() ? "video" : "photo");
+  const capMs = clipCapMs(plan);
+  const needSec = Math.max(0, ...(plan?.requirements ?? []).filter((r) => r.evidence === "video").map((r) => r.minSeconds ?? 0));
   async function startClip() {
     if (!video.current || clipRef.current || shooting) return;
     setClipErr(null);
     try {
-      const r = new ClipRecorder(video.current);
+      const r = new ClipRecorder(video.current, capMs);
       clipRef.current = r;
       session.videoStart();
       setClipAt(r.startedAt);
@@ -210,9 +217,44 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
 
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
+  const clipMs = clipAt != null ? Math.min(capMs, Math.max(0, Date.now() - clipAt)) : 0;
+  const clipButton = clipSupported() && (
+    <button
+      className={`btn btn-big btn-clip ${mode === "video" ? "btn-primary" : ""} ${clipAt != null ? "on" : ""}`}
+      onClick={() => void (clipAt != null ? stopClip() : startClip())}
+      disabled={!!camErr || (shooting && clipAt == null)}
+      aria-pressed={clipAt != null}
+    >
+      <span className="rec-dot" aria-hidden="true" />
+      {clipAt != null ? (
+        <>
+          Stop video {fmtDuration(clipMs)}
+          {needSec > 0 && <span className={`clip-need ${clipMs >= needSec * 1000 ? "ok" : ""}`}> / ≥ {fmtDuration(needSec * 1000)}</span>}
+        </>
+      ) : mode === "video" ? (
+        "Record video"
+      ) : (
+        "Clip"
+      )}
+    </button>
+  );
+  const shotButton = (
+    <button className={`btn btn-big ${mode === "photo" ? "btn-primary" : ""}`} onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
+      {shooting ? "Checking…" : "Proof shot"}
+    </button>
+  );
   return (
     <div className="page live">
       <p className="live-intent">{session.intention}</p>
+      {clipSupported() && (
+        <div className="mode-switch" role="radiogroup" aria-label="Record mode">
+          {(["video", "photo"] as const).map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} disabled={clipAt != null} onClick={() => setMode(m)}>
+              {m === "video" ? "Video" : "Photo"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="live-grid">
         <div className="cam">
           <video ref={video} autoPlay playsInline muted className={facing === "user" ? "mirror" : undefined} />
@@ -265,6 +307,14 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
             <span className="g-label">time</span>
             <span className="g-val">{fmtDuration(s.elapsedMs)}</span>
           </div>
+          {!!plan?.requirements.length && (
+            <section className="live-plan" aria-labelledby="live-plan-h">
+              <h2 id="live-plan-h" className="g-label">
+                To get this verified · {plan.requirements.filter((r) => captured(r, s.facts)).length}/{plan.requirements.length} captured
+              </h2>
+              <PlanList compact requirements={plan.requirements} state={(r) => (captured(r as Requirement, s.facts) ? "captured" : "todo")} />
+            </section>
+          )}
           <div className="gauge">
             <span className="g-label">distance</span>
             <span className="g-val">{fmtDistance(s.distanceM)}</span>
@@ -326,19 +376,16 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
         />
       )}
       <div className="live-actions">
-        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
-          {shooting ? "Checking…" : "Proof shot"}
-        </button>
-        {clipSupported() && (
-          <button
-            className={`btn btn-big btn-clip ${clipAt != null ? "on" : ""}`}
-            onClick={() => void (clipAt != null ? stopClip() : startClip())}
-            disabled={!!camErr || (shooting && clipAt == null)}
-            aria-pressed={clipAt != null}
-          >
-            <span className="rec-dot" aria-hidden="true" />
-            {clipAt != null ? `Stop clip ${fmtDuration(Math.min(MAX_CLIP_MS, s.elapsedMs - (clipAt - session.startedAt)))}` : "Clip"}
-          </button>
+        {mode === "video" ? (
+          <>
+            {clipButton}
+            {shotButton}
+          </>
+        ) : (
+          <>
+            {shotButton}
+            {clipButton}
+          </>
         )}
         <button
           className="btn btn-big"

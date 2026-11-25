@@ -22,6 +22,9 @@ export const MAX_SIGNALS = 6;
 /** Clips at or above this size are not uploaded (storage.rules: < 200 MB); their requirements stay unmet. */
 export const MAX_CLIP_BYTES = 200 * 1024 * 1024;
 
+/** Storage path extension for a clip's MIME type (storage.rules: mp4 | mov | webm). */
+export const clipExt = (mime: string): "mp4" | "mov" | "webm" => (mime.includes("mp4") ? "mp4" : mime.includes("quicktime") ? "mov" : "webm");
+
 export interface Claim {
   id: string;
   kind: ClaimKind;

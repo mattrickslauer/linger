@@ -17,6 +17,8 @@ export interface WitnessRequest {
   why: string;
   by: WitnessBy;
   at: number;
+  /** v4: the plan requirement this request serves (omitted when none). */
+  rid?: string;
   outcome?: "answered" | "skipped";
   via?: AnswerVia;
   text?: string;
@@ -45,7 +47,13 @@ export const nextWid = (w: WitnessLog) => "w" + (w.requests.length + 1);
 
 // ---------------------------------------------------------------- chain events (contract key order)
 
-export const witnessEvent = (t: number, wid: string, ask: string, kind: WitnessKind, by: WitnessBy): AppEvent => ({ t, type: "witness", wid, ask, kind, by });
+/** v4.10: `rid` is the optional LAST key (the plan requirement the request serves); omitted when "". */
+export const witnessEvent = (t: number, wid: string, ask: string, kind: WitnessKind, by: WitnessBy, rid?: string): AppEvent =>
+  rid ? { t, type: "witness", wid, ask, kind, by, rid } : { t, type: "witness", wid, ask, kind, by };
+
+/** The model's requirementId, kept only when it names a requirement of this plan. */
+export const validRid = (rid: unknown, plan: { requirements: { id: string }[] } | null | undefined): string | undefined =>
+  typeof rid === "string" && rid && plan?.requirements.some((r) => r.id === rid) ? rid : undefined;
 export const frameEvent = (t: number, wid?: string): AppEvent => (wid ? { t, type: "frame", wid } : { t, type: "frame" });
 export const answerEvent = (t: number, wid: string, via: AnswerVia, text?: string): AppEvent =>
   text != null && text !== "" ? { t, type: "witness_answer", wid, via, text: text.slice(0, 200) } : { t, type: "witness_answer", wid, via };
