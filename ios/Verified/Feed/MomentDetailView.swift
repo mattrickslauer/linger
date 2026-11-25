@@ -221,6 +221,10 @@ struct MomentDetailView: View {
       if !m.local {
         VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
       }
+      if !m.videoClips.isEmpty {
+        // v4.12: the uploaded clips, for anyone who can see the Moment.
+        card("Video", icon: "film") { SharedClipsSection(clips: m.videoClips) }
+      }
       card("Hash chain", icon: "link") { ChainRecheckLine(chainVerified: model.chainVerified, chunkCount: model.chunkCount) }
     }
   }

@@ -1,3 +1,4 @@
+import AVFoundation
 import FirebaseCore
 import SwiftUI
 import VerifiedCore
@@ -17,7 +18,8 @@ struct FeedView: View {
 
   var body: some View {
     NavigationStack {
-      FeedPager(filter: $filter, current: $current) { item in
+      // v4.12: the feed clip pauses while the evidence room or another tab is showing.
+      FeedPager(filter: $filter, current: $current, paused: showingRoom || app.tab != .feed) { item in
         opened = item
         showingRoom = true
       }
@@ -85,6 +87,7 @@ private struct FeedPager: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Binding var filter: FeedFilter
   @Binding var current: String?
+  let paused: Bool
   let open: (MomentCardData) -> Void
 
   var body: some View {
@@ -98,7 +101,8 @@ private struct FeedPager: View {
             .containerRelativeFrame([.horizontal, .vertical])
             .id(FeedPage.intro)
           ForEach(shown) { item in
-            FeedSlide(item: item, active: current == item.id, insets: insets) { open(item) }
+            FeedSlide(item: item, active: current == item.id, playing: current == item.id && !paused,
+                      insets: insets) { open(item) }
               .containerRelativeFrame([.horizontal, .vertical])
               .id(item.id)
           }
@@ -340,16 +344,21 @@ private extension CGSize {
 private struct FeedSlide: View {
   let item: MomentCardData
   let active: Bool
+  /// v4.12: current, and the feed is on screen: the feed clip may play.
+  let playing: Bool
   let insets: EdgeInsets
   let open: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.scenePhase) private var scenePhase
   @State private var revealed = false
+  /// Made the first time this slide plays its feed clip (nil when it has none).
+  @State private var clip: FeedClipPlayer?
 
   var body: some View {
     let ok = item.isVerified
     let shown = revealed || reduceMotion
     ZStack(alignment: .bottomTrailing) {
-      SlideBackdrop(b64: item.heroJpegB64, desaturate: !ok)
+      SlideBackdrop(b64: item.heroJpegB64, desaturate: !ok, clip: clip)
       VStack(alignment: .leading, spacing: 0) {
         intent.arrive(shown, delay: 0.1, reduceMotion)
         Spacer(minLength: 18)
@@ -375,6 +384,18 @@ private struct FeedSlide: View {
     .onChange(of: active, initial: true) { _, now in
       if now && !revealed { revealed = true }
     }
+    // v4.12: muted, looping, on the current slide only; pauses off screen and in the background.
+    .onChange(of: playing && scenePhase == .active, initial: true) { _, run in
+      guard let feedClip = item.feedClip else { return }
+      if run {
+        let player = clip ?? FeedClipPlayer()
+        clip = player
+        player.play(path: feedClip.path)
+      } else {
+        clip?.pause()
+      }
+    }
+    .onDisappear { clip?.pause() }
   }
 
   // 1. Intent
@@ -453,6 +474,18 @@ private struct FeedSlide: View {
         RailLabel(title: "Share", systemImage: "square.and.arrow.up", primary: false)
       }
       .accessibilityLabel("Share this Moment")
+      if let clip, clip.ready {
+        // v4.12: sound for this slide's clip (default muted).
+        Button { clip.toggleMute() } label: {
+          Image(systemName: clip.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(.ultraThinMaterial, in: Circle())
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+        }
+        .accessibilityLabel(clip.muted ? "Turn sound on" : "Turn sound off")
+      }
     }
     .buttonStyle(.plain)
   }
@@ -519,6 +552,8 @@ private struct RailLabel: View {
 private struct SlideBackdrop: View {
   let b64: String?
   let desaturate: Bool
+  /// v4.12: the feed clip plays over the photo, which stays as the poster until a frame can show.
+  var clip: FeedClipPlayer? = nil
 
   var body: some View {
     ZStack {
@@ -529,6 +564,11 @@ private struct SlideBackdrop: View {
             .saturation(desaturate ? 0.15 : 1)
         }
         .clipped()
+      }
+      if let clip {
+        PlayerLayerView(player: clip.player) { clip.markReady() }
+          .opacity(clip.ready ? 1 : 0)
+          .animation(.easeIn(duration: 0.25), value: clip.ready)
       }
       VStack(spacing: 0) {
         LinearGradient(colors: [FeedInk.ink.opacity(0.9), FeedInk.ink.opacity(0)], startPoint: .top, endPoint: .bottom)
