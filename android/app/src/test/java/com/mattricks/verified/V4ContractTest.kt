@@ -248,6 +248,46 @@ class V4ContractTest {
         }
     }
 
+    // ── v4.6 modules back claim kinds
+
+    private val modules by lazy {
+        val f = listOf("../../shared/ladder.json", "../shared/ladder.json", "shared/ladder.json").map(::File).first { it.exists() }
+        val a = JSONObject(f.readText()).getJSONArray("modules")
+        (0 until a.length()).associate { i ->
+            val m = a.getJSONObject(i)
+            m.getString("id") to com.mattricks.verified.data.LadderLogic.Module(
+                m.getString("id"), m.getString("title"), m.optString("blurb"), m.getInt("cost"), m.getDouble("strength"),
+                m.optBoolean("available", true), strs(m.getJSONArray("needs")), strs(m.getJSONArray("backs")), m.optBoolean("backsTargetedOnly", false),
+            )
+        }
+    }
+
+    @Test fun modulesBackTheirClaimKindsOnly() {
+        val L = com.mattricks.verified.data.LadderLogic
+        val claims = listOf(Claim("c1", "action", "clapping"), Claim("c2", "count", "50 claps", "claps", 50.0, "claps"))
+        val reqs = listOf(Requirement("r1", "c1", "video", "a"), Requirement("r2", "c2", "witness", "b"))
+        assertEquals(listOf("c2"), L.backedClaims(modules.getValue("count_measure"), claims, reqs, emptyList()))
+        assertEquals(listOf("c1"), L.backedClaims(modules.getValue("second_look"), claims, reqs, emptyList()))
+        assertEquals(emptyList<String>(), L.backedClaims(modules.getValue("place_time"), claims, reqs, emptyList()))
+        assertEquals(listOf("c1", "c2"), L.backedClaims(modules.getValue("full_video"), claims, reqs, emptyList()))
+        // witness_review: only claims an answered request targeted; an untagged (pre-v4) answer → all claims
+        assertEquals(listOf("c2"), L.backedClaims(modules.getValue("witness_review"), claims, reqs, listOf("r2")))
+        assertEquals(listOf("c1", "c2"), L.backedClaims(modules.getValue("witness_review"), claims, reqs, listOf(null)))
+
+        val e = com.mattricks.verified.data.LadderLogic.Evidence(frames = 1, gps = 0, witnessAnswered = 0, quantities = 1, video = true, clipOnPhone = false, v4 = true, clipUploaded = true)
+        assertNull(L.unmetV4(modules.getValue("count_measure"), e, emptyMap(), listOf("c2")))
+        assertNull(L.unmetV4(modules.getValue("full_video"), e, emptyMap(), listOf("c1", "c2"))) // clip uploaded at submit
+        assertEquals("Backs none of this Moment's claims", L.unmetV4(modules.getValue("place_time"), e.copy(gps = 3), emptyMap(), emptyList()))
+        assertEquals("Needs a count or measure claim", L.unmetV4(modules.getValue("count_measure"), e.copy(quantities = 0), emptyMap(), emptyList()))
+
+        val scores = listOf(
+            com.mattricks.verified.data.ClaimScore("c1", 0.52, 0.52, emptyList(), emptyList(), true, emptyList()),
+            com.mattricks.verified.data.ClaimScore("c2", 0.4, 0.4, emptyList(), emptyList(), false, emptyList()),
+        )
+        val (up, down) = L.previewsV4(scores, listOf("c2"), 0.3)!!
+        assertEquals(0.52, up, 1e-9); assertEquals(0.28, down, 1e-9)
+    }
+
     @Test fun perClaimPreviewMovesOnlyThatClaim() {
         val scores = listOf(
             com.mattricks.verified.data.ClaimScore("c1", 0.52, 0.52, emptyList(), emptyList(), true, emptyList()),

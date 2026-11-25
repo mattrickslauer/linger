@@ -55,6 +55,52 @@ import kotlinx.coroutines.launch
 /** The score the next module starts from: the final score so far, else the scorer's baseline. */
 fun currentScore(d: MomentDetail): Double? = d.verification?.score ?: d.verification?.baseline ?: d.score?.probability
 
+/** What the Moment has for the modules' `needs` (v3.6), with the v4 meanings on v4 Moments (v4.6). */
+fun ladderEvidence(d: MomentDetail, clipOnPhone: Boolean): LadderLogic.Evidence {
+    val v4 = d.v4?.takeIf { isV4(d) }
+    val vr = v4?.videoReview
+    return LadderLogic.Evidence(
+        frames = d.frames.count { it.jpegB64.isNotEmpty() }, gps = d.track.size,
+        witnessAnswered = d.witness.count { it.outcome != null && it.outcome != "skipped" },
+        quantities = if (v4 != null) v4.claims.count { it.kind == "count" || it.kind == "measure" } else d.intention?.quantities?.size ?: 0,
+        video = d.videos.isNotEmpty(), clipOnPhone = clipOnPhone, v4 = v4 != null,
+        clipUploaded = vr != null && (vr.clips.any { it.uploaded && it.hashOk != false } || (vr.clips.isEmpty() && vr.status == "done")),
+    )
+}
+
+/** Claim ids a module backs on this v4 Moment (empty on v3 Moments). */
+fun backedBy(d: MomentDetail, m: LadderLogic.Module): List<String> {
+    val v4 = d.v4?.takeIf { isV4(d) } ?: return emptyList()
+    return LadderLogic.backedClaims(m, v4.claims, v4.plan?.requirements.orEmpty(), d.witnessRids)
+}
+
+/**
+ * Under a claim on the detail (v4.11): the modules that can still back it, with this claim's previews
+ * ("Count & measure · if it passes → 0.58 · if it fails → 0.28"). Only once the seal is ready and the ladder is open.
+ */
+@Composable
+fun ClaimOffers(d: MomentDetail, c: com.mattricks.verified.data.Claim, s: com.mattricks.verified.data.ClaimScore?) {
+    if (s == null || !d.ladderEligible || d.card.status !in setOf("sealed", "rejected")) return
+    val scores = d.v4?.claimScores.orEmpty()
+    val ran = d.verification?.modules.orEmpty().map { it.module }.toSet()
+    val e = ladderEvidence(d, clipOnPhone = false)
+    val offers = Ladder.modules.filter { m ->
+        m.id !in ran && m.available && c.id in backedBy(d, m) && LadderLogic.unmet(m, e, Ladder.needsText) == null
+    }
+    if (offers.isEmpty()) return
+    Column(Modifier.padding(start = 20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        offers.forEach { m ->
+            val pv = com.mattricks.verified.data.V4Score.preview(scores, c.id, m.strength) ?: return@forEach
+            Text(
+                "${m.title} · if it passes → ${V3Math.fmt(pv.passP)} · if it fails → ${V3Math.fmt(pv.failP)}",
+                fontSize = 12.sp, color = GreenDark, fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+fun claimText(d: MomentDetail): (String) -> String = { id -> d.v4?.claims?.firstOrNull { it.id == id }?.text ?: id }
+
 /** Public: every ladder result on the post (v3.5/v3.8). Owner: the way into the ladder sheet. */
 @Composable
 fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
@@ -74,7 +120,7 @@ fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
                 }
             }
             if (results.isEmpty()) Text("No extra checks yet.", color = Color.Gray)
-            results.forEach { ResultRow(it) }
+            results.forEach { ResultRow(it, claimText(d)) }
             when {
                 canClimb && d.ladderEligible -> Button(onClick = onOpenLadder, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
                     Text("Verify further")
@@ -88,7 +134,7 @@ fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
 }
 
 @Composable
-private fun ResultRow(r: LadderResult) {
+private fun ResultRow(r: LadderResult, claimText: (String) -> String = { it }) {
     Row(verticalAlignment = Alignment.Top) {
         Text(if (r.passed) "✓" else "✗", color = if (r.passed) Green else Red, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
         Column(Modifier.weight(1f)) {
@@ -99,8 +145,27 @@ private fun ResultRow(r: LadderResult) {
                 fontSize = 12.sp, color = Color.Gray,
             )
             r.measured.forEach { Text("measured ${it.metric}: ${fmtNum(it.value)} ${it.unit}", style = MaterialTheme.typography.bodySmall) }
+            ClaimOutcomes(r.claims, claimText)
             r.reasons.take(2).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
         }
+    }
+}
+
+/** v4.6 per-claim outcomes of a module: "50 claps ✓ 0.40 → 0.58 · counted 50 claps". */
+@Composable
+fun ClaimOutcomes(claims: List<com.mattricks.verified.data.ClaimVerdict>, claimText: (String) -> String, color: Color = Color.Unspecified) {
+    claims.forEach { o ->
+        val passed = o.passed ?: (o.verdict == "backed" && o.confidence >= com.mattricks.verified.data.V4Score.BACKED_CONFIDENCE)
+        Text(
+            buildString {
+                append(claimText(o.id)).append(if (passed) " ✓ " else " ✗ ")
+                if (o.before != null && o.after != null) append("${V3Math.fmt(o.before)} → ${V3Math.fmt(o.after)}")
+                else append(o.verdict.replace('_', ' '))
+                o.measured?.let { (v, u) -> append(" · measured ${fmtNum(v)} $u") }
+                o.reasons.firstOrNull()?.let { append(" · ").append(it) }
+            },
+            style = MaterialTheme.typography.bodySmall, color = if (color != Color.Unspecified) color else if (passed) GreenDark else Red,
+        )
     }
 }
 
@@ -134,11 +199,10 @@ fun LadderSheet(
     val p = result?.score ?: currentScore(d)
     val bar = result?.bar ?: d.verification?.bar ?: d.bar?.value
     val ran = d.verification?.modules.orEmpty().map { it.module }.toSet() + listOfNotNull(result?.module)
-    val evidence = LadderLogic.Evidence(
-        frames = d.frames.count { it.jpegB64.isNotEmpty() }, gps = d.track.size,
-        witnessAnswered = d.witness.count { it.outcome != null && it.outcome != "skipped" },
-        quantities = d.intention?.quantities?.size ?: 0, video = d.videos.isNotEmpty(), clipOnPhone = clipOnPhone,
-    )
+    val evidence = ladderEvidence(d, clipOnPhone)
+    val v4 = isV4(d)
+    // v4: every claim's current score (after this sheet's last run, if any), for per-claim previews.
+    val scores = result?.claimScores?.takeIf { it.isNotEmpty() } ?: d.v4?.claimScores.orEmpty()
 
     ModalBottomSheet(onDismissRequest = { if (running == null) onDismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -165,7 +229,7 @@ fun LadderSheet(
             if (granted?.justGranted == true) Text("${Ladder.freeCredits} free demo credits added to your account.", color = Green, style = MaterialTheme.typography.bodySmall)
             creditsError?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
 
-            result?.let { r -> ResultBanner(r) }
+            result?.let { r -> ResultBanner(r, claimText(d)) }
             error?.let { Text(it, color = Red) }
             running?.let { id ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -175,15 +239,26 @@ fun LadderSheet(
             }
 
             Ladder.modules.filter { it.id !in ran }.forEach { m ->
-                val unmet = LadderLogic.unmet(m, evidence, Ladder.needsText)
+                val backed = if (v4) backedBy(d, m) else emptyList()
+                val unmet = if (v4) LadderLogic.unmetV4(m, evidence, Ladder.needsText, backed) else LadderLogic.unmet(m, evidence, Ladder.needsText)
                 val poor = balance != null && balance < m.cost
-                ModuleRow(m, p, unmet ?: if (poor) "Not enough credits" else null, enabled = running == null && unmet == null && !poor && p != null) {
+                val v4Preview = if (v4) LadderLogic.previewsV4(scores, backed, m.strength) else null
+                val backsLine = backed.takeIf { it.isNotEmpty() }?.joinToString(" · ", prefix = "Backs: ") { claimText(d)(it) }
+                ModuleRow(
+                    m, p, unmet ?: if (poor) "Not enough credits" else null, enabled = running == null && unmet == null && !poor && p != null,
+                    previews = v4Preview, backsLine = backsLine,
+                ) {
                     error = null; result = null; running = m.id
                     scope.launch {
                         val requestId = java.util.UUID.randomUUID().toString()
                         runCatching {
-                            if (m.id == "full_video" && runVideo != null) { progress = "Uploading the clip…"; runVideo(requestId) }
-                            else Ladder.run(d.card.id, m.id, requestId = requestId)
+                            when {
+                                // v4: the clip went up at submit; the module reviews it again, deeper.
+                                m.id == "full_video" && v4 && evidence.clipUploaded ->
+                                    Ladder.run(d.card.id, m.id, clipSha = d.videos.lastOrNull()?.sha256, requestId = requestId)
+                                m.id == "full_video" && runVideo != null -> { progress = "Uploading the clip…"; runVideo(requestId) }
+                                else -> Ladder.run(d.card.id, m.id, requestId = requestId)
+                            }
                         }.onSuccess { result = it; onDone() }.onFailure { error = Ladder.errorMessage(it) }
                         running = null; progress = null
                     }
@@ -197,7 +272,7 @@ fun LadderSheet(
 }
 
 @Composable
-private fun ResultBanner(r: Ladder.Run) {
+private fun ResultBanner(r: Ladder.Run, claimText: (String) -> String) {
     Card(colors = CardDefaults.cardColors(containerColor = if (r.passed) Color(0xFFD4F0E1) else Color(0xFFFCE4E2))) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -205,6 +280,8 @@ private fun ResultBanner(r: Ladder.Run) {
                 fontWeight = FontWeight.Bold, color = if (r.passed) GreenDark else Red,
             )
             Text(if (r.verified) "Now Verified ✓ (score ${V3Math.fmt(r.score)} ≥ bar ${V3Math.fmt(r.bar)})" else "Still below the bar (${V3Math.fmt(r.score)} < ${V3Math.fmt(r.bar)})", color = Color.DarkGray)
+            r.claimsBacked?.let { k -> Text("$k/${r.claimScores.size.takeIf { it > 0 } ?: k} claims backed", color = Color.DarkGray, fontWeight = FontWeight.SemiBold) }
+            ClaimOutcomes(r.claims, claimText)
             r.measured.forEach { Text("measured ${it.metric}: ${fmtNum(it.value)} ${it.unit}", color = Color.DarkGray, style = MaterialTheme.typography.bodySmall) }
             r.reasons.take(3).forEach { Text("• $it", color = Color.DarkGray, style = MaterialTheme.typography.bodySmall) }
             Text("${r.cost} credit${if (r.cost == 1) "" else "s"} spent · ${r.balance} left", fontSize = 11.sp, color = Color.Gray)
@@ -213,7 +290,10 @@ private fun ResultBanner(r: Ladder.Run) {
 }
 
 @Composable
-private fun ModuleRow(m: LadderLogic.Module, p: Double?, disabledReason: String?, enabled: Boolean, onRun: () -> Unit) {
+private fun ModuleRow(
+    m: LadderLogic.Module, p: Double?, disabledReason: String?, enabled: Boolean,
+    previews: Pair<Double, Double>? = null, backsLine: String? = null, onRun: () -> Unit,
+) {
     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -221,8 +301,9 @@ private fun ModuleRow(m: LadderLogic.Module, p: Double?, disabledReason: String?
                 Pill("${m.cost} credit${if (m.cost == 1) "" else "s"}", Amber)
             }
             Text(m.blurb, style = MaterialTheme.typography.bodySmall)
-            if (p != null && m.available) {
-                val (up, down) = LadderLogic.previews(p, m.strength)
+            backsLine?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            if (p != null && m.available && (previews != null || backsLine == null)) {
+                val (up, down) = previews ?: LadderLogic.previews(p, m.strength)
                 Text("if it passes → ${V3Math.fmt(up)} · if it fails → ${V3Math.fmt(down)}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = GreenDark)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

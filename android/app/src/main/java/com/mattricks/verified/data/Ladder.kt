@@ -37,6 +37,8 @@ object Ladder {
                     m.getString("id"), m.getString("title"), m.optString("blurb"), m.getInt("cost"), m.getDouble("strength"),
                     m.optBoolean("available", true),
                     m.optJSONArray("needs")?.let { n -> (0 until n.length()).map { n.getString(it) } }.orEmpty(),
+                    m.optJSONArray("backs")?.let { n -> (0 until n.length()).map { n.getString(it) } }.orEmpty(),
+                    m.optBoolean("backsTargetedOnly", false),
                 )
             }
             val n = j.optJSONObject("needs")
@@ -68,6 +70,8 @@ object Ladder {
         val module: String, val passed: Boolean, val confidence: Double, val before: Double, val after: Double,
         val score: Double, val bar: Double, val verified: Boolean, val status: String, val cost: Int, val balance: Int,
         val reasons: List<String>, val measured: List<Measured>,
+        /** v4.7 (v4 Moments): per-claim outcomes, every claim's new score, claims at or above the bar. */
+        val claims: List<ClaimVerdict> = emptyList(), val claimScores: List<ClaimScore> = emptyList(), val claimsBacked: Int? = null,
     )
 
     class RunError(val reason: String?, message: String) : Exception(message)
@@ -88,6 +92,9 @@ object Ladder {
                 measured = (d["measured"] as? List<Any?>).orEmpty().mapNotNull { x ->
                     (x as? Map<String, Any?>)?.let { Measured(it["metric"] as? String ?: "", num(it["value"]), it["unit"] as? String ?: "") }
                 },
+                claims = ClaimVerdict.list(d["claims"]),
+                claimScores = (d["claimScores"] as? List<Any?>).orEmpty().mapNotNull { (it as? Map<*, *>)?.let(ClaimScore::from) },
+                claimsBacked = (d["claimsBacked"] as? Number)?.toInt(),
             )
         } catch (e: FirebaseFunctionsException) {
             val reason = (e.details as? Map<*, *>)?.get("reason") as? String

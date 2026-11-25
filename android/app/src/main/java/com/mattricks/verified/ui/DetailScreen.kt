@@ -132,7 +132,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
         if (isV4(d)) {
             VerdictHeader(d)
             VideoReviewCard(d)
-            ClaimsSection(d)
+            ClaimsSection(d) { c, s -> ClaimOffers(d, c, s) }
         } else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) VideoUploadLine(d.card.id)
 
         if (d.frames.isNotEmpty()) {
