@@ -48,7 +48,9 @@ class VerifiedApp : Application() {
             val host = BuildConfig.EMULATOR_HOST
             db.useEmulator(host, 8080)
             Firebase.auth.useEmulator(host, 9099)
-            Log.i(TAG, "Using Firebase Emulator Suite at $host (firestore 8080, auth 9099)")
+            com.google.firebase.functions.FirebaseFunctions.getInstance("us-central1").useEmulator(host, 5001)
+            com.google.firebase.storage.FirebaseStorage.getInstance().useEmulator(host, 9199)
+            Log.i(TAG, "Using Firebase Emulator Suite at $host (firestore 8080, auth 9099, functions 5001, storage 9199)")
         }
 
         // Model name from Remote Config key `cloud_model` (contract default gemini-3.5-flash).
@@ -66,6 +68,7 @@ class VerifiedApp : Application() {
         if (BuildConfig.MAPBOX_TOKEN.isNotBlank()) MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
 
         Ai.warmUp(this)
+        com.mattricks.verified.data.Ladder.init(this)
         Judging.init(this)
         Vault.init(this)
         Firebase.auth.addAuthStateListener {

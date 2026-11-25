@@ -84,8 +84,15 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
             onDismiss = { confirmDelete = false },
         )
         val d = detail
+        var ladderOpen by remember { mutableStateOf(false) }
+        if (ladderOpen && d != null) LadderSheet(
+            d, clipOnPhone = false, runVideo = null,
+            onDone = { refresh++ }, onDismiss = { ladderOpen = false; refresh++ },
+        )
         when {
-            d != null -> DetailBody(d, Modifier.padding(pad))
+            d != null -> DetailBody(d, Modifier.padding(pad)) {
+                com.mattricks.verified.auth.Gate.require("run a verification module") { ladderOpen = true }
+            }
             error != null -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text(error ?: "", color = Red) }
             else -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
@@ -93,7 +100,7 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
 }
 
 @Composable
-private fun DetailBody(d: MomentDetail, modifier: Modifier) {
+private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> Unit) {
     var selected by remember(d.frames.size) { mutableIntStateOf((d.frames.size - 1).coerceAtLeast(0)) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -152,6 +159,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
         OpinionCard("Skeptic", d.skeptic, emptyList())
         ScoreCard(d.score, d.bar?.value ?: 0.5, baseline = d.verification?.modules?.isNotEmpty() == true)
         BarCard(d)
+        LadderSection(d, isOwner = d.ownerUid.isNotEmpty() && d.ownerUid == Firebase.auth.currentUser?.uid, onOpenLadder = onOpenLadder)
 
         Section("Seal")
         val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks

@@ -141,6 +141,7 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
                     }
                 }
             }
+            if (user != null) CreditsRow()
         },
     )
     confirmDelete?.let { id ->

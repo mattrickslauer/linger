@@ -19,9 +19,9 @@ val mapboxToken: String = (findProperty("MAPBOX_ACCESS_TOKEN") as String?)
     }
     ?: ""
 
-// shared/prompts.json is the single source of truth for prompts: copy it into assets at build time.
+// shared/prompts.json (prompts) and shared/ladder.json (ladder catalog) are the single source of truth: copied into assets.
 val copySharedAssets by tasks.registering(Copy::class) {
-    from(rootProject.file("../shared/prompts.json"))
+    from(rootProject.file("../shared/prompts.json"), rootProject.file("../shared/ladder.json"))
     into(layout.buildDirectory.dir("generated/sharedAssets"))
 }
 
@@ -92,6 +92,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-config")
     implementation("com.google.firebase:firebase-ai")
+    implementation("com.google.firebase:firebase-functions") // v3 callables: getCredits, runLadderModule
+    implementation("com.google.firebase:firebase-storage")   // v3 full_video: clip upload
     // On-device SDK is not in the BoM yet (Firebase docs, hybrid/android/get-started)
     implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta08")
     implementation("com.google.firebase:firebase-appcheck-debug")

@@ -129,7 +129,11 @@ data class MomentDetail(
     val sealVersion: Int = 0,
     val ladderEligible: Boolean = false,
     val ownerUid: String = "",
+    /** `video` events in the chain (the clips stay on the phone that recorded them). */
+    val videos: List<VideoRef> = emptyList(),
 )
+
+data class VideoRef(val sha256: String, val name: String, val bytes: Long, val durationMs: Long)
 
 // ───────────────────────── v3 (docs/ARCHITECTURE.md v3.2–v3.8)
 

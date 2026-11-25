@@ -245,6 +245,7 @@ object Store {
         val track = ArrayList<LatLng>(); val motion = ArrayList<Pair<Long, Float>>(); val frames = ArrayList<Frame>()
         val links = ArrayList<ChainLink>()
         val witness = ArrayList<WitnessItem>()
+        val videos = ArrayList<VideoRef>()
         for (c in chunkDocs.sortedBy { num(it["seq"]).toInt() }) {
             val payload = c["payload"] as? String ?: continue
             val seq = num(c["seq"]).toInt()
@@ -262,6 +263,7 @@ object Store {
                 for (i in 0 until a.length()) {
                     val e = a.optJSONObject(i) ?: continue
                     when (e.optString("type")) {
+                        "video" -> videos += VideoRef(e.optString("sha256"), e.optString("name"), e.optLong("bytes"), e.optLong("durationMs"))
                         "witness" -> witness += WitnessItem(e.optString("wid"), e.optString("ask"), e.optString("kind"), e.optString("by"), e.optLong("t"))
                         "frame" -> if (e.has("wid")) frameWid = e.optString("wid")
                         "witness_answer" -> witness.indexOfFirst { it.wid == e.optString("wid") }.takeIf { it >= 0 }?.let { j ->
@@ -315,6 +317,7 @@ object Store {
             sealVersion = (m?.get("seal") as? Map<String, Any?>)?.get("version")?.let { num(it).toInt() } ?: (feed?.get("sealVersion") as? Number)?.toInt() ?: 0,
             ladderEligible = (m?.get("seal") as? Map<String, Any?>)?.get("ladderEligible") == true,
             ownerUid = m?.get("ownerUid") as? String ?: "",
+            videos = videos,
         )
     }
 }
