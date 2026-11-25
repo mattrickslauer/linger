@@ -527,7 +527,7 @@ intention. Card badge: **Verified ✓** when `status == "sealed"`; show "score 0
 | `moments/{id}/chunks/{seq}` | as parent | as v2 (append-only) |
 | `credits/{uid}`, `credits/{uid}/ledger/{entryId}` | that user only | Functions only |
 | `deleted/{id}`, `users/{uid}` | as v2 | as v2 |
-| Storage `clips/{uid}/{momentId}/{file}` | nobody (Functions read via Admin) | that user, create only, `video/*`, < 200 MB |
+| Storage `clips/{uid}/{momentId}/{file}` | nobody (Functions read via Admin); **v4.12: owner, or anyone when the Moment is sealed/rejected** | that user, create only, `video/*`, < 200 MB |
 
 Guests have no `request.auth`, so every write path is closed to them by construction. Rules tests:
 `functions/test/rules.test.ts` (`npm run test:rules`); contract vectors: `functions/test/contract.test.ts`
@@ -828,6 +828,35 @@ serves, from `requirementId`; omitted when ""): `{"t","type":"witness","wid","as
 
 Previews on the detail are computed locally with the v4.5 math (module pass/fail on just that claim), exactly like the
 v3 previews but per claim.
+
+### v4.12 Shared video (all platforms)
+
+The clips uploaded at submit (v4.4) are evidence anyone can watch: whoever can read the Moment can play its clips.
+
+**Storage rules.** `clips/{uid}/{momentId}/{file}` `get` (download URL / metadata) is allowed to the owner (as v4.9)
+**or to anyone, guests too,** when `moments/{momentId}` exists with `ownerUid == uid` and `status in ["sealed",
+"rejected"]` (the same condition that makes the Moment public; cross-service `firestore.get`). Still no list, update
+or delete; create unchanged.
+
+**Feed field (Function-only, written at seal).** `feed.video` gains
+```
+clips: [{ path: "clips/{uid}/{momentId}/{sha256}.{ext}", sha256, ext: "mp4"|"mov"|"webm",
+          contentType: "video/mp4"|"video/quicktime"|"video/webm", durationMs: number, hashOk: boolean|null }]
+```
+= the uploaded clips of `videoReview.clips` (those with `ext != null`), chain order. `[]` when none. Feed docs sealed
+before v4.12 have no `clips` (treat as `[]`); `functions/scripts/backfill-feed-video.mjs` fills them.
+
+**Feed autoplay.** The **feed clip** of a post is the last entry of `feed.video.clips` with `hashOk != false` (else
+none). On the current (settled) feed slide, it plays **muted, looping, inline, without controls**, over the hero
+photo, which stays as the poster until the first frame renders; it pauses when the slide leaves the screen, when the
+app/tab goes to the background, and only one slide plays at a time. A small speaker button toggles sound for that
+slide (default muted). The URL comes from the Storage SDK (`getDownloadURL` / `downloadUrl` / `downloadURL()`),
+cached per path for the session; a failure just leaves the photo.
+
+**Evidence room (detail).** A **Video** section under Proof lists every uploaded clip of the Moment, playable with
+controls (not autoplayed), from `moments/{id}.videoReview.clips` where `uploaded` (path = `clips/{ownerUid}/{id}/
+{sha256}.{ext}`), so the owner sees them before the seal too. A clip with `hashOk == false` is labelled "Hash does
+not match the chain". The on-device clip list (owner, recording device) stays, below it, for clips not uploaded.
 
 ## Repo layout
 
