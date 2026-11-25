@@ -14,6 +14,7 @@ import com.google.firebase.initialize
 import com.google.firebase.remoteconfig.remoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
 import com.mattricks.verified.ai.Ai
+import com.mattricks.verified.data.Claims
 import com.mattricks.verified.data.Prefs
 import com.mattricks.verified.data.Vault
 import com.mattricks.verified.devices.Devices
@@ -65,7 +66,9 @@ class VerifiedApp : Application() {
         Ai.warmUp(this)
         Judging.init(this)
         Vault.init(this)
-        Firebase.auth.addAuthStateListener { if (it.currentUser != null) { Judging.kick(); vaultScope.launch { Vault.verifyAll() } } }
+        Firebase.auth.addAuthStateListener {
+            if (it.currentUser != null) { Judging.kick(); vaultScope.launch { Vault.verifyAll() }; Claims.maybeOffer() }
+        }
         // Raw data leaves the phone only once the server provably has all of it; re-check while the app runs.
         vaultScope.launch {
             while (true) {

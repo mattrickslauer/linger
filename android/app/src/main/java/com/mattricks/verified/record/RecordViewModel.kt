@@ -23,6 +23,7 @@ import com.mattricks.verified.chain.ChainLink
 import com.mattricks.verified.chain.Check
 import com.mattricks.verified.chain.Event
 import com.mattricks.verified.chain.Payload
+import com.mattricks.verified.data.Claims
 import com.mattricks.verified.data.LatLng
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Summary
@@ -59,6 +60,8 @@ data class RecUi(
     val chunksPending: Int = 0,
     val heartRate: Int? = null,
     val videoCount: Int = 0,
+    /** Recorded signed out: kept only on this phone until claimed at sign-in (v3.1). */
+    val guest: Boolean = false,
 ) {
     enum class Phase { Idle, Recording, Finished }
 }
@@ -90,6 +93,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     private val motionBuf = ArrayList<DoubleArray>()
     private val events = ArrayList<Event>()
     private var holdForFrame = false
+    private var guest = false
 
     // session totals
     private val track = ArrayList<LatLng>()
@@ -115,18 +119,18 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         gpsBuf.clear(); motionBuf.clear(); events.clear(); track.clear(); frameSeqs.clear(); checks.clear(); motionCount = 0
         events += Event(now, "start")
         _recording.value = momentId
-        Store.createMoment(momentId, s.intention.trim(), s.category, now)
+        guest = Store.createMoment(momentId, mapOf("text" to s.intention.trim().take(200), "category" to s.category), now)
         _ui.update {
             it.copy(phase = RecUi.Phase.Recording, momentId = momentId, startedAt = now, elapsedMs = 0, distanceM = 0.0,
                 lastFix = null, track = emptyList(), accuracyM = null, gpsCount = 0, sparkline = emptyList(), frameCount = 0, coach = null,
-                checking = false, chunksTotal = 0, chunksPending = 0)
+                checking = false, chunksTotal = 0, chunksPending = 0, guest = guest, videoCount = 0)
         }
         startSensors()
         jobs += viewModelScope.launch { sampleMotion() }
         jobs += viewModelScope.launch { chunkTicker() }
         jobs += viewModelScope.launch { sampleHeartRate() }
         Devices.reconnect()
-        jobs += viewModelScope.launch {
+        if (!guest) jobs += viewModelScope.launch {
             Store.chunkSync(momentId).collect { (total, pending) -> _ui.update { it.copy(chunksTotal = total, chunksPending = pending) } }
         }
     }
@@ -167,9 +171,10 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     private fun closeChunk(t1: Long, frame: Store.FrameData?, frameSha: String?, check: Check?) {
         val payload = Payload.build(gpsBuf, motionBuf, events, frameSha, check)
         val hash = Chain.chunkHash(seq, t0, t1, prevHash, payload)
-        Store.writeChunk(momentId, ChainLink(seq, t0, t1, prevHash, payload, hash), frame)
+        Store.writeChunk(momentId, ChainLink(seq, t0, t1, prevHash, payload, hash), frame, guest)
         if (frame != null) frameSeqs += seq to (check?.ok != false)
         prevHash = hash; seq++; t0 = t1
+        if (guest) { val n = seq; _ui.update { it.copy(chunksTotal = n) } }
         gpsBuf.clear(); motionBuf.clear(); events.clear()
     }
 
@@ -248,9 +253,13 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "none"
             }
             val onDevice = mapOf("mode" to mode, "checks" to checks.count { it.mode != "none" }, "retakes" to checks.count { !it.ok })
-            Store.submit(id, endedAt, count, headHash, summary, onDevice)
+            Store.submit(id, endedAt, count, headHash, summary, onDevice, witnessSummary(), guest)
             _recording.compareAndSet(id, null)
             _ui.update { it.copy(phase = RecUi.Phase.Finished, elapsedMs = summary.durationMs) }
+            if (guest) {
+                Claims.offerAfterFinish() // signed in while this guest Moment was recording: offer it now
+                return@launch
+            }
             // Keep the sync badge live after finishing so the user sees the queue drain.
             jobs += viewModelScope.launch {
                 Store.chunkSync(id).collect { (total, pending) -> _ui.update { it.copy(chunksTotal = total, chunksPending = pending) } }
@@ -258,6 +267,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             Judging.kick()
         }
     }
+
+    /** moments/{id}.witness at submit (v3.4); filled in by the witness agent. */
+    private fun witnessSummary(): Map<String, Any> = mapOf("asked" to 0, "answered" to 0, "skipped" to 0, "mode" to "none")
 
     fun reset() {
         if (_ui.value.phase != RecUi.Phase.Recording) _recording.value = null

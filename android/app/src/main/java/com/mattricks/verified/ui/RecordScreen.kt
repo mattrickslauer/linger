@@ -109,13 +109,13 @@ import kotlin.math.roundToInt
 
 @Composable
 fun RecordScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
-    if (user == null) { SignInCard(); return }
+    // Guests record too (v3.1): the Moment stays in this phone's journal until they sign in and claim it.
     val vm: RecordViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     when (ui.phase) {
         RecUi.Phase.Idle -> SetupView(ui, vm)
         RecUi.Phase.Recording -> LiveView(ui, vm)
-        RecUi.Phase.Finished -> FinishedView(ui, vm, onOpen)
+        RecUi.Phase.Finished -> FinishedView(ui, vm, user, onOpen)
     }
 }
 
@@ -325,6 +325,7 @@ private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, 
 @Composable
 private fun SyncBadge(ui: RecUi) {
     val (text, color) = when {
+        ui.guest -> "On this phone · ${ui.chunksTotal} chunks" to Color(0xFF3D5A4C)
         ui.chunksPending > 0 -> "Offline · ${ui.chunksPending} chunks queued" to Amber
         ui.chunksTotal > 0 -> "Synced · ${ui.chunksTotal} chunks" to Green
         else -> "Recording · first chunk in 5 s" to Color.DarkGray
@@ -520,14 +521,26 @@ private fun takeProof(ctx: Context, capture: ImageCapture, done: (Bitmap?, Strin
 }
 
 @Composable
-private fun FinishedView(ui: RecUi, vm: RecordViewModel, onOpen: (String) -> Unit) {
+private fun FinishedView(ui: RecUi, vm: RecordViewModel, user: FirebaseUser?, onOpen: (String) -> Unit) {
     val judging by Judging.status.collectAsState()
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(24.dp))
-        Text("Moment submitted", style = MaterialTheme.typography.headlineSmall)
+        Text(if (ui.guest) "Moment saved" else "Moment submitted", style = MaterialTheme.typography.headlineSmall)
         Text("${fmtDuration(ui.elapsedMs)} · ${fmtDistance(ui.distanceM)} · ${ui.frameCount} frames")
         SyncBadge(ui)
-        Text(
+        if (ui.guest) {
+            val guests by com.mattricks.verified.data.Vault.guests.collectAsState()
+            val stillLocal = guests.any { it.id == ui.momentId }
+            Text(
+                if (stillLocal) "Saved on this phone, hash chain and all. Sign in to upload it, run the cloud review and get it sealed."
+                else "Uploading to your account — the cloud review runs next.",
+                color = Color.Gray, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            if (stillLocal) Button(onClick = {
+                val id = ui.momentId ?: return@Button
+                com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(id)) }
+            }) { Text(if (user == null) "Sign in to verify" else "Upload & verify") }
+        } else Text(
             judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
             color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
         )

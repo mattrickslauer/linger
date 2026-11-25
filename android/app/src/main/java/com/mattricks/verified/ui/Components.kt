@@ -94,7 +94,14 @@ fun Pill(text: String, bg: Color, fg: Color = Color.White, modifier: Modifier = 
 }
 
 @Composable
-fun StatusBadge(status: String) = when (status) {
+fun StatusBadge(status: String, local: Boolean = false) = when {
+    local && status == "recording" -> Pill("Recording · on this phone", Color.DarkGray)
+    local -> Pill("On this device", Color(0xFF3D5A4C))
+    else -> StatusBadgeServer(status)
+}
+
+@Composable
+private fun StatusBadgeServer(status: String) = when (status) {
     "sealed" -> Pill("Verified ✓", Green)
     "rejected" -> Pill("Not verified", Red)
     "submitted" -> Pill("Sealing…", Amber)
@@ -108,14 +115,14 @@ fun onDeviceLabel(mode: String) = when (mode) {
 }
 
 @Composable
-fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
+fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onUpload: (() -> Unit)? = null, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         if (c.heroJpegB64 != null) B64Image(c.heroJpegB64, Modifier.fillMaxWidth().aspectRatio(16f / 10f))
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.intention, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                StatusBadge(c.status)
+                StatusBadge(c.status, c.local)
             }
             Spacer(Modifier.height(4.dp))
             Text(c.ownerName.ifBlank { "Someone" } + " · " + c.category, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -126,13 +133,15 @@ fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onClick: () ->
             )
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                if (c.pendingWrites) Pill("Offline · queued", Amber)
-                if (onDelete != null) {
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDelete) { Text("Delete", color = Red) }
+                if (c.local) Pill("sign in to verify", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                else {
+                    Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                    Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
                 }
+                if (c.pendingWrites) Pill("Offline · queued", Amber)
+                if (onDelete != null || onUpload != null) Spacer(Modifier.weight(1f))
+                if (onUpload != null) TextButton(onClick = onUpload) { Text("Upload") }
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", color = Red) }
             }
         }
     }
@@ -216,4 +225,4 @@ fun DeleteMomentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 
 /** Delete is offered only for the signed-in user's own Moment, and never for the one being recorded right now. */
 fun canDeleteMoment(c: MomentCard, uid: String?, recordingId: String?): Boolean =
-    uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId
+    (c.local && c.id != recordingId) || uid != null && c.ownerUid.isNotEmpty() && c.ownerUid == uid && c.id != recordingId

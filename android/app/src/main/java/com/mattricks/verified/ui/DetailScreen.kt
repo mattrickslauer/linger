@@ -98,13 +98,14 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(d.card.intention, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            StatusBadge(d.card.status)
+            StatusBadge(d.card.status, d.local)
         }
         Text(
             "${d.card.ownerName} · ${d.card.category} · ${d.card.platform} · ${fmtDuration(d.card.summary.durationMs)} · ${fmtDistance(d.card.summary.distanceM)}",
             color = Color.Gray, style = MaterialTheme.typography.bodySmall,
         )
-        Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        if (d.local) LocalBanner(d)
+        else Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
 
         if (d.frames.isNotEmpty()) {
             val f = d.frames[selected.coerceIn(0, d.frames.size - 1)]
@@ -167,6 +168,27 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** A guest Moment on this phone only (v3.1): nothing is on the server yet. */
+@Composable
+private fun LocalBanner(d: MomentDetail) {
+    val uploading by com.mattricks.verified.data.Claims.uploading.collectAsState()
+    Card(Modifier.fillMaxWidth(), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("On this device · sign in to verify", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                "Recorded as a guest. The hash chain binds only this Moment's id, so it uploads unchanged to your account.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            when {
+                d.card.id in uploading -> Text("Uploading…", color = Green)
+                d.card.status == "submitted" -> androidx.compose.material3.Button(onClick = {
+                    com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(d.card.id)) }
+                }) { Text("Upload & verify") }
+            }
+        }
     }
 }
 
