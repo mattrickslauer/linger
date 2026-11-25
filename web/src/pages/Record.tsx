@@ -9,7 +9,10 @@ import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
 import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
-import Interview from "../components/Interview";
+import Interview, { RouteChip } from "../components/Interview";
+import { WitnessAgent } from "../witnessAgent";
+import { listen, stopSpeaking, sttSupported } from "../voice";
+import type { WitnessRequest } from "../witness";
 
 const EXAMPLES: Record<Category, string> = {
   fishing: "Catch and release a largemouth bass at Lake Mission Viejo",
@@ -87,6 +90,18 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     session.onChange = setS;
   }, [session]);
 
+  // The witness runs only while this screen records; recording never waits for it.
+  const [agent] = useState(() => new WitnessAgent(session));
+  const [witnessStatus, setWitnessStatus] = useState(agent.status);
+  useEffect(() => {
+    agent.onStatus = setWitnessStatus;
+    agent.start();
+    return () => {
+      agent.stop();
+      stopSpeaking();
+    };
+  }, [agent]);
+
   useEffect(() => {
     let stream: MediaStream | null = null;
     let cancelled = false;
@@ -125,13 +140,13 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
 
-  async function shoot() {
+  async function shoot(wid?: string) {
     if (!video.current || shooting) return;
     setShooting(true);
     try {
       const f = captureFrame(video.current);
       setLast(f.jpegB64);
-      await session.proofShot(f.jpegB64, await sha256hex(f.jpegB64), f.w, f.h);
+      await session.proofShot(f.jpegB64, await sha256hex(f.jpegB64), f.w, f.h, wid);
     } finally {
       setShooting(false);
     }
@@ -171,6 +186,11 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           </div>
           {camErr && <p className="cam-err">Camera unavailable: {camErr}</p>}
           {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
+          {s.witnessOpen?.kind === "show" && (
+            <p className="cam-ask" aria-hidden="true">
+              {s.witnessOpen.ask}
+            </p>
+          )}
           {coach && (
             <p className={`coach-banner ${coach.pending ? "pending" : coach.mode === "none" ? "none" : coach.ok ? "ok" : "bad"}`} role="status">
               {coach.pending
@@ -211,6 +231,22 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               {s.retakes ? <span className="g-small muted"> ({s.retakes} retake)</span> : null}
             </span>
           </div>
+          <div className="gauge">
+            <span className="g-label">witness</span>
+            <span className="g-val g-small">
+              {!agent.available
+                ? "off (no model in this build)"
+                : witnessStatus === "thinking"
+                ? "thinking…"
+                : witnessStatus === "unavailable"
+                  ? "quiet (no model)"
+                  : s.witnessAsked
+                    ? `${s.witnessAnswered} of ${s.witnessAsked} answered`
+                    : s.elapsedMs < 30_000
+                      ? "listens from 0:30"
+                      : "watching"}
+            </span>
+          </div>
           <p className={`sync ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
             {session.guest
               ? `On this device · ${s.chunks} chunks chained`
@@ -218,8 +254,23 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           </p>
         </div>
       </div>
+      {s.witnessOpen && (
+        <WitnessToast
+          req={s.witnessOpen}
+          busy={shooting}
+          voice={agent.voice}
+          onVoice={(v) => {
+            agent.voice = v;
+            if (!v) stopSpeaking();
+          }}
+          onShow={() => void shoot(s.witnessOpen!.wid)}
+          onAnswer={(via, text) => session.witnessAnswer(via, text)}
+          onSkip={() => session.witnessSkip()}
+          canShoot={!camErr}
+        />
+      )}
       <div className="live-actions">
-        <button className="btn btn-primary btn-big" onClick={shoot} disabled={shooting || !!camErr}>
+        <button className="btn btn-primary btn-big" onClick={() => void shoot()} disabled={shooting || !!camErr}>
           {shooting ? "Checking…" : "Proof shot"}
         </button>
         <button
@@ -244,6 +295,122 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
       )}
       {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
     </div>
+  );
+}
+
+/** The witness's open request: spoken already; Show / Answer / Done / Skip here. */
+function WitnessToast({
+  req,
+  busy,
+  canShoot,
+  voice,
+  onVoice,
+  onShow,
+  onAnswer,
+  onSkip,
+}: {
+  req: WitnessRequest;
+  busy: boolean;
+  canShoot: boolean;
+  voice: boolean;
+  onVoice: (v: boolean) => void;
+  onShow: () => void;
+  onAnswer: (via: "voice" | "text" | "done", text?: string) => void;
+  onSkip: () => void;
+}) {
+  const [typing, setTyping] = useState(false);
+  const [text, setText] = useState("");
+  const [heard, setHeard] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(voice);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setTyping(false);
+    setText("");
+    setHeard("");
+    setErr(null);
+  }, [req.wid]);
+  const talk = async () => {
+    setErr(null);
+    setListening(true);
+    try {
+      const said = await listen(setHeard).done;
+      setListening(false);
+      if (said) onAnswer("voice", said);
+    } catch (e) {
+      setListening(false);
+      setErr(String((e as Error)?.message ?? e));
+      setTyping(true);
+    }
+  };
+  return (
+    <section className="witness" role="alert" aria-labelledby={`w-${req.wid}`}>
+      <div className="witness-head">
+        <span className="witness-who">Witness</span>
+        <RouteChip mode={req.by} />
+        <button
+          type="button"
+          className="btn btn-quiet btn-small witness-voice"
+          aria-pressed={voiceOn}
+          onClick={() => {
+            onVoice(!voiceOn);
+            setVoiceOn(!voiceOn);
+          }}
+        >
+          voice {voiceOn ? "on" : "off"}
+        </button>
+      </div>
+      <p className="witness-ask" id={`w-${req.wid}`}>
+        {req.ask}
+      </p>
+      {req.why && <p className="muted small">Proves: {req.why}</p>}
+      {heard && listening && <p className="small">“{heard}”</p>}
+      {err && <p className="notice notice-bad small">{err}</p>}
+      {typing ? (
+        <form
+          className="talk-type"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) onAnswer("text", text.trim());
+          }}
+        >
+          <label className="sr-only" htmlFor={`wa-${req.wid}`}>
+            Your answer
+          </label>
+          <input id={`wa-${req.wid}`} value={text} maxLength={200} autoFocus onChange={(e) => setText(e.target.value)} placeholder="Type your answer" />
+          <button className="btn btn-small btn-primary" disabled={!text.trim()}>
+            Answer
+          </button>
+        </form>
+      ) : (
+        <div className="witness-actions">
+          {req.kind === "show" && (
+            <button className="btn btn-primary" onClick={onShow} disabled={busy || !canShoot}>
+              {busy ? "Checking…" : "Show"}
+            </button>
+          )}
+          {req.kind === "tell" &&
+            (sttSupported() ? (
+              <button className="btn btn-primary" onClick={() => void talk()} disabled={listening}>
+                {listening ? "Listening…" : "Answer"}
+              </button>
+            ) : null)}
+          {(req.kind === "tell" || req.kind === "show") && (
+            <button className="btn" onClick={() => setTyping(true)}>
+              Type it
+            </button>
+          )}
+          {req.kind === "do" && (
+            <button className="btn btn-primary" onClick={() => onAnswer("done")}>
+              Done
+            </button>
+          )}
+          <button className="btn btn-quiet" onClick={onSkip}>
+            Skip
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

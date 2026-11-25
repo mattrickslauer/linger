@@ -51,6 +51,8 @@ for (const size of [
   if (size.name === "desktop") {
     await page.getByRole("link", { name: /Record a Moment/ }).first().click();
     await page.waitForTimeout(600);
+    // Scripted witness (sample-data builds only) so the toast and the chain events can be checked.
+    await page.goto(BASE + "/record?witness=demo", { waitUntil: "networkidle" });
     await page.screenshot({ path: `${OUT}/record-setup-${size.name}.png`, fullPage: true });
     // Voice interview, typed (no microphone headless; no model in a sample-data build -> local write-up).
     await page.getByLabel("Type your answer").fill("Going fishing for bass at the lake");
@@ -67,11 +69,44 @@ for (const size of [
       ok("guest started recording");
       await page.waitForTimeout(1500);
       await page.getByRole("button", { name: /Proof shot/ }).click();
+      await page.getByText("Show me the water you're fishing").first().waitFor({ timeout: 15_000 });
+      ok("witness asked (show)");
+      await page.screenshot({ path: `${OUT}/record-witness-${size.name}.png`, fullPage: true });
+      await page.getByRole("button", { name: "Show", exact: true }).click();
+      await page.getByText("What lure are you using?").waitFor({ timeout: 20_000 });
+      ok("witness answered by frame, asked again (tell)");
+      await page.getByRole("button", { name: "Type it" }).click();
+      await page.getByPlaceholder("Type your answer").fill("A green crankbait");
+      await page.getByRole("button", { name: "Answer", exact: true }).click();
       await page.waitForTimeout(RECORD_MS);
       await page.screenshot({ path: `${OUT}/record-live-${size.name}.png`, fullPage: true });
       await page.getByRole("button", { name: /^Finish/ }).click();
       await page.getByRole("heading", { name: "Moment recorded." }).waitFor({ timeout: 10_000 });
       ok("guest finished: local done screen");
+      const ev = await page.evaluate(
+        () =>
+          new Promise((resolve, reject) => {
+            const r = indexedDB.open("verified-vault");
+            r.onerror = () => reject(r.error);
+            r.onsuccess = () => {
+              const t = r.result.transaction(["chunks", "moments"], "readonly");
+              const g = t.objectStore("chunks").getAll();
+              const m = t.objectStore("moments").getAll();
+              t.oncomplete = () =>
+                resolve({
+                  events: g.result.flatMap((c) => JSON.parse(c.payload).events).filter((e) => String(e.type).startsWith("witness") || e.wid),
+                  moment: m.result[m.result.length - 1],
+                });
+            };
+          }),
+      );
+      const types = ev.events.map((e) => `${e.type}:${e.wid}${e.via ? ":" + e.via : ""}`).join(" ");
+      const want = ["witness:w1", "frame:w1", "witness_answer:w1:frame", "witness:w2", "witness_answer:w2:text"];
+      want.every((w) => types.includes(w)) ? ok(`chain has witness events: ${types}`) : fail(`witness events missing: ${types}`);
+      const m = ev.moment;
+      m.guest === true && m.ownerUid === null && m.witness?.asked === 2 && m.witness?.answered === 2
+        ? ok(`journal: guest, ownerUid null, witness ${JSON.stringify(m.witness)}, intention v${m.intention?.v}`)
+        : fail(`journal moment wrong: ${JSON.stringify({ guest: m.guest, ownerUid: m.ownerUid, witness: m.witness })}`);
       await page.screenshot({ path: `${OUT}/record-done-${size.name}.png`, fullPage: true });
       await page.goto(BASE + "/me", { waitUntil: "networkidle" });
       await page.waitForTimeout(600);

@@ -2185,3 +2185,83 @@ path.lf-cursor {
   flex-direction: row;
   gap: 6px;
 }
+
+/* ---------------------------------------------------------------- v3: witness */
+.witness {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.22);
+  animation: witness-in 0.25s ease-out;
+}
+@keyframes witness-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.witness .muted {
+  color: color-mix(in srgb, var(--paper) 70%, transparent);
+}
+.witness-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.witness-who {
+  font-weight: 750;
+  color: var(--gold);
+}
+.witness-voice {
+  margin-left: auto;
+  color: var(--paper);
+}
+.witness-ask {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.witness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.witness .btn {
+  border-color: var(--paper);
+  color: var(--paper);
+}
+.witness .btn-primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--gold-ink);
+}
+.witness .btn:hover {
+  background: color-mix(in srgb, var(--paper) 15%, transparent);
+}
+.witness .btn-primary:hover {
+  background: color-mix(in srgb, var(--gold) 85%, #fff);
+}
+.witness .talk-type input {
+  background: color-mix(in srgb, var(--paper) 10%, transparent);
+  color: var(--paper);
+  border-color: color-mix(in srgb, var(--paper) 40%, transparent);
+}
+.cam-ask {
+  position: absolute;
+  left: 12px;
+  right: calc(25% + 22px);
+  top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 82%, transparent);
+  color: var(--paper);
+  font-weight: 700;
+  text-align: center;
+  border: 2px solid var(--gold);
+}
