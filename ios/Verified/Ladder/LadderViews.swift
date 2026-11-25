@@ -191,7 +191,9 @@ struct LadderSheet: View {
           app.credits.set(balance: r.balance)
           result = r
         } catch let f as LadderService.Failure {
-          if !f.reason.isEmpty { requestIds[m.id] = nil }  // a definite answer: a retry is a new request
+          // A definite answer: a retry is a new request. `in_progress` is not definite (the same run is still
+          // going), so keep the key and the retry picks up that run's result.
+          if !f.reason.isEmpty && f.reason != "in_progress" { requestIds[m.id] = nil }
           error = f.localizedDescription
           await app.credits.refresh()
         } catch {

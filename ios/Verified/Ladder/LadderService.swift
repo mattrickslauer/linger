@@ -55,6 +55,8 @@ nonisolated enum LadderService {
       case "model_failed": "The model couldn't finish. Your credits were refunded."
       case "not_owner": "Only the owner can run modules."
       case "moment_missing": "This Moment isn't on the server yet."
+      case "in_progress": "This module is still running. Try again in a moment."
+      case "bad_request", "bad_module": "The app sent a request the server didn't accept. Update the app and try again."
       default: nil
       }
     }
