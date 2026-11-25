@@ -33,6 +33,11 @@ struct WitnessCard: View {
       .foregroundStyle(.white.opacity(0.85))
 
       Text(request.ask).font(.title3.weight(.bold)).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
+      if let rid = request.rid, let r = rec.plan?.requirements.first(where: { $0.id == rid }), !armed {
+        // v4: the plan requirement this answer ticks off.
+        Label(r.ask.isEmpty ? r.evidence.label : r.ask, systemImage: "checklist")
+          .font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.8)).lineLimit(2)
+      }
       if !request.why.isEmpty && !armed {
         Text(request.why).font(.footnote).foregroundStyle(.white.opacity(0.75))
       }
