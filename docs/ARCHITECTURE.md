@@ -829,6 +829,75 @@ serves, from `requirementId`; omitted when ""): `{"t","type":"witness","wid","as
 Previews on the detail are computed locally with the v4.5 math (module pass/fail on just that claim), exactly like the
 v3 previews but per claim.
 
+## v5 — crowd rebuttals → re-verification (contract)
+
+Design: `docs/superpowers/specs/2026-11-25-crowd-rebuttals-design.md` (owner-approved 2026-11-25). Summary of what every
+platform builds against:
+
+### v5.1 Rules of the game
+- Signed-in non-owners rebut **sealed** Moments (seal v3 or v4). One rebuttal per uid per Moment across rounds (a
+  voided round frees its rebutters). ≤ 10 `submitRebuttal` calls per uid per rolling 24 h (screen refusals count).
+- Threshold: round 1 = **3** accepted rebuttals from distinct people; round n = 3·2^(n−1). A Survived Moment opens the
+  next round on its next accepted rebuttal. Overturned is final.
+- A rebuttal = `{ anchor: { claimId, kind: "frame"|"clip"|"track"|"claim", frameSeq?, clipSha?, clipMs?, trackIndex? },
+  category, text ≤ 240 }`, category ∈ `staged edited wrong_object wrong_count wrong_place wrong_time reused other`.
+  v3 Moments have one claim `c1` = the intention text.
+
+### v5.2 `submitRebuttal` (callable, us-central1)
+Request `{ momentId, anchor, text, category, note, draftedOnDevice }` → response
+`{ accepted, reason, rebuttalId, count, threshold, reviewing }`. Errors (`details.reason`), in check order:
+`unauthenticated` · `bad_request` · `not_challengeable` (missing, not sealed, reviewing, overturned) · `own_moment` ·
+`already_rebutted` · `rate_limited` · `bad_anchor` · screen refused → **not an error**: `accepted: false` +
+`reason` (stored nothing but the rate count) · model failure → `unavailable` / `screen_failed` (rate not charged).
+The accepting transaction writes `moments/{id}/rebuttals/{rid}`, updates `challenge`, sets `challenge.status =
+"reviewing"` when `accepted ≥ threshold`, and merges `feed/{id}.challenge`.
+
+### v5.3 Re-verification (server)
+`onMomentWritten` → `challenge.status == "reviewing"` → `runChallenge` under the `challengeLeases/{id}` lease (300 s).
+`challengeReview` (ONLY_IN_CLOUD) sees intention, claims with p, summary, sensor facts, earlier opinions, the round's
+rebuttals (no identities), ≤ 8 frames (anchored first), and the matching uploaded clips. **Outcome (code;
+reference `shared/make-test-vectors-v5.mjs`, vectors `shared/test-vectors-v5.json`):** a rebuttal holds when
+`upheld && confidence ≥ 0.6`; a claim falls when a holding rebuttal targets it and the review says `not_backed` with
+confidence ≥ 0.6; **Overturned** iff a claim falls or (`cheating.detected` and ≥ 1 holds); else **Survived**.
+- Overturned: `status = "rejected"`, `seal.sealed = false`, `seal.revoked = { at, round, reason }`,
+  `seal.reason = "Overturned by challenge: <first fallen claim text | cheating — <signal> | cheating detected> ·
+  <first holding rebuttal reason>"`, `verification.verified = false`; checks untouched.
+- Survived: seal, score and bar untouched.
+- Failure: stays `reviewing`, `tries += 1`; `retryChallenges` (every 30 min) re-runs expired leases; after 3 tries the
+  round ends `error`: rebuttals `void`, their rebutters freed, `status = "open"`, same round + threshold, `accepted = 0`.
+- Ladder: `runLadderModule` refuses `overturned` (seal revoked) and `in_review` (reviewing). A ladder run that drops
+  the Moment to `rejected` during an open round ends it `moot` (same reset as `error`).
+
+### v5.4 Data
+```
+moments/{id}.challenge (server-only) = { round, threshold, accepted, status: "open"|"reviewing"|"survived"|"overturned",
+  tries, rebutters: string[], rounds: [{ round, threshold, outcome: "survived"|"overturned"|"error"|"moot", summary,
+  at, upheld, total }] }
+moments/{id}/rebuttals/{rid} = { id, round, uid, by: {name, photoURL}, anchor, category, text, draftedOnDevice,
+  screen: { accepted: true, reason }, createdAtServer,
+  verdict: "pending"|"upheld"|"dismissed"|"unclear"|"void", confidence: number|null, reason: string|null }
+rebutters/{uid} = { name, photoURL, submitted, upheld, dismissed, unclear, overturnedMoments }
+feed/{id}.challenge = { status, round, accepted, threshold, upheld: number|null, summary: string|null } | null
+```
+Rules: `challenge` joins the Moment's server-only fields; `rebuttals` read as the parent Moment, write never;
+`rebutters` read anyone, write never; `challengeLeases`, `rebuttalRate` no client access.
+
+### v5.5 Hybrid map additions
+| Prompt | Mode | Runs in | Can it verify? |
+|---|---|---|---|
+| `rebuttalDraft` | PREFER_ON_DEVICE | client (web) | no (drafts) |
+| `rebuttalScreen` | ONLY_IN_CLOUD | functions | no (checkable or not) |
+| `challengeReview` | ONLY_IN_CLOUD | functions | proposes; code decides |
+
+### v5.6 UI words
+"Rebut this Moment" / "Sign in to rebut" · "Rebuttals: 1 of 3 to re-verify" · verdict chips **Upheld** / **Dismissed**
+/ **Unclear** / **Void** · banner "**Being re-verified** · 3 rebuttals" · ladder "Paused during re-verification" ·
+badge "**Survived a challenge**" (×n) · banner "**Overturned by the community**" · card "Not verified · overturned" ·
+feed chips "Challenged 1/3", "Being re-verified", "Survived a challenge", "Overturned" · rebutter "upheld 4 of 6" ·
+"Not sent: <reason>" · "You've already rebutted this Moment." · "Re-verification couldn't run · challenge reopened".
+Web files rebuttals; iOS/Android render the results read-only when they pick this up (old builds show the
+`rejected` reason).
+
 ## Repo layout
 
 ```

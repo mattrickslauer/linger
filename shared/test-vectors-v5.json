@@ -1,0 +1,758 @@
+{
+  "version": 5,
+  "holdConfidence": 0.6,
+  "outcome": [
+    {
+      "name": "upheld rebuttal + claim not_backed → overturned",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "upheld",
+              "confidence": 0.8,
+              "reason": "count restarts at 0:41"
+            },
+            {
+              "id": "r2",
+              "verdict": "dismissed",
+              "confidence": 0.7,
+              "reason": "reason r2"
+            },
+            {
+              "id": "r3",
+              "verdict": "dismissed",
+              "confidence": 0.9,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.8,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "overturned",
+        "fallen": [
+          "c2"
+        ],
+        "holding": [
+          "r1"
+        ],
+        "reason": "Overturned by challenge: 50 claps · count restarts at 0:41"
+      }
+    },
+    {
+      "name": "upheld rebuttal but its claim still backed → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "upheld",
+              "confidence": 0.8,
+              "reason": "reason r1"
+            },
+            {
+              "id": "r2",
+              "verdict": "dismissed",
+              "confidence": 0.7,
+              "reason": "reason r2"
+            },
+            {
+              "id": "r3",
+              "verdict": "dismissed",
+              "confidence": 0.9,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.7,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [
+          "r1"
+        ],
+        "reason": null
+      }
+    },
+    {
+      "name": "upheld below 0.6 confidence does not hold → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "upheld",
+              "confidence": 0.59,
+              "reason": "reason r1"
+            },
+            {
+              "id": "r2",
+              "verdict": "upheld",
+              "confidence": 0.5,
+              "reason": "reason r2"
+            },
+            {
+              "id": "r3",
+              "verdict": "dismissed",
+              "confidence": 0.9,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.9,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "claim not_backed below 0.6 does not fall → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "upheld",
+              "confidence": 0.9,
+              "reason": "reason r1"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.55,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [
+          "r1"
+        ],
+        "reason": null
+      }
+    },
+    {
+      "name": "holding rebuttal on c1, but only c2 is not_backed → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r3",
+              "verdict": "upheld",
+              "confidence": 0.9,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.9,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [
+          "r3"
+        ],
+        "reason": null
+      }
+    },
+    {
+      "name": "cheating + one holding rebuttal → overturned, cheating reason",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r3",
+              "verdict": "upheld",
+              "confidence": 0.7,
+              "reason": "the clip is cut at 0:41"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.5,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": true,
+            "signals": [
+              "cut: a jump at 0:41"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "overturned",
+        "fallen": [],
+        "holding": [
+          "r3"
+        ],
+        "reason": "Overturned by challenge: cheating — cut: a jump at 0:41 · the clip is cut at 0:41"
+      }
+    },
+    {
+      "name": "cheating without signals + holding → 'cheating detected'",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r2",
+              "verdict": "upheld",
+              "confidence": 0.6,
+              "reason": "looks looped"
+            }
+          ],
+          "claims": [],
+          "cheating": {
+            "detected": true,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "overturned",
+        "fallen": [],
+        "holding": [
+          "r2"
+        ],
+        "reason": "Overturned by challenge: cheating detected · looks looped"
+      }
+    },
+    {
+      "name": "cheating but no holding rebuttal → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "dismissed",
+              "confidence": 0.9,
+              "reason": "reason r1"
+            },
+            {
+              "id": "r2",
+              "verdict": "unclear",
+              "confidence": 0.4,
+              "reason": "reason r2"
+            },
+            {
+              "id": "r3",
+              "verdict": "dismissed",
+              "confidence": 0.8,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.9,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": true,
+            "signals": [
+              "loop"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "only unclear answers → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r1",
+              "verdict": "unclear",
+              "confidence": 0.9,
+              "reason": "reason r1"
+            },
+            {
+              "id": "r2",
+              "verdict": "unclear",
+              "confidence": 0.9,
+              "reason": "reason r2"
+            },
+            {
+              "id": "r3",
+              "verdict": "unclear",
+              "confidence": 0.9,
+              "reason": "reason r3"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "unclear",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.9,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "two claims fall → first fallen claim in claim order, first holding rebuttal in rebuttal order",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "r3",
+              "verdict": "upheld",
+              "confidence": 0.9,
+              "reason": "no hands visible"
+            },
+            {
+              "id": "r1",
+              "verdict": "upheld",
+              "confidence": 0.7,
+              "reason": "count restarts"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 0.9,
+              "reasons": []
+            },
+            {
+              "id": "c1",
+              "verdict": "not_backed",
+              "confidence": 0.9,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "overturned",
+        "fallen": [
+          "c1",
+          "c2"
+        ],
+        "holding": [
+          "r1",
+          "r3"
+        ],
+        "reason": "Overturned by challenge: clapping · count restarts"
+      }
+    },
+    {
+      "name": "review answers unknown rebuttal ids only → survived",
+      "input": {
+        "rebuttals": [
+          {
+            "id": "r1",
+            "claimId": "c2"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2"
+          },
+          {
+            "id": "r3",
+            "claimId": "c1"
+          }
+        ],
+        "claims": [
+          {
+            "id": "c1",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "text": "50 claps"
+          }
+        ],
+        "review": {
+          "rebuttals": [
+            {
+              "id": "rX",
+              "verdict": "upheld",
+              "confidence": 1,
+              "reason": "reason rX"
+            }
+          ],
+          "claims": [
+            {
+              "id": "c2",
+              "verdict": "not_backed",
+              "confidence": 1,
+              "reasons": []
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "survived",
+        "fallen": [],
+        "holding": [],
+        "reason": null
+      }
+    }
+  ]
+}
