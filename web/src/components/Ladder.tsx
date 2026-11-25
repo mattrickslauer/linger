@@ -142,7 +142,10 @@ function Offers(p: Props & { score: number; bar: number }) {
   const ev = useMemo(() => evidenceOf(p.chunks ?? [], p.intention), [p.chunks, p.intention]);
   const list: (Offer | OfferV4)[] = (
     p.v4 ? offersV4({ ...p.v4, modules: p.modules ?? [] }, ev, credits?.balance ?? null) : offers({ score: p.score, modules: p.modules ?? [] }, ev, credits?.balance ?? null)
-  ).filter((o) => o.state !== "done");
+  )
+    .filter((o) => o.state !== "done")
+    // v4.6: a module is offered only if it backs >= 1 of this Moment's claims (after backsTargetedOnly).
+    .filter((o) => !("claims" in o) || o.claims.length > 0);
 
   // A claim row's "Run" opens the same confirm sheet.
   useEffect(() => {

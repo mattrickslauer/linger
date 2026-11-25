@@ -131,7 +131,10 @@ async function exists(r: ReturnType<typeof ref>): Promise<boolean> {
     await getMetadata(r);
     return true;
   } catch (e) {
-    if ((e as { code?: string })?.code === "storage/object-not-found") return false;
+    const code = (e as { code?: string })?.code;
+    if (code === "storage/object-not-found") return false;
+    // Rules without the v4 owner `get` (v4.9) refuse the probe: try the upload; storage.rules decide (create once).
+    if (code === "storage/unauthorized") return false;
     throw e;
   }
 }

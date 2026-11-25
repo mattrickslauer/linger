@@ -582,7 +582,7 @@ export default function Detail({ id }: { id: string }) {
           {barValue != null ? (
             <ScoreVsBar
               score={finalScore}
-              baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
+              baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? moment?.score?.probability ?? null}
               bar={barValue}
               rationale={moment?.bar?.rationale ?? feed?.barRationale ?? null}
               factors={moment?.bar?.factors ?? []}
@@ -609,7 +609,7 @@ export default function Detail({ id }: { id: string }) {
           v4={v4Ladder}
           requested={requested}
           score={finalScore}
-          baseline={moment?.verification?.baseline ?? feed?.baselineScore ?? null}
+          baseline={moment?.verification?.baselineUsed ?? moment?.verification?.baseline ?? feed?.baselineScore ?? null}
           bar={barValue}
           modules={moment?.verification?.modules ?? null}
           feedLadder={feed?.ladder}

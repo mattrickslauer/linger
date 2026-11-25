@@ -405,9 +405,12 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     if (local.intention) submit.intention = local.intention;
     stopIfDeleted(id);
     await updateDoc(ref, submit);
-  } else if ((server.get("videoReview") as { status?: string } | undefined)?.status === "waiting") {
-    // Submitted without its clip (an older client, or a lost upload): the server waits 24 h for it. Best effort.
-    await uploadMomentClips(uid, id, localChunks).catch((e) => console.warn(`vault: ${id}: late clip upload failed`, e));
+  } else if (server.get("status") === "submitted" && [undefined, null, "waiting"].includes((server.get("videoReview") as { status?: string } | null | undefined)?.status)) {
+    // Submitted without its clip (an older tab, or a lost upload): the server waits 24 h for it. Idempotent (existing
+    // objects are skipped). A failed upload throws, so this pass KEEPS the local copy and the next one retries:
+    // forgetting it now would drop the clip's only route to the server. Clips this browser doesn't hold, or that are
+    // too large to upload, don't throw.
+    await uploadMomentClips(uid, id, localChunks);
   }
 
   // Read everything back from the server and compare with the journal, byte for byte where it matters.

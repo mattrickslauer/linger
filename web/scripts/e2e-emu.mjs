@@ -1,6 +1,7 @@
 // End-to-end against the Emulator Suite (`npm run dev:emu` + emulators running):
 // sign in through the Auth emulator popup, record ~25 s with a fake camera and a fixed GPS position,
 // take one proof shot, finish, and check the Moment reached Firestore as "submitted" with all chunks.
+// v4: the typed path may plan the evidence first ("Planning the evidence…"); the output lists the v4 fields.
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
@@ -79,6 +80,13 @@ console.log(
     onDevice: m?.onDevice?.mapValue?.fields?.mode?.stringValue,
     judge: m?.judge?.mapValue ? "written" : "null",
     seal: m?.seal?.mapValue ? m.seal.mapValue.fields.sealed : "null",
+    // v4: the draft claims/plan ride the intention; claims, plan and videoReview are written by the functions.
+    intentionV: m?.intention?.mapValue?.fields?.v?.integerValue ?? null,
+    draftClaims: m?.intention?.mapValue?.fields?.claims?.arrayValue?.values?.length ?? 0,
+    serverClaims: m?.claims?.mapValue?.fields?.items?.arrayValue?.values?.length ?? 0,
+    serverPlan: m?.plan?.mapValue?.fields?.requirements?.arrayValue?.values?.length ?? 0,
+    videoReview: m?.videoReview?.mapValue?.fields?.status?.stringValue ?? "null",
+    sealVersion: m?.seal?.mapValue?.fields?.version?.integerValue ?? null,
   }),
 );
 if (errors.length) console.log("page errors:", errors);
