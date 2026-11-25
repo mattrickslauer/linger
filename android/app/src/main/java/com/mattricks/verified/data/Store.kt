@@ -215,7 +215,28 @@ object Store {
             witnessAsked = ((d["witness"] as? Map<String, Any?>)?.get("asked") as? Number)?.toInt() ?: 0,
             claimsBacked = (d["claimsBacked"] as? Number)?.toInt(), claimsTotal = (d["claimsTotal"] as? Number)?.toInt(),
             cheating = d["cheating"] == true,
+            checks = (d["checks"] as? Map<String, Any?>).orEmpty().mapValues { it.value == true },
+            track = trackFrom(d["track"]),
+            sealedAt = when (val t = d["sealedAtServer"]) {
+                is com.google.firebase.Timestamp -> t.toDate().time
+                is Number -> t.toLong()
+                else -> 0
+            },
+            sealReason = d["sealReason"] as? String ?: "",
+            scoreReasons = (d["scoreReasons"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
+            judgeReasons = (d["judgeReasons"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
+            cheatingSignals = (d["cheatingSignals"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
+            witnessAnswered = ((d["witness"] as? Map<String, Any?>)?.get("answered") as? Number)?.toInt() ?: 0,
         )
+    }
+
+    /** feed.track: the backend writes [{lat,lng}] (Firestore rejects nested arrays); also accept [[lat,lng]]. */
+    private fun trackFrom(x: Any?): List<LatLng> = (x as? List<Any?>).orEmpty().mapNotNull { pt ->
+        when (pt) {
+            is Map<*, *> -> if (pt["lat"] != null && pt["lng"] != null) LatLng(num(pt["lat"]), num(pt["lng"])) else null
+            is List<*> -> if (pt.size >= 2) LatLng(num(pt[0]), num(pt[1])) else null
+            else -> null
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -314,12 +335,7 @@ object Store {
         }
         if (track.isEmpty() && feed != null) {
             // Backend writes [{lat,lng}] (Firestore rejects nested arrays); also accept [[lat,lng]].
-            (feed["track"] as? List<Any?>)?.forEach { pt ->
-                when (pt) {
-                    is Map<*, *> -> if (pt["lat"] != null && pt["lng"] != null) track += LatLng(num(pt["lat"]), num(pt["lng"]))
-                    is List<*> -> if (pt.size >= 2) track += LatLng(num(pt[0]), num(pt[1]))
-                }
-            }
+            track += trackFrom(feed["track"])
         }
         if (frames.isEmpty()) (feed?.get("heroJpegB64") as? String)?.let { frames += Frame(0, 0, it, null) }
 

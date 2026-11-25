@@ -103,6 +103,15 @@ data class MomentCard(
     val claimsBacked: Int? = null,
     val claimsTotal: Int? = null,
     val cheating: Boolean = false,
+    /** Feed v5 slide: the five seal checks, the track for the sketch, when it was sealed, and its one reason. */
+    val checks: Map<String, Boolean> = emptyMap(),
+    val track: List<LatLng> = emptyList(),
+    val sealedAt: Long = 0,
+    val sealReason: String = "",
+    val scoreReasons: List<String> = emptyList(),
+    val judgeReasons: List<String> = emptyList(),
+    val cheatingSignals: List<String> = emptyList(),
+    val witnessAnswered: Int = 0,
 )
 
 /** [witnessAsk] is the witness request this frame answered (frame event `wid`), if any. */
