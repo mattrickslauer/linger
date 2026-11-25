@@ -264,7 +264,7 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     console.warn(`vault: ${id}: missing on server, re-creating from the journal`);
     const { id: _id, ...create } = local as Fields;
     for (const k of SUBMIT_FIELDS) delete create[k];
-    Object.assign(create, { status: "recording", seal: null, judge: null, skeptic: null, createdAtServer: serverTimestamp() });
+    Object.assign(create, { status: "recording", seal: null, judge: null, skeptic: null, score: null, createdAtServer: serverTimestamp() });
     stopIfDeleted(id);
     await setDoc(ref, create);
     server = await getDocFromServer(ref);

@@ -3,8 +3,8 @@
 import Foundation
 import Observation
 
-/// After a Moment is submitted and the phone is online, asks the cloud judge and skeptic
-/// (ONLY_IN_CLOUD, with images) via Firebase AI Logic and writes both opinions to the moment.
+/// After a Moment is submitted and the phone is online, asks the cloud judge, skeptic and scorer
+/// (ONLY_IN_CLOUD, with images) via Firebase AI Logic and writes all three to the moment in one write.
 /// The Cloud Function then seals it.
 @Observable
 final class JudgeRunner {
@@ -76,8 +76,9 @@ final class JudgeRunner {
     let images = picked.map(\.jpeg)
     async let judge = Self.opinion(Prompts.shared.judge, values: values, images: images)
     async let skeptic = Self.opinion(Prompts.shared.skeptic, values: values, images: images)
-    let (j, s) = try await (judge, skeptic)
-    MomentStore.writeOpinions(momentId: momentId, judge: j, skeptic: s)
+    async let score = Self.score(Prompts.shared.scorer, values: values, images: images)
+    let (j, s, v) = try await (judge, skeptic, score)
+    MomentStore.writeOpinions(momentId: momentId, judge: j, skeptic: s, score: v)
   }
 
   /// Hero frame first, then up to 3 more spread over the session, in time order.
@@ -115,13 +116,19 @@ final class JudgeRunner {
     "reasons": .array(items: .string()),
   ])
 
-  /// One ONLY_IN_CLOUD call with images and a JSON response schema.
-  static func opinion(_ p: Prompts.Prompt, values: [String: String], images: [Data]) async throws -> AiOpinion {
+  private static let scoreSchema = Schema.object(properties: [
+    "probability": .double(),
+    "reasons": .array(items: .string()),
+  ])
+
+  /// One ONLY_IN_CLOUD call with images and a JSON response schema. Returns the JSON object and the model name.
+  private static func generate(_ p: Prompts.Prompt, schema: Schema, values: [String: String],
+                               images: [Data]) async throws -> (json: Data, model: String) {
     let name = FirebaseSetup.cloudModel
     let model = FirebaseAI.firebaseAI(backend: .googleAI()).generativeModel(
       modelName: name,
       generationConfig: GenerationConfig(
-        temperature: 0.2, responseMIMEType: "application/json", responseSchema: opinionSchema),
+        temperature: 0.2, responseMIMEType: "application/json", responseSchema: schema),
       systemInstruction: ModelContent(role: "system", parts: p.system)
     )
     var parts: [any Part] = [TextPart(p.fill(values))]
@@ -129,11 +136,26 @@ final class JudgeRunner {
     let response = try await model.generateContent([ModelContent(role: "user", parts: parts)])
     guard let text = response.text, let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}")
     else { throw URLError(.cannotParseResponse) }
+    return (Data(text[start...end].utf8), name)
+  }
+
+  /// Judge or skeptic: verdict + confidence + reasons.
+  static func opinion(_ p: Prompts.Prompt, values: [String: String], images: [Data]) async throws -> AiOpinion {
+    let (json, name) = try await generate(p, schema: opinionSchema, values: values, images: images)
     struct Raw: Decodable { let verdict: String; let confidence: Double; let reasons: [String] }
-    let raw = try JSONDecoder().decode(Raw.self, from: Data(text[start...end].utf8))
+    let raw = try JSONDecoder().decode(Raw.self, from: json)
     let verdict = ["consistent", "inconsistent", "uncertain"].contains(raw.verdict) ? raw.verdict : "uncertain"
     return AiOpinion(
       verdict: verdict, confidence: min(1, max(0, raw.confidence)),
       reasons: Array(raw.reasons.prefix(4)), model: name, ranAt: nowMs())
+  }
+
+  /// Scorer: P(claim true | evidence) under an adversarial (mostly-cheating) prior.
+  static func score(_ p: Prompts.Prompt, values: [String: String], images: [Data]) async throws -> VerificationScore {
+    let (json, name) = try await generate(p, schema: scoreSchema, values: values, images: images)
+    struct Raw: Decodable { let probability: Double; let reasons: [String] }
+    let raw = try JSONDecoder().decode(Raw.self, from: json)
+    return VerificationScore(
+      probability: raw.probability, reasons: Array(raw.reasons.prefix(4)), model: name, ranAt: nowMs())
   }
 }

@@ -194,6 +194,7 @@ async function seedOne(spec, frameB64) {
     onDevice: spec.onDevice,
     judge: null,
     skeptic: null,
+    score: null,
     seal: null,
     createdAtServer: FieldValue.serverTimestamp(),
   });
@@ -203,11 +204,12 @@ async function seedOne(spec, frameB64) {
   await bw.close();
   // 3. finish
   await ref.update({ status: "submitted", endedAt: END, chunkCount: chunks.length, headHash, summary, submittedAtServer: FieldValue.serverTimestamp() });
-  // 4. judge + skeptic (the apps call Firebase AI Logic ONLY_IN_CLOUD; here they are scripted)
+  // 4. judge + skeptic + scorer (the apps call Firebase AI Logic ONLY_IN_CLOUD; here they are scripted)
   const ranAt = END + 15_000;
   await ref.update({
     judge: { ...spec.judge, model: "seeded-demo", ranAt },
     skeptic: { ...spec.skeptic, model: "seeded-demo", ranAt: ranAt + 1200 },
+    score: spec.score ? { ...spec.score, model: "seeded-demo", ranAt: ranAt + 1500 } : null,
   });
   return { chunks: chunks.length, summary };
 }

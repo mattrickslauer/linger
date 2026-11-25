@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mattricks.verified.data.MomentDetail
 import com.mattricks.verified.data.Opinion
+import com.mattricks.verified.data.Score
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.mattricks.verified.data.Store
@@ -143,18 +144,19 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier) {
         Section("AI opinions")
         OpinionCard("Judge", d.judge, d.judgeReasons)
         OpinionCard("Skeptic", d.skeptic, emptyList())
+        ScoreCard(d.score)
 
         Section("Seal")
         val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
         val labels = linkedMapOf(
             "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
-            "frames" to "Proof frames match", "ai" to "Judge consistent, skeptic found nothing",
+            "frames" to "Proof frames match", "ai" to "Judge consistent, skeptic found nothing, score ≥ 50%",
         )
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (checks.isEmpty()) {
                     Text(
-                        if (d.card.status == "submitted") "Waiting for judge + skeptic, then the Cloud Function seals." else "Not sealed yet.",
+                        if (d.card.status == "submitted") "Waiting for judge, skeptic + scorer, then the Cloud Function seals." else "Not sealed yet.",
                         color = Color.Gray,
                     )
                     d.chainOk?.let { CheckRow("Hash chain (checked on this phone, ${d.chunkCount} chunks)", it) }
@@ -192,6 +194,29 @@ private fun OpinionCard(title: String, o: Opinion?, fallbackReasons: List<String
             if (reasons.isEmpty()) Text(if (o == null) "Runs in the cloud once the Moment is synced." else "No reasons given.", color = Color.Gray)
             reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
             if (o != null && o.model.isNotBlank()) Text(o.model + " · in the cloud", fontSize = 11.sp, color = Color.Gray)
+        }
+    }
+}
+
+@Composable
+private fun ScoreCard(s: Score?) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Verification score", fontWeight = FontWeight.Bold)
+            if (s == null) {
+                Text("Not scored", color = Color.Gray)
+            } else {
+                Text(
+                    "${(s.probability * 100).toInt()}%", fontSize = 36.sp, fontWeight = FontWeight.Bold,
+                    color = if (s.probability >= 0.5) Green else Red,
+                )
+                Text(
+                    "Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%).",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                s.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                if (s.model.isNotBlank()) Text(s.model + " · in the cloud", fontSize = 11.sp, color = Color.Gray)
+            }
         }
     }
 }

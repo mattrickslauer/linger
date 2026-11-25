@@ -3,7 +3,7 @@ import MapKit
 import SwiftUI
 import VerifiedCore
 
-/// Moment detail: map track, frame timeline, motion chart, judge/skeptic reasons, seal checklist.
+/// Moment detail: map track, frame timeline, motion chart, judge/skeptic reasons, verification score, seal checklist.
 struct MomentDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -163,6 +163,7 @@ struct MomentDetailView: View {
       OpinionCard(title: "Judge", icon: "scalemass", opinion: m.judge,
                   fallbackReasons: m.judge == nil ? m.judgeReasons : [])
       OpinionCard(title: "Skeptic", icon: "eye.trianglebadge.exclamationmark", opinion: m.skeptic, fallbackReasons: [])
+      ScoreCard(score: m.score, pending: m.status == "recording" || m.status == "submitted")
     }
   }
 
@@ -237,6 +238,44 @@ struct OpinionCard: View {
   }
 }
 
+/// The scorer's P(claim true | evidence) under an adversarial prior.
+struct ScoreCard: View {
+  let score: VerificationScore?
+  let pending: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Label("Verification score", systemImage: "percent").font(.subheadline.bold())
+        Spacer()
+        if score == nil {
+          Chip(text: pending ? "pending" : "Not scored", systemImage: pending ? "hourglass" : nil)
+        }
+      }
+      if let s = score {
+        Text("\(Int((s.probability * 100).rounded()))%")
+          .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+          .foregroundStyle(s.probability >= 0.5 ? Theme.accent : Theme.bad)
+      }
+      Text("Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%).")
+        .font(.caption).foregroundStyle(.secondary)
+      ForEach(Array((score?.reasons ?? []).enumerated()), id: \.offset) { item in
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text("•")
+          Text(item.element)
+        }
+        .font(.footnote)
+      }
+      if let model = score?.model, !model.isEmpty {
+        Text("\(model) · cloud (Firebase AI Logic)").font(.caption2).foregroundStyle(.tertiary)
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+  }
+}
+
 /// The five deterministic checks the Cloud Function runs (contract `Seal.checks`).
 struct SealChecklist: View {
   let card: MomentCardData
@@ -248,7 +287,7 @@ struct SealChecklist: View {
     ("timing", "Timing consistent (≥ 20 s, in order)"),
     ("physics", "Physics plausible (no GPS jumps)"),
     ("frames", "Proof frames match their hashes"),
-    ("ai", "Judge consistent, skeptic found no fake"),
+    ("ai", "Judge consistent, skeptic found no fake, score ≥ 50%"),
   ]
 
   var body: some View {
@@ -277,7 +316,7 @@ struct SealChecklist: View {
     switch card.status {
     case "recording": "Still recording."
     case "submitted":
-      card.judge == nil ? "Waiting for the cloud judge and skeptic (runs when the owner's phone is online)."
+      card.judge == nil ? "Waiting for the cloud judge, skeptic and scorer (runs when the owner's phone is online)."
         : "Waiting for the seal function."
     default: ""
     }

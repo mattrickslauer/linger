@@ -50,6 +50,22 @@ data class Opinion(val verdict: String, val confidence: Double, val reasons: Lis
     }
 }
 
+/** moments/{id}.score: P(claim true | evidence) under the adversarial prior. */
+data class Score(val probability: Double, val reasons: List<String>, val model: String) {
+    companion object {
+        @Suppress("UNCHECKED_CAST")
+        fun from(m: Any?): Score? = (m as? Map<String, Any?>)?.let {
+            if (it["probability"] !is Number) return null
+            Score(num(it["probability"]).coerceIn(0.0, 1.0), (it["reasons"] as? List<String>).orEmpty(), it["model"] as? String ?: "")
+        }
+
+        /** feed/{id}: verificationScore (number|null) + scoreReasons. */
+        @Suppress("UNCHECKED_CAST")
+        fun fromFeed(p: Any?, reasons: Any?): Score? =
+            (p as? Number)?.let { Score(it.toDouble().coerceIn(0.0, 1.0), (reasons as? List<String>).orEmpty(), "") }
+    }
+}
+
 data class Seal(val sealed: Boolean, val checks: Map<String, Boolean>, val reason: String) {
     companion object {
         @Suppress("UNCHECKED_CAST")
@@ -89,6 +105,7 @@ data class MomentDetail(
     val chainOk: Boolean?,
     val judge: Opinion?,
     val skeptic: Opinion?,
+    val score: Score?,
     val seal: Seal?,
     val feedChecks: Map<String, Boolean>,
     val feedReason: String?,

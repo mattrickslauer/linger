@@ -14,10 +14,11 @@
    intention *on the device*. It can only say **"keep going"** or **"retake: <reason>"**. It can never verify.
 5. **Offline-first**: everything is written through Firestore with offline persistence. At the lake with no
    signal, the Moment records and queues; it syncs by itself when the phone is back online.
-6. **Judge + Skeptic in the cloud** (`ONLY_IN_CLOUD`, via Firebase AI Logic on the client at sync time): a
-   judge proposes a verdict, a separate skeptic hunts for fake signals.
-7. **Deterministic seal**: a Cloud Function re-checks the hash chain, timing and physics, reads both AI
-   opinions, and alone writes the seal and the public feed entry. AI proposes; code decides.
+6. **Judge + Skeptic + Scorer in the cloud** (`ONLY_IN_CLOUD`, via Firebase AI Logic on the client at sync
+   time): a judge proposes a verdict, a separate skeptic hunts for fake signals, and a scorer gives the
+   verification score: P(claim true | evidence), starting from a prior that most submissions cheat (0.2).
+7. **Deterministic seal**: a Cloud Function re-checks the hash chain, timing and physics, reads all three AI
+   outputs, and alone writes the seal and the public feed entry. AI proposes; code decides.
 8. **Public feed**: judges open the web app (no sign-in needed) and browse sealed Moments: map track,
    frame timeline, motion graph, AI reasoning, seal checks.
 
@@ -72,13 +73,19 @@ summary: {                    // computed by the client at submit (the seal reco
 onDevice: { mode: "on_device"|"cloud"|"none", checks: number, retakes: number }
 judge:   AiOpinion|null       // written by the client after sync (cloud call)
 skeptic: AiOpinion|null
+score:   VerificationScore|null // written in the SAME update as judge + skeptic; absent on older Moments
 seal: Seal|null               // written ONLY by the Cloud Function
 createdAtServer, submittedAtServer
 ```
 `AiOpinion = { verdict: "consistent"|"inconsistent"|"uncertain", confidence: 0..1, reasons: string[], model: string, ranAt: number }`
 (skeptic uses the same shape; "inconsistent" means it found a fake signal.)
 
-`Seal = { sealed: boolean, at: serverTimestamp, checks: { chain: bool, timing: bool, physics: bool, frames: bool, ai: bool }, reason: string, version: 1 }`
+`VerificationScore = { probability: 0..1, reasons: string[] (≤4), model: string, ranAt: number }`: the scorer's
+P(claim true | evidence) under an adversarial prior of 0.2 (most submissions assumed to be cheating). Only evidence
+that is hard to fake moves it up; generic evidence leaves it near 0.2. The seal needs ≥ 0.5 when a score is present.
+
+`Seal = { sealed: boolean, at: serverTimestamp, checks: { chain: bool, timing: bool, physics: bool, frames: bool, ai: bool }, reason: string, version: 2 }`
+(version 2 = the `ai` check also gates on the verification score.)
 
 ### `moments/{momentId}/chunks/{seq}`  (doc id = seq zero-padded to 6 digits, `000000`)
 ```
@@ -112,6 +119,7 @@ SHA-256 helpers must hash UTF-8 bytes and output lowercase hex. Test vector in `
 ```
 momentId, owner, intention, platform, summary, onDeviceMode,
 status: "sealed"|"rejected", sealReason, checks, judgeReasons: string[], skepticReasons: string[],
+verificationScore: number|null, scoreReasons: string[],
 heroJpegB64: string|null, track: [{lat,lng}, ...] (≤200 pts, downsampled), sealedAtServer
 ```
 `track` is a list of `{lat, lng}` maps, not `[[lat,lng]]`: Firestore cannot store nested arrays.
@@ -127,8 +135,9 @@ every 5s / on frame: write chunks/{seq} (offline OK)
 per frame: on-device check → "keep going" | "retake"
 stop: write summary, chunkCount, headHash, status=submitted
 when online & status=submitted & judge==null:
-   judge + skeptic via AI Logic ONLY_IN_CLOUD (hero frame
-   + up to 3 frames + summary + intention) → write judge,skeptic
+   judge + skeptic + scorer via AI Logic ONLY_IN_CLOUD (hero
+   frame + up to 3 frames + summary + intention), in parallel
+   → write judge,skeptic,score in one update
                                                            trigger when status=submitted && judge && skeptic && !seal
                                                            wait until chunk count == chunkCount (else no-op; retrigger
                                                              on chunk writes via onChunkWritten touching parent)
@@ -136,12 +145,13 @@ when online & status=submitted & judge==null:
                                                              timing (t monotonic, duration ≥ 20s, endedAt ≥ last t1),
                                                              physics (no GPS jump > 70 m/s; motion not all-zero if any),
                                                              frames (≥1 frame; frameSha matches),
-                                                             ai (judge consistent ≥0.6 AND skeptic != inconsistent)
+                                                             ai (judge consistent ≥0.6 AND skeptic != inconsistent
+                                                               AND score.probability ≥ 0.5 if score present)
                                                            write seal; status=sealed|rejected; write feed/{id}
 ```
 
 The seal's AI check is honest about its limits: the client calls the cloud models (rules require AI to run
-through Firebase AI Logic), so the hackathon trust model is "tamper-evident data + two independent AI opinions
+through Firebase AI Logic), so the hackathon trust model is "tamper-evident data + three independent AI reads
 + deterministic gates". Post-hackathon: move judge calls server-side.
 
 ## Raw vault: never lose a Moment (all platforms)
@@ -197,6 +207,8 @@ window; paid Moments keep the raw archive permanently plus an exportable, indepe
 - `judge` (cloud): intention, summary, frames → `AiOpinion`.
 - `skeptic` (cloud): same inputs, told to look for staging, screen photos, reused/stock images, mismatched
   place/time → `AiOpinion`.
+- `scorer` (cloud): same inputs, told to assume an adversarial setting (prior 0.2 that a claim is genuine) and
+  update only on hard-to-fake evidence → `VerificationScore`.
 
 ## UI (all platforms share the words)
 

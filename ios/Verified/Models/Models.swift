@@ -52,6 +52,29 @@ struct AiOpinion: Sendable, Equatable {
   }
 }
 
+/// The scorer's P(claim true | evidence) under an adversarial prior. `moments/{id}.score`, or the feed's
+/// `verificationScore` + `scoreReasons` (no model there).
+struct VerificationScore: Sendable, Equatable {
+  var probability: Double  // 0...1
+  var reasons: [String]
+  var model: String?
+  var ranAt: Int64
+
+  init(probability: Double, reasons: [String], model: String?, ranAt: Int64) {
+    self.probability = min(1, max(0, probability)); self.reasons = Array(reasons.prefix(4))
+    self.model = model; self.ranAt = ranAt
+  }
+
+  init?(_ d: [String: Any]?) {
+    guard let d, let p = d.dbl("probability") else { return nil }
+    self.init(probability: p, reasons: d["reasons"] as? [String] ?? [], model: d.str("model"), ranAt: d.i64("ranAt") ?? 0)
+  }
+
+  var firestoreData: [String: Any] {
+    ["probability": probability, "reasons": reasons, "model": model ?? "", "ranAt": ranAt]
+  }
+}
+
 struct SummaryInfo: Sendable, Equatable {
   var durationMs: Int64 = 0
   var distanceM: Double = 0
@@ -93,6 +116,7 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var judgeReasons: [String] = []
   var judge: AiOpinion?
   var skeptic: AiOpinion?
+  var score: VerificationScore?
   var hasPendingWrites = false
 
   var isVerified: Bool { status == "sealed" }
@@ -115,7 +139,10 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
       status: d.str("status") ?? "sealed", startedAt: 0, summary: SummaryInfo(d.obj("summary")),
       onDeviceMode: d.str("onDeviceMode") ?? "none", heroJpegB64: d.str("heroJpegB64"),
       track: track, sealReason: d.str("sealReason"),
-      checks: d["checks"] as? [String: Bool] ?? [:], judgeReasons: d["judgeReasons"] as? [String] ?? [])
+      checks: d["checks"] as? [String: Bool] ?? [:], judgeReasons: d["judgeReasons"] as? [String] ?? [],
+      score: d.dbl("verificationScore").map {
+        VerificationScore(probability: $0, reasons: d["scoreReasons"] as? [String] ?? [], model: nil, ranAt: 0)
+      })
   }
 
   /// `moments/{momentId}` (owner view, any status).
@@ -132,7 +159,7 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
       onDeviceMode: d.obj("onDevice")?.str("mode") ?? "none", heroJpegB64: nil,
       sealReason: seal?.str("reason"), checks: seal?["checks"] as? [String: Bool] ?? [:],
       judgeReasons: judge?.reasons ?? [], judge: judge, skeptic: AiOpinion(d.obj("skeptic")),
-      hasPendingWrites: pending)
+      score: VerificationScore(d.obj("score")), hasPendingWrites: pending)
   }
 }
 

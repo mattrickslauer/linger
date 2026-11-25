@@ -27,6 +27,7 @@ enum MomentStore {
       "onDevice": ["mode": "none", "checks": 0, "retakes": 0],
       "judge": NSNull(),
       "skeptic": NSNull(),
+      "score": NSNull(),
       "seal": NSNull(),
       "createdAtServer": FieldValue.serverTimestamp(),
     ]
@@ -61,8 +62,12 @@ enum MomentStore {
     moment(momentId).updateData(fields) { err in if let err { print("[Verified] submit:", err) } }
   }
 
-  static func writeOpinions(momentId: String, judge: AiOpinion, skeptic: AiOpinion) {
-    moment(momentId).updateData(["judge": judge.firestoreData, "skeptic": skeptic.firestoreData]) { err in
+  /// Judge, skeptic and score land in one write: the seal never sees a partial set.
+  static func writeOpinions(momentId: String, judge: AiOpinion, skeptic: AiOpinion, score: VerificationScore) {
+    let fields: [String: Any] = [
+      "judge": judge.firestoreData, "skeptic": skeptic.firestoreData, "score": score.firestoreData,
+    ]
+    moment(momentId).updateData(fields) { err in
       if let err { print("[Verified] opinions:", err) }
     }
   }

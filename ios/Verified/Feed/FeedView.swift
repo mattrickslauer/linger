@@ -16,7 +16,7 @@ struct FeedView: View {
           if feed.loaded && feed.items.isEmpty {
             ContentUnavailableView(
               "No sealed Moments yet", systemImage: "checkmark.seal",
-              description: Text("Record one in the Record tab. Once the cloud judge and skeptic have run, the seal function publishes it here."))
+              description: Text("Record one in the Record tab. Once the cloud judge, skeptic and scorer have run, the seal function publishes it here."))
               .padding(.top, 60)
           } else if !feed.loaded && feed.error == nil {
             ProgressView().padding(.top, 80)

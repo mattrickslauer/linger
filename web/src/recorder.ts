@@ -6,7 +6,7 @@
 
 import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
-import { judgeAndSkeptic, liveCheck } from "./ai";
+import { cloudReview, liveCheck } from "./ai";
 import { makeChunk } from "./chain";
 import { db } from "./firebase";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
@@ -127,6 +127,7 @@ export class Session {
       onDevice: { mode: "none", checks: 0, retakes: 0 },
       judge: null,
       skeptic: null,
+      score: null,
       seal: null,
       createdAtServer: serverTimestamp(),
       submittedAtServer: null,
@@ -289,11 +290,11 @@ export class Session {
   }
 }
 
-/** Judge + skeptic (cloud, via AI Logic) for a submitted Moment, then write both opinions. */
-export async function runCloudReview(momentId: string, moment: Parameters<typeof judgeAndSkeptic>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
-  const { judge, skeptic } = await judgeAndSkeptic(moment, frames);
-  await updateDoc(doc(db!, "moments", momentId), { judge, skeptic });
-  return { judge, skeptic };
+/** Judge, skeptic + scorer (cloud, via AI Logic) for a submitted Moment, then write all three in one update. */
+export async function runCloudReview(momentId: string, moment: Parameters<typeof cloudReview>[0], frames: { seq: number; t: number; jpegB64: string }[]) {
+  const review = await cloudReview(moment, frames);
+  await updateDoc(doc(db!, "moments", momentId), review);
+  return review;
 }
 
 /** Grab a proof frame from a playing <video>: longest side 640 px, JPEG q0.6, under ~120 KB base64. */

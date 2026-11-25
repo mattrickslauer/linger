@@ -18,7 +18,8 @@
       ],
       "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
       "judge": { "verdict": "consistent", "confidence": 0.86, "reasons": ["A largemouth bass is held up at the water's edge in the final frame", "Frames progress from cast to landing to release over about 5 minutes", "GPS stays on the lake shore; motion spikes match a cast and a fight"] },
-      "skeptic": { "verdict": "consistent", "confidence": 0.78, "reasons": ["Lighting and horizon match across all three frames", "No screen bezel, moire or print texture", "Session length and stillness fit shore fishing"] }
+      "skeptic": { "verdict": "consistent", "confidence": 0.78, "reasons": ["Lighting and horizon match across all three frames", "No screen bezel, moire or print texture", "Session length and stillness fit shore fishing"] },
+      "score": { "probability": 0.83, "reasons": ["The bass is shown at the waterline in the same light as the earlier casting frames", "A release frame is hard to stage after the fact"] }
     },
     {
       "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c02",
@@ -37,7 +38,8 @@
       ],
       "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
       "judge": { "verdict": "consistent", "confidence": 0.91, "reasons": ["5.2 km in 26 minutes is a plausible 5k pace", "Steady 2.8 Hz cadence in the accelerometer throughout", "Trail frames at start, middle and finish"] },
-      "skeptic": { "verdict": "consistent", "confidence": 0.82, "reasons": ["Speed never exceeds running pace", "No gaps or teleports in the GPS track"] }
+      "skeptic": { "verdict": "consistent", "confidence": 0.82, "reasons": ["Speed never exceeds running pace", "No gaps or teleports in the GPS track"] },
+      "score": { "probability": 0.72, "reasons": ["Running-pace GPS and a matching step cadence for the whole session", "The watch frame alone could be reused, so it adds little"] }
     },
     {
       "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c03",
@@ -56,7 +58,8 @@
       ],
       "onDevice": { "mode": "on_device", "checks": 3, "retakes": 0 },
       "judge": { "verdict": "consistent", "confidence": 0.84, "reasons": ["Sky brightens across frames as the sun rises", "Track climbs about 250 m over 2 km", "Summit cairn frame at the end of the climb"] },
-      "skeptic": { "verdict": "uncertain", "confidence": 0.4, "reasons": ["Frames are low detail, but nothing indicates staging"] }
+      "skeptic": { "verdict": "uncertain", "confidence": 0.4, "reasons": ["Frames are low detail, but nothing indicates staging"] },
+      "score": { "probability": 0.56, "reasons": ["A long, steady climb in GPS and motion is hard to fake without hiking", "Low-detail frames move the estimate little either way"] }
     },
     {
       "id": "5b0c8e7a-1d2f-4a3b-9c4d-0e1f2a3b4c04",
@@ -74,7 +77,8 @@
       ],
       "onDevice": { "mode": "on_device", "checks": 2, "retakes": 1 },
       "judge": { "verdict": "consistent", "confidence": 0.64, "reasons": ["A largemouth bass is held up in the final frame", "Bass size looks plausible for 5 lb"] },
-      "skeptic": { "verdict": "inconsistent", "confidence": 0.93, "reasons": ["The bass frame is a photo of a laptop screen: bezel, scanlines and moire are visible", "The other frame is an indoor room with blinds, not a lake", "GPS never moves for 48 s at a residential address, no water nearby"] }
+      "skeptic": { "verdict": "inconsistent", "confidence": 0.93, "reasons": ["The bass frame is a photo of a laptop screen: bezel, scanlines and moire are visible", "The other frame is an indoor room with blinds, not a lake", "GPS never moves for 48 s at a residential address, no water nearby"] },
+      "score": { "probability": 0.04, "reasons": ["The only catch frame is a photo of a laptop screen", "Nothing here a cheater could not produce from a couch"] }
     }
   ]
 }

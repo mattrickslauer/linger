@@ -10,7 +10,7 @@ bundled into the app as a resource.
 |---|---|---|
 | Live coach, one call per proof shot (`liveCheck`, PREFER_ON_DEVICE) | **Apple Foundation Models on-device**, with Gemini in the cloud as the fallback | `ai.generativeModelSession(model: .hybridModel(primary: FirebaseAI.SystemLanguageModel.default, secondary: ai.geminiModel(name:)))` in `Verified/AI/LiveCoach.swift` |
 | Frame → text for the on-device model | on-device | Apple Vision labels, OCR text, faces and hands (`VisionLabeler.swift`). Foundation Models takes text only, so these labels fill `{{frame}}`. |
-| Judge + skeptic after sync (ONLY_IN_CLOUD, with images) | cloud | `ai.generativeModel(modelName:generationConfig:systemInstruction:)` with a JSON `responseSchema` (`JudgeRunner.swift`) |
+| Judge, skeptic and scorer after sync (ONLY_IN_CLOUD, with images) | cloud | `ai.generativeModel(modelName:generationConfig:systemInstruction:)` with a JSON `responseSchema` (`JudgeRunner.swift`) |
 | No signal and no on-device model | on-device | A heuristic from the Vision labels only. The Moment records `mode: "none"`. Recording is never blocked. |
 
 The coach's mode (`on_device` or `cloud`) comes from `response.rawResponse.modelVersion`. The on-device model
@@ -83,7 +83,7 @@ switch the app over in one of these ways:
 - With the emulator on, the sign-in screen shows **Emulator sign-in**. It sends an unsigned Google ID token to
   the Auth emulator, so no Google account or `CLIENT_ID` is needed.
 
-Firebase AI Logic has no emulator, so the coach's cloud fallback and the judge/skeptic always call production
+Firebase AI Logic has no emulator, so the coach's cloud fallback and the judge/skeptic/scorer always call production
 Gemini through the `verified-99e74` project. AI Logic must be enabled there (see `infra/setup.md`).
 
 ## What happens on a recording
@@ -104,14 +104,14 @@ Gemini through the `verified-99e74` project. AI Logic must be enabled there (see
    `Offline · N chunks queued`, using `hasPendingWrites` from the chunk listener.
 5. **Finish** is available after 20 s, the seal's minimum. It writes the stop event and the last chunk, then
    sets `summary`, `chunkCount`, `headHash` and `status: "submitted"`.
-6. Once online, `JudgeRunner` sends up to 4 frames plus the summary to the judge and the skeptic
-   (ONLY_IN_CLOUD) and writes both opinions. The Cloud Function then seals the Moment and publishes it to
+6. Once online, `JudgeRunner` sends up to 4 frames plus the summary to the judge, the skeptic and the scorer
+   (ONLY_IN_CLOUD) and writes all three in one update. The Cloud Function then seals the Moment and publishes it to
    `feed/`.
 7. **Feed → detail** shows:
    - the map track
    - the frame timeline with the coach verdict for each frame
    - a Swift Charts motion graph
-   - the judge and skeptic reasons
+   - the judge and skeptic reasons and the verification score
    - the seal checklist
    - a chain re-verification run on the phone
 

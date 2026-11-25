@@ -269,7 +269,7 @@ function Done({ session }: { session: Session }) {
     [session.id],
   );
 
-  // Judge + skeptic run once we're online and the submit has reached the server.
+  // Judge, skeptic + scorer run once we're online and the submit has reached the server.
   useEffect(() => {
     const go = () => {
       if (started.current || !navigator.onLine || !m || m.status !== "submitted" || m.judge || pending) return;
@@ -295,10 +295,11 @@ function Done({ session }: { session: Session }) {
     {
       name:
         review === "failed"
-          ? `Cloud judge + skeptic failed: ${reviewErr}`
+          ? `Cloud judge, skeptic + scorer failed: ${reviewErr}`
           : m?.judge
-            ? `Judge: ${m.judge.verdict}. Skeptic: ${m.skeptic?.verdict ?? "…"}`
-            : "Cloud judge + skeptic",
+            ? `Judge: ${m.judge.verdict}. Skeptic: ${m.skeptic?.verdict ?? "…"}.` +
+              (m.score ? ` Score: ${Math.round(m.score.probability * 100)}% likely true` : "")
+            : "Cloud judge, skeptic + scorer",
       state: m?.judge ? "done" : review === "running" ? "now" : review === "failed" ? "bad" : "todo",
     },
     {

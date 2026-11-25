@@ -62,6 +62,7 @@ object Store {
             "onDevice" to mapOf("mode" to "none", "checks" to 0, "retakes" to 0),
             "judge" to null,
             "skeptic" to null,
+            "score" to null,
             "seal" to null,
             "createdAtServer" to FieldValue.serverTimestamp(),
         )
@@ -109,8 +110,9 @@ object Store {
 
     private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    suspend fun writeOpinions(momentId: String, judge: Map<String, Any?>, skeptic: Map<String, Any?>) {
-        db.collection("moments").document(momentId).update(mapOf("judge" to judge, "skeptic" to skeptic)).await()
+    /** All-or-nothing: judge, skeptic and score land in one update, so the seal never sees a partial set. */
+    suspend fun writeOpinions(momentId: String, judge: Map<String, Any?>, skeptic: Map<String, Any?>, score: Map<String, Any?>) {
+        db.collection("moments").document(momentId).update(mapOf("judge" to judge, "skeptic" to skeptic, "score" to score)).await()
     }
 
     /** Sync badge: (total chunks, chunks still waiting for the server). */
@@ -226,6 +228,7 @@ object Store {
             track = track, motion = motion, frames = frames,
             chunkCount = links.size, chainOk = if (links.isEmpty()) null else Chain.verify(momentId, links) == -1,
             judge = Opinion.from(m?.get("judge")), skeptic = Opinion.from(m?.get("skeptic")), seal = Seal.from(m?.get("seal")),
+            score = Score.from(m?.get("score")) ?: feedDoc?.let { Score.fromFeed(it.get("verificationScore"), it.get("scoreReasons")) },
             feedChecks = (feedDoc?.get("checks") as? Map<String, Any?>).orEmpty().mapValues { it.value == true },
             feedReason = feedDoc?.getString("sealReason"),
             judgeReasons = (feedDoc?.get("judgeReasons") as? List<String>).orEmpty(),

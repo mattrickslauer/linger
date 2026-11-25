@@ -1,10 +1,10 @@
-// The three AI Logic calls, with routing recorded so the UI can say which model ran.
+// The four AI Logic calls, with routing recorded so the UI can say which model ran.
 
 import { InferenceSource, type InlineDataPart } from "firebase/ai";
-import { cloudModel, judgeModel, liveCheckModel, prompts, skepticModel } from "./firebase";
+import { cloudModel, judgeModel, liveCheckModel, prompts, scorerModel, skepticModel } from "./firebase";
 import { fmtDistance, fmtDuration } from "./geo";
 import { fill, parseJson, pickFrames } from "./ai-util";
-import type { AiOpinion, CheckMode, LiveCheck, Moment, Summary, Verdict } from "./types";
+import type { AiOpinion, CheckMode, LiveCheck, Moment, Summary, Verdict, VerificationScore } from "./types";
 
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -51,14 +51,8 @@ export function summaryText(s: Summary): string {
 async function opinion(which: "judge" | "skeptic", m: Moment, frames: { t: number; jpegB64: string }[]): Promise<AiOpinion> {
   const model = which === "judge" ? judgeModel() : skepticModel();
   const p = prompts[which];
-  const offsets = frames.map((f) => Math.round((f.t - m.startedAt) / 1000) + "s").join(", ") || "none";
   const text =
-    fill(p.user, {
-      intention: m.intention.text,
-      category: m.intention.category,
-      summary: m.summary ? summaryText(m.summary) : "unavailable",
-      frameOffsets: offsets,
-    }) + '\nReply as JSON: {"verdict": "consistent"|"inconsistent"|"uncertain", "confidence": 0..1, "reasons": string[]}';
+    fill(p.user, promptValues(m, frames)) + '\nReply as JSON: {"verdict": "consistent"|"inconsistent"|"uncertain", "confidence": 0..1, "reasons": string[]}';
   const res = await withTimeout(model.generateContent([text, ...frames.map((f) => jpegPart(f.jpegB64))], { timeout: 60_000 }), 65_000);
   const j = parseJson<AiOpinion>(res.response.text());
   const verdict: Verdict = j.verdict === "consistent" || j.verdict === "inconsistent" ? j.verdict : "uncertain";
@@ -71,8 +65,33 @@ async function opinion(which: "judge" | "skeptic", m: Moment, frames: { t: numbe
   };
 }
 
-export async function judgeAndSkeptic(m: Moment, frames: { seq: number; t: number; jpegB64: string }[]) {
+function promptValues(m: Moment, frames: { t: number }[]) {
+  return {
+    intention: m.intention.text,
+    category: m.intention.category,
+    summary: m.summary ? summaryText(m.summary) : "unavailable",
+    frameOffsets: frames.map((f) => Math.round((f.t - m.startedAt) / 1000) + "s").join(", ") || "none",
+  };
+}
+
+/** The scorer: probability the claim is true given the evidence, starting from a cheater-heavy prior. */
+async function score(m: Moment, frames: { t: number; jpegB64: string }[]): Promise<VerificationScore> {
+  const text = fill(prompts.scorer.user, promptValues(m, frames)) + '\nReply as JSON: {"probability": 0..1, "reasons": string[]}';
+  const res = await withTimeout(scorerModel().generateContent([text, ...frames.map((f) => jpegPart(f.jpegB64))], { timeout: 60_000 }), 65_000);
+  const j = parseJson<{ probability?: unknown; reasons?: unknown }>(res.response.text());
+  const p = Number(j.probability);
+  return {
+    // A missing or garbled number is treated as "no evidence moved the prior": 0, so the seal fails closed.
+    probability: Number.isFinite(p) ? Math.max(0, Math.min(1, p)) : 0,
+    reasons: (Array.isArray(j.reasons) ? j.reasons : []).map(String).slice(0, 4),
+    model: cloudModel(),
+    ranAt: Date.now(),
+  };
+}
+
+/** Judge, skeptic and scorer in parallel over the same frames. All three or nothing. */
+export async function cloudReview(m: Moment, frames: { seq: number; t: number; jpegB64: string }[]) {
   const chosen = pickFrames(frames, m.summary?.heroFrameSeq ?? null);
-  const [judge, skeptic] = await Promise.all([opinion("judge", m, chosen), opinion("skeptic", m, chosen)]);
-  return { judge, skeptic };
+  const [judge, skeptic, verification] = await Promise.all([opinion("judge", m, chosen), opinion("skeptic", m, chosen), score(m, chosen)]);
+  return { judge, skeptic, score: verification };
 }

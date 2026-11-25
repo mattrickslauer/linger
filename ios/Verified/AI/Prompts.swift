@@ -16,6 +16,7 @@ nonisolated struct Prompts: Decodable, Sendable {
   let liveCheck: Prompt
   let judge: Prompt
   let skeptic: Prompt
+  let scorer: Prompt
 
   static let shared: Prompts = {
     guard let url = Bundle.main.url(forResource: "prompts", withExtension: "json"),

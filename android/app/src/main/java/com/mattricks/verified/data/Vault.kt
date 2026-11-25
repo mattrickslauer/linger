@@ -132,7 +132,7 @@ object Vault {
             val create = fromJson(local).toMutableMap()
             for (k in SUBMIT_FIELDS) create.remove(k)
             create["status"] = "recording"
-            create["seal"] = null; create["judge"] = null; create["skeptic"] = null
+            create["seal"] = null; create["judge"] = null; create["skeptic"] = null; create["score"] = null
             create["createdAtServer"] = FieldValue.serverTimestamp()
             ref.set(create).await()
             server = ref.get(Source.SERVER).await()

@@ -60,6 +60,8 @@ export async function trySeal(momentId: string): Promise<SealOutcome> {
       checks: r.checks,
       judgeReasons: m.judge?.reasons ?? [],
       skepticReasons: m.skeptic?.reasons ?? [],
+      verificationScore: typeof m.score?.probability === "number" ? m.score.probability : null,
+      scoreReasons: m.score?.reasons ?? [],
       heroJpegB64: hero,
       track: r.track.map(([lat, lng]) => ({ lat, lng })),
       sealedAtServer: now,
