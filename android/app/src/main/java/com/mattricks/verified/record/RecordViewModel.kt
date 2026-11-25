@@ -81,6 +81,8 @@ data class RecUi(
     /** v4.2: the evidence plan from the interview and which requirements this phone has captured (never "verified"). */
     val plan: Plan? = null,
     val captured: Map<String, Boolean> = emptyMap(),
+    /** Finished with ≥ 1 chained clip: submit waits for the clip upload (v4.4). */
+    val hasVideo: Boolean = false,
 ) {
     enum class Phase { Idle, Recording, Finished }
 }
@@ -466,10 +468,11 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "none"
             }
             val onDevice = mapOf("mode" to mode, "checks" to checks.count { it.mode != "none" }, "retakes" to checks.count { !it.ok })
-            Store.submit(id, endedAt, count, headHash, summary, onDevice, witnessSummary(), guest)
+            val hasVideo = synchronized(clipDurations) { clipDurations.isNotEmpty() }
+            Store.submit(id, endedAt, count, headHash, summary, onDevice, witnessSummary(), guest, hasVideo)
             _recording.compareAndSet(id, null)
             WitnessNotifier.cancel(getApplication())
-            _ui.update { it.copy(phase = RecUi.Phase.Finished, elapsedMs = summary.durationMs, witness = null, witnessArmed = false) }
+            _ui.update { it.copy(phase = RecUi.Phase.Finished, elapsedMs = summary.durationMs, witness = null, witnessArmed = false, hasVideo = hasVideo) }
             if (guest) {
                 Claims.offerAfterFinish() // signed in while this guest Moment was recording: offer it now
                 return@launch

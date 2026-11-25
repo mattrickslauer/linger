@@ -588,6 +588,26 @@ private fun takeProof(ctx: Context, capture: ImageCapture, done: (Bitmap?, Strin
     })
 }
 
+/** v4.11 Finish/sync words: "Uploading video · 34 MB" → "Video uploaded" (the submit follows the upload). */
+@Composable
+fun VideoUploadLine(momentId: String?) {
+    val uploads by com.mattricks.verified.data.Clips.uploads.collectAsState()
+    val u = momentId?.let { uploads[it] }
+    val mb = { b: Long -> "${(b + 512 * 1024) / (1024 * 1024)} MB" }
+    val (text, color) = when {
+        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection · kept on this phone") to Amber
+        u.finished -> "Video uploaded" to Green
+        u.error != null -> "Video upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Amber
+        else -> "Uploading video · ${mb(u.totalBytes)}" to Green
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Pill(text, color)
+        if (u != null && !u.finished && u.totalBytes > 0) androidx.compose.material3.LinearProgressIndicator(
+            progress = { (u.sentBytes.toFloat() / u.totalBytes).coerceIn(0f, 1f) }, modifier = Modifier.width(200.dp),
+        )
+    }
+}
+
 @Composable
 private fun FinishedView(ui: RecUi, vm: RecordViewModel, user: FirebaseUser?, onOpen: (String) -> Unit) {
     val judging by Judging.status.collectAsState()
@@ -608,10 +628,13 @@ private fun FinishedView(ui: RecUi, vm: RecordViewModel, user: FirebaseUser?, on
                 val id = ui.momentId ?: return@Button
                 com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(id)) }
             }) { Text(if (user == null) "Sign in to verify" else "Upload & verify") }
-        } else Text(
-            judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
-            color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
-        )
+        } else {
+            if (ui.hasVideo) VideoUploadLine(ui.momentId)
+            Text(
+                judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
+                color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         ui.momentId?.let { id -> Button(onClick = { onOpen(id) }) { Text("View Moment") } }
         OutlinedButton(onClick = vm::reset, colors = ButtonDefaults.outlinedButtonColors()) { Text("New Moment") }
     }

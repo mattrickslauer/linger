@@ -146,6 +146,17 @@ class V4ContractTest {
         assertEquals(links[1].payload, p1)
     }
 
+    @Test fun clipRefsComeFromTheChainedVideoEvents() {
+        val vc = v.getJSONObject("videoChain")
+        val chunks = vc.getJSONArray("chunks")
+        val refs = (0 until chunks.length()).flatMap { com.mattricks.verified.data.Clips.refsIn(chunks.getJSONObject(it).getString("payload")) }
+        assertEquals(1, refs.size)
+        assertEquals(vc.getString("clipSha"), refs[0].sha256)
+        assertEquals(35000L, refs[0].durationMs)
+        assertEquals("webm", com.mattricks.verified.data.Clips.ext(refs[0]))
+        assertEquals("mp4", com.mattricks.verified.data.Clips.ext(refs[0].copy(name = "verified-1234abcd-1764200000000")))
+    }
+
     // ── v4.5 scoring vectors
 
     private fun verdicts(a: JSONArray?) = if (a == null) emptyList() else (0 until a.length()).map {

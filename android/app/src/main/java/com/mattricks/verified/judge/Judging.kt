@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -92,9 +93,16 @@ object Judging {
         val text = intention["text"] as? String ?: ""
         val category = intention["category"] as? String ?: "other"
 
+        // v4.10: judge the server's claims one by one. They are written at submit by barAndClaims; wait ≤ 30 s,
+        // else `[]` (the seal then falls back to the judge's overall verdict).
+        _status.value = "Waiting for the server's claims…"
+        val claims = Store.awaitClaims(id, m["claims"], 30_000)
+        val claimsJson = JSONArray(claims.map { JSONObject(it.toMap()) }).toString()
+        _status.value = "Judge, skeptic + scorer running in the cloud…"
+
         // Concurrent; any failure cancels the others and nothing is written (retried on the next kick).
         val (judge, skeptic, score) = coroutineScope {
-            val j = async { Ai.opinion("judge", text, category, summaryJson, bitmaps) }
+            val j = async { Ai.opinion("judge", text, category, summaryJson, bitmaps, claimsJson) }
             val s = async { Ai.opinion("skeptic", text, category, summaryJson, bitmaps) }
             val p = async { Ai.score(text, category, summaryJson, bitmaps) }
             Triple(j.await(), s.await(), p.await())

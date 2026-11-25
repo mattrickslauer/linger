@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 
@@ -98,7 +99,7 @@ object Store {
 
     fun submit(
         momentId: String, endedAt: Long, chunkCount: Int, headHash: String, summary: Summary, onDevice: Map<String, Any>,
-        witness: Map<String, Any>, guest: Boolean = false,
+        witness: Map<String, Any>, guest: Boolean = false, hasVideo: Boolean = false,
     ) {
         val fields = mapOf(
             "status" to "submitted", "endedAt" to endedAt, "chunkCount" to chunkCount, "headHash" to headHash,
@@ -106,6 +107,12 @@ object Store {
         )
         Vault.updateMoment(momentId, fields)
         if (guest) return
+        if (hasVideo) {
+            // v4.4: the clips go up first, then the submit fields; the raw vault does both (offline-safe: the journal
+            // keeps everything and the vault loop retries until the server has the clips and the submit).
+            Vault.kick()
+            return
+        }
         db.collection("moments").document(momentId).update(fields).addOnFailureListener(logFail("submit"))
     }
 
@@ -168,6 +175,19 @@ object Store {
     suspend fun pendingJudging(uid: String): List<DocumentSnapshot> =
         db.collection("moments").whereEqualTo("ownerUid", uid).get().await()
             .documents.filter { it.getString("status") == "submitted" && it.get("judge") == null }
+
+    /** v4.10: the server claims (moments/{id}.claims.items), waiting for the snapshot up to [timeoutMs]; [] if none. */
+    suspend fun awaitClaims(momentId: String, already: Any?, timeoutMs: Long): List<Claim> {
+        ServerClaims.from(already)?.items?.takeIf { it.isNotEmpty() }?.let { return it }
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            callbackFlow {
+                val reg = db.collection("moments").document(momentId).addSnapshotListener { snap, _ ->
+                    ServerClaims.from(snap?.get("claims"))?.items?.takeIf { it.isNotEmpty() }?.let { trySend(it) }
+                }
+                awaitClose { reg.remove() }
+            }.first()
+        }.orEmpty()
+    }
 
     suspend fun chunks(momentId: String): List<DocumentSnapshot> =
         db.collection("moments").document(momentId).collection("chunks").orderBy("seq").get().await().documents

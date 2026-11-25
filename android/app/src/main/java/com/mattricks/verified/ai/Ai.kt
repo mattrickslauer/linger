@@ -120,8 +120,13 @@ object Ai {
 
     // ---------- judge + skeptic + scorer (ONLY_IN_CLOUD, JSON schema) ----------
 
-    data class Opinion(val verdict: String, val confidence: Double, val reasons: List<String>, val model: String, val ranAt: Long) {
-        fun toMap() = mapOf("verdict" to verdict, "confidence" to confidence, "reasons" to reasons, "model" to model, "ranAt" to ranAt)
+    /** [claims] = the judge's per-claim verdicts (v4.10), null for the skeptic (its map stays v3-shaped). */
+    data class Opinion(val verdict: String, val confidence: Double, val reasons: List<String>, val model: String, val ranAt: Long, val claims: List<Map<String, Any>>? = null) {
+        fun toMap(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("verdict" to verdict, "confidence" to confidence, "reasons" to reasons, "model" to model, "ranAt" to ranAt)
+            if (claims != null) m["claims"] = claims
+            return m
+        }
     }
 
     /** Verification score: P(claim true | evidence) under the adversarial prior (prompts.scorer). */
@@ -154,12 +159,23 @@ object Ai {
         onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
     )
 
-    /** key = "judge" | "skeptic". frames = (offsetSeconds, bitmap) in time order. */
-    suspend fun opinion(key: String, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>): Opinion {
-        val j = cloudJson(key, opinionSchema, intention, category, summaryJson, frames)
+    /**
+     * key = "judge" | "skeptic". frames = (offsetSeconds, bitmap) in time order. [claimsJson] = the server claims
+     * (v4.10, `[]` when none arrived in time); the judge then returns per-claim verdicts with the shared schema.
+     */
+    suspend fun opinion(key: String, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>, claimsJson: String = "[]"): Opinion {
+        val schema = if (key == "judge") prompts?.optJSONObject(key)?.optJSONObject("schema")?.let(::schemaFrom) ?: opinionSchema else opinionSchema
+        val j = cloudJson(key, schema, intention, category, summaryJson, frames, claimsJson)
         val reasons = reasonsOf(j)
         val verdict = j.optString("verdict").takeIf { it in setOf("consistent", "inconsistent", "uncertain") } ?: "uncertain"
-        return Opinion(verdict, j.optDouble("confidence", 0.0).coerceIn(0.0, 1.0), reasons, cloudModel(), System.currentTimeMillis())
+        val claims = if (key != "judge") null else j.optJSONArray("claims")?.let { a ->
+            (0 until a.length()).mapNotNull { i ->
+                val c = a.optJSONObject(i) ?: return@mapNotNull null
+                val v = c.optString("verdict").takeIf { it in setOf("backed", "not_backed", "unclear") } ?: return@mapNotNull null
+                mapOf<String, Any>("id" to c.optString("id"), "verdict" to v, "confidence" to c.optDouble("confidence", 0.0).let { if (it.isNaN()) 0.0 else it.coerceIn(0.0, 1.0) })
+            }.filter { (it["id"] as String).isNotBlank() }.take(5)
+        }.orEmpty()
+        return Opinion(verdict, j.optDouble("confidence", 0.0).coerceIn(0.0, 1.0), reasons, cloudModel(), System.currentTimeMillis(), claims)
     }
 
     /** prompts.scorer, same inputs as the judge. Throws when the reply has no probability (treated like a judge failure). */
@@ -169,8 +185,9 @@ object Ai {
         return Score(p.coerceIn(0.0, 1.0), reasonsOf(j), cloudModel(), System.currentTimeMillis())
     }
 
-    private suspend fun cloudJson(key: String, schema: Schema, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>): JSONObject {
+    private suspend fun cloudJson(key: String, schema: Schema, intention: String, category: String, summaryJson: String, frames: List<Pair<Long, Bitmap>>, claimsJson: String = "[]"): JSONObject {
         val user = prompt(key, "user")
+            .replace("{{claims}}", claimsJson)
             .replace("{{intention}}", intention)
             .replace("{{category}}", category)
             .replace("{{summary}}", summaryJson)
