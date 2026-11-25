@@ -99,6 +99,10 @@ data class MomentCard(
     /** Client preview of the bar from the interview (never binding). */
     val previewBar: Double? = null,
     val witnessAsked: Int = 0,
+    /** v4.8: "2/2 claims backed"; cheating → "Not verified · cheating detected". */
+    val claimsBacked: Int? = null,
+    val claimsTotal: Int? = null,
+    val cheating: Boolean = false,
 )
 
 /** [witnessAsk] is the witness request this frame answered (frame event `wid`), if any. */
@@ -129,8 +133,12 @@ data class MomentDetail(
     val sealVersion: Int = 0,
     val ladderEligible: Boolean = false,
     val ownerUid: String = "",
-    /** `video` events in the chain (the clips stay on the phone that recorded them). */
+    /** `video` events in the chain (v4: uploaded at submit; the gallery copy stays on the phone too). */
     val videos: List<VideoRef> = emptyList(),
+    /** v4: server claims, plan, video review and per-claim scores (null on v3 Moments). */
+    val v4: V4Detail? = null,
+    /** v4 facts from the chain for previews: answered witness requests' rid ("" = untagged), good GPS fixes. */
+    val witnessRids: List<String?> = emptyList(),
 )
 
 data class VideoRef(val sha256: String, val name: String, val bytes: Long, val durationMs: Long)
@@ -165,15 +173,18 @@ data class Intention(
     val interviewTurns: Int = 0,
     val interviewMode: String = "typed",
     val preview: IntentionPreview? = null,
+    /** v4.1/v4.2: the client's draft claims and evidence plan (the server derives the authoritative ones). */
+    val claims: List<Claim> = emptyList(),
+    val plan: Plan? = null,
 ) {
-    val structured get() = v == 3
+    val structured get() = v >= 3
 
     /** Firestore map. [start] = window.start (the Moment's startedAt). */
     fun toMap(start: Long): Map<String, Any?> {
         val base = mutableMapOf<String, Any?>("text" to text.take(200), "category" to category)
         if (!structured) return base
         base += mapOf(
-            "v" to 3,
+            "v" to 4,
             "activity" to activity.take(40),
             "goal" to goal.take(120),
             "quantities" to quantities.take(5).map { it.toMap() },
@@ -183,6 +194,8 @@ data class Intention(
             "assumptions" to assumptions.take(6),
             "interview" to mapOf("turns" to interviewTurns, "mode" to interviewMode),
             "preview" to preview?.toMap(),
+            "claims" to claims.take(5).map { it.toMap() },
+            "plan" to plan?.toMap(),
         )
         return base
     }
@@ -213,6 +226,8 @@ data class Intention(
                 interviewTurns = (interview?.get("turns") as? Number)?.toInt() ?: 0,
                 interviewMode = interview?.get("mode") as? String ?: "typed",
                 preview = preview,
+                claims = (m["claims"] as? List<Any?>).orEmpty().mapNotNull { (it as? Map<*, *>)?.let(Claim::from) },
+                plan = Plan.from(m["plan"]),
             )
         }
     }
@@ -240,10 +255,13 @@ data class LadderResult(
     val runId: String, val module: String, val title: String, val cost: Int, val strength: Double,
     val passed: Boolean, val confidence: Double, val before: Double, val after: Double,
     val reasons: List<String>, val measured: List<Measured>,
+    /** v4.6: per-claim outcomes (verdict, passed, before → after of that claim). */
+    val claims: List<ClaimVerdict> = emptyList(),
 ) {
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun from(m: Map<String, Any?>) = LadderResult(
+            claims = ClaimVerdict.list(m["claims"]),
             runId = m["runId"] as? String ?: "", module = m["module"] as? String ?: "", title = m["title"] as? String ?: "",
             cost = num(m["cost"]).toInt(), strength = num(m["strength"]), passed = m["passed"] == true, confidence = num(m["confidence"]),
             before = num(m["before"]), after = num(m["after"]), reasons = (m["reasons"] as? List<String>).orEmpty(),
@@ -281,4 +299,6 @@ data class Verification(val baseline: Double?, val score: Double?, val bar: Doub
 data class WitnessItem(
     val wid: String, val ask: String, val kind: String, val by: String, val t: Long,
     val outcome: String? = null, val answer: String? = null, val answerSeq: Int? = null,
+    /** v4.10: the plan requirement this request served (null on pre-v4 requests). */
+    val rid: String? = null,
 )

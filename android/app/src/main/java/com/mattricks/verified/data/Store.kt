@@ -191,6 +191,8 @@ object Store {
             bar = (d["bar"] as? Number)?.toDouble(), score = (d["verificationScore"] as? Number)?.toDouble(),
             ladderCount = ladder?.size ?: 0, recordedAsGuest = d["recordedAsGuest"] == true,
             witnessAsked = ((d["witness"] as? Map<String, Any?>)?.get("asked") as? Number)?.toInt() ?: 0,
+            claimsBacked = (d["claimsBacked"] as? Number)?.toInt(), claimsTotal = (d["claimsTotal"] as? Number)?.toInt(),
+            cheating = d["cheating"] == true,
         )
     }
 
@@ -212,6 +214,9 @@ object Store {
             ladderCount = (verification?.get("modules") as? List<Any?>)?.size ?: 0,
             recordedAsGuest = d["recordedAsGuest"] == true, local = local,
             previewBar = ((intention?.get("preview") as? Map<String, Any?>)?.get("bar") as? Number)?.toDouble(),
+            claimsBacked = verification?.takeIf { num(it["version"]).toInt() >= 4 }?.get("claimsBacked")?.let { (it as? Number)?.toInt() },
+            claimsTotal = ((d["claims"] as? Map<String, Any?>)?.get("items") as? List<Any?>)?.size,
+            cheating = ((d["seal"] as? Map<String, Any?>)?.get("checks") as? Map<String, Any?>)?.get("cheating") == false,
         )
     }
 
@@ -264,7 +269,10 @@ object Store {
                     val e = a.optJSONObject(i) ?: continue
                     when (e.optString("type")) {
                         "video" -> videos += VideoRef(e.optString("sha256"), e.optString("name"), e.optLong("bytes"), e.optLong("durationMs"))
-                        "witness" -> witness += WitnessItem(e.optString("wid"), e.optString("ask"), e.optString("kind"), e.optString("by"), e.optLong("t"))
+                        "witness" -> witness += WitnessItem(
+                            e.optString("wid"), e.optString("ask"), e.optString("kind"), e.optString("by"), e.optLong("t"),
+                            rid = e.optString("rid").takeIf { e.has("rid") && it.isNotEmpty() },
+                        )
                         "frame" -> if (e.has("wid")) frameWid = e.optString("wid")
                         "witness_answer" -> witness.indexOfFirst { it.wid == e.optString("wid") }.takeIf { it >= 0 }?.let { j ->
                             witness[j] = witness[j].copy(outcome = e.optString("via"), answer = e.optString("text").takeIf { it.isNotBlank() }, answerSeq = seq)
@@ -319,6 +327,53 @@ object Store {
             ladderEligible = (m?.get("seal") as? Map<String, Any?>)?.get("ladderEligible") == true,
             ownerUid = m?.get("ownerUid") as? String ?: "",
             videos = videos,
+            v4 = v4From(m, feed),
+            witnessRids = witness.filter { it.outcome != null && it.outcome != "skipped" }.map { it.rid },
+        )
+    }
+
+    /** v4 server state (moments doc) or the public subset (feed v4.8). Null when neither has claims. */
+    @Suppress("UNCHECKED_CAST")
+    private fun v4From(m: Map<String, Any?>?, feed: Map<String, Any?>?): V4Detail? {
+        val sc = ServerClaims.from(m?.get("claims"))
+        if (m != null && sc != null) {
+            val ver = m["verification"] as? Map<String, Any?>
+            val v4ver = ver?.takeIf { num(it["version"]).toInt() >= 4 }
+            val cheat = v4ver?.get("cheating") as? Map<String, Any?>
+            val seal = m["seal"] as? Map<String, Any?>
+            return V4Detail(
+                claims = sc.items, plan = Plan.from(m["plan"]), videoReview = VideoReview.from(m["videoReview"]),
+                claimScores = (v4ver?.get("claims") as? List<Any?>).orEmpty().mapNotNull { (it as? Map<*, *>)?.let(ClaimScore::from) },
+                claimsBacked = (v4ver?.get("claimsBacked") as? Number)?.toInt(),
+                cheatingDetected = cheat?.get("detected") == true || seal?.let { s -> (s["checks"] as? Map<String, Any?>)?.get("cheating") == false } == true,
+                cheatingSignals = ((cheat?.get("signals") ?: seal?.get("cheatingSignals")) as? List<Any?>).orEmpty().mapNotNull { it as? String },
+            )
+        }
+        val f = feed ?: return null
+        val fc = (f["claims"] as? List<Any?>).orEmpty().mapNotNull { it as? Map<String, Any?> }
+        if (fc.isEmpty()) return null
+        val fp = f["plan"] as? Map<String, Any?>
+        val reqs = (fp?.get("requirements") as? List<Any?>).orEmpty().mapNotNull { it as? Map<String, Any?> }
+        val met = reqs.associate { (it["id"] as? String ?: "") to (it["met"] == true) }
+        val plan = fp?.let { Plan(reqs.map(Requirement::from), it["recordMode"] as? String ?: "photo", "") }
+        val video = f["video"] as? Map<String, Any?>
+        return V4Detail(
+            claims = fc.map(Claim::from),
+            plan = plan,
+            videoReview = video?.let { VideoReview(it["status"] as? String ?: "none", emptyList(), emptyList(), false, emptyList(), it["summary"] as? String ?: "", null, null) },
+            claimScores = fc.map { c ->
+                val id = c["id"] as? String ?: ""
+                val mine = plan?.requirements.orEmpty().filter { it.claimId == id }
+                ClaimScore(
+                    id, num(c["p"]), num(c["p"]), mine.filter { met[it.id] == true }.map { it.id }, mine.filter { met[it.id] != true }.map { it.id },
+                    mine.isNotEmpty() && mine.all { met[it.id] == true }, (c["backedBy"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
+                )
+            },
+            claimsBacked = (f["claimsBacked"] as? Number)?.toInt(),
+            cheatingDetected = f["cheating"] == true,
+            cheatingSignals = (f["cheatingSignals"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
+            feedMet = met,
+            videoSummary = video?.get("summary") as? String,
         )
     }
 }

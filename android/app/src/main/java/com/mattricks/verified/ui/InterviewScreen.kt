@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,8 +59,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
 import com.mattricks.verified.data.CATEGORIES
+import com.mattricks.verified.data.Claim
 import com.mattricks.verified.data.Intention
+import com.mattricks.verified.data.Plan
+import com.mattricks.verified.data.Requirement
+import com.mattricks.verified.data.evidenceLabel
 import com.mattricks.verified.data.Prefs
 import com.mattricks.verified.data.V3Math
 import com.mattricks.verified.devices.Devices
@@ -86,12 +98,13 @@ private fun rememberStart(vm: RecordViewModel): () -> Unit {
 fun SetupView(ui: RecUi, vm: RecordViewModel) {
     var typedForm by rememberSaveable { mutableStateOf(false) }
     val start = rememberStart(vm)
-    if (typedForm) TypedForm(ui, vm, start) { typedForm = false; vm.useStructured(null) }
+    val ivm: InterviewViewModel = viewModel()
+    if (typedForm) TypedForm(ui, vm, start, onPlan = { ivm.structureTyped(ui.intention); typedForm = false }) { typedForm = false; vm.useStructured(null) }
     else InterviewView(vm, start) { typedForm = true; vm.useStructured(null) }
 }
 
 @Composable
-private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onVoice: () -> Unit) {
+private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onPlan: () -> Unit, onVoice: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Declare your intention", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         OutlinedTextField(
@@ -101,8 +114,12 @@ private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onVoice
         CategoryChips(ui.category, vm::setCategory)
         Spacer(Modifier.height(8.dp))
         StartButton(enabled = ui.intention.isNotBlank(), onClick = start)
+        // v4.1: optional cloud structuring of the typed sentence → claims + "To get this verified" before Start.
+        if (com.mattricks.verified.judge.Judging.online()) OutlinedButton(
+            enabled = ui.intention.isNotBlank(), onClick = onPlan, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+        ) { Text("Plan the evidence first") }
         Text(
-            "GPS, motion and proof shots are hash-chained as you go. Works offline — the server sets the bar when it syncs.",
+            "GPS, motion and proof shots are hash-chained as you go. Works offline — the server sets the bar and the claims when it syncs.",
             style = MaterialTheme.typography.bodySmall, color = Color.Gray,
         )
         TextButton(onClick = onVoice) { Icon(Icons.Filled.Mic, null); Text(" Use the voice interview") }
@@ -284,9 +301,62 @@ private fun IntentionCard(i: Intention, previewBusy: Boolean, ivm: InterviewView
                     }
                 }
             }
+            if (i.claims.isNotEmpty()) {
+                Label("Claims (tap to remove)")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    i.claims.forEach { c ->
+                        InputChip(
+                            selected = true, onClick = { ivm.removeClaim(c.id) }, label = { Text(c.text) },
+                            leadingIcon = { Text(c.kind, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)) },
+                            trailingIcon = { Icon(Icons.Filled.Close, "Remove", Modifier.size(14.dp)) },
+                        )
+                    }
+                }
+            }
+            i.plan?.takeIf { it.requirements.isNotEmpty() }?.let { PlanList(it, i.claims) }
             BarPreviewRow(i, previewBusy) { ivm.preview() }
         }
     }
+}
+
+/** "To get this verified": one row per requirement of the evidence plan (v4.11). */
+@Composable
+fun PlanList(plan: Plan, claims: List<Claim>) {
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("To get this verified", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Pill(if (plan.recordMode == "video") "Video" else "Photo", MaterialTheme.colorScheme.primary)
+            }
+            plan.requirements.forEach { r ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(evidenceIcon(r.evidence), null, Modifier.size(18.dp).padding(top = 2.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(r.ask, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            listOfNotNull(
+                                evidenceLabel(r.evidence),
+                                r.minSeconds?.let { "≥ ${fmtNum(it)} s" },
+                                claims.firstOrNull { it.id == r.claimId }?.text,
+                            ).joinToString(" · "),
+                            fontSize = 11.sp, color = Color.Gray,
+                        )
+                    }
+                }
+            }
+            if (plan.note.isNotBlank()) Text(plan.note, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+    }
+}
+
+fun evidenceIcon(e: String) = when (e) {
+    "video" -> Icons.Filled.Videocam
+    "frames" -> Icons.Filled.PhotoCamera
+    "gps" -> Icons.Filled.Place
+    "motion" -> Icons.Filled.DirectionsRun
+    "witness" -> Icons.Filled.Visibility
+    else -> Icons.Filled.CheckCircle
 }
 
 @Composable
