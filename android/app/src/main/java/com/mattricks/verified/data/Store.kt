@@ -110,7 +110,9 @@ object Store {
         if (hasVideo) {
             // v4.4: the clips go up first, then the submit fields; the raw vault does both (offline-safe: the journal
             // keeps everything and the vault loop retries until the server has the clips and the submit).
-            Vault.kick()
+            // Let the chunk writes still in flight land first so the vault pass doesn't race them (offline: the
+            // 30 s vault loop does it once back online).
+            db.waitForPendingWrites().addOnCompleteListener { Vault.kick() }
             return
         }
         db.collection("moments").document(momentId).update(fields).addOnFailureListener(logFail("submit"))

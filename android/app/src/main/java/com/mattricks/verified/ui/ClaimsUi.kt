@@ -35,8 +35,8 @@ import com.mattricks.verified.data.V3Math
 import com.mattricks.verified.data.V4Detail
 import com.mattricks.verified.data.sourceLabel
 
-/** v4 Moment (server claims present). v3 Moments keep the v3 detail. */
-fun isV4(d: MomentDetail): Boolean = d.v4?.claims?.isNotEmpty() == true
+/** v4 Moment (server claims present, not sealed by v3 functions). v3 Moments keep the v3 detail and v3 ladder math. */
+fun isV4(d: MomentDetail): Boolean = d.v4?.claims?.isNotEmpty() == true && (d.sealVersion == 0 || d.sealVersion >= 4)
 
 fun barOf(d: MomentDetail): Double? = d.verification?.bar?.takeIf { it > 0 } ?: d.bar?.value
 
@@ -105,7 +105,8 @@ fun VideoReviewCard(d: MomentDetail) {
     if (vr == null && d.videos.isEmpty()) return
     if (vr?.status == "none") return
     val (line, color) = when (vr?.status) {
-        null -> (if (d.card.status == "recording") "Uploading video" else "Waiting for video upload") to Amber
+        // No review state yet: still uploading (Moment `recording`), else submitted after the upload, review not started.
+        null -> (if (d.card.status == "recording") "Uploading video" else "Video uploaded") to Amber
         "waiting" -> "Waiting for video upload" to Amber
         "running" -> "Reviewing video" to Amber
         "done" -> "Video reviewed" to Green

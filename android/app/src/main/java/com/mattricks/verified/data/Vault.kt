@@ -227,10 +227,18 @@ object Vault {
             // Chunks may be added while recording, or after submit when seq < chunkCount (firestore.rules).
             for (c in missing) ref.collection("chunks").document(Store.chunkId(c.getInt("seq"))).set(fromJson(c)).await()
         }
+        val clips = localChunks.flatMap { Clips.refsIn(it.optString("payload")) }
+        @Suppress("UNCHECKED_CAST")
+        val reviewStatus = (server.get("videoReview") as? Map<String, Any?>)?.get("status") as? String
+        if (server.getString("status") != "recording" && clips.isNotEmpty() && reviewStatus == "waiting") {
+            // Submitted without its clip (an older build, or a clip chained after a submit that raced it): the server
+            // waits up to 24 h for it, so upload it now. Idempotent; throws to keep the journal and retry.
+            _held.update { it + (id to State.Repairing) }
+            Clips.uploadForSubmit(appContext, uid, id, clips)
+        }
         if (server.getString("status") == "recording") {
             // v4.4: every chained clip goes up BEFORE status = "submitted" (the free video review needs it). Throws
             // when offline or failing: the Moment stays `recording` on the server and this loop retries.
-            val clips = localChunks.flatMap { Clips.refsIn(it.optString("payload")) }
             if (clips.isNotEmpty()) {
                 _held.update { it + (id to State.Repairing) }
                 Clips.uploadForSubmit(appContext, uid, id, clips)

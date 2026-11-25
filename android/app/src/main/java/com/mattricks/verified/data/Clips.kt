@@ -62,32 +62,46 @@ object Clips {
     /**
      * Uploads every chained clip of a Moment to `clips/{uid}/{momentId}/{sha256}.{ext}`, sequentially. Idempotent:
      * `getMetadata` first and skip what is already there (create-only path, v4.9). Skipped for good (the submit goes
-     * ahead, those video requirements stay unmet): over 200 MB, gone from this phone, or changed since it was chained.
+     * ahead, those video requirements stay unmet): 200 MB or more (storage.rules: `size < 200 MB`), gone from this
+     * phone or unreadable, changed since it was chained, or refused by the rules (create-only: already there, or a
+     * permanent rejection — retrying would block the submit forever).
      * Throws when offline or an upload fails, so the caller keeps the Moment `recording` and retries later.
      */
     suspend fun uploadForSubmit(ctx: Context, uid: String, momentId: String, refs: List<VideoRef>) {
         val todo = refs.filter { it.sha256.length == 64 }.distinctBy { it.sha256 }
         if (todo.isEmpty()) return
-        val total = todo.filter { it.bytes <= MAX_BYTES }.sumOf { it.bytes }
+        val total = todo.filter { it.bytes < MAX_BYTES }.sumOf { it.bytes }
         var sentBefore = 0L
         fun publish(u: Upload) = _uploads.update { it + (momentId to u) }
         publish(Upload(0, total, todo.size, 0))
         try {
             todo.forEachIndexed { i, ref ->
-                if (ref.bytes > MAX_BYTES) { Log.w(TAG, "$momentId: clip ${ref.sha256} is over 200 MB, not uploaded"); return@forEachIndexed }
+                if (ref.bytes >= MAX_BYTES) { Log.w(TAG, "$momentId: clip ${ref.sha256} is 200 MB or more, not uploaded"); return@forEachIndexed }
                 val ext = ext(ref)
                 val obj = FirebaseStorage.getInstance().reference.child("clips/$uid/$momentId/${ref.sha256}.$ext")
                 val exists = try { obj.metadata.await(); true } catch (e: StorageException) {
-                    if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) false else throw e
+                    when (e.errorCode) {
+                        StorageException.ERROR_OBJECT_NOT_FOUND -> false
+                        // Rules without the v4 owner `get`: can't tell, try the create-only upload below.
+                        StorageException.ERROR_NOT_AUTHORIZED -> false
+                        else -> throw e
+                    }
                 }
                 if (!exists) {
                     val uri = find(ctx, ref)
                     if (uri == null) { Log.w(TAG, "$momentId: clip ${ref.name} is no longer on this phone, not uploaded"); return@forEachIndexed }
-                    if (sha256(ctx, uri) != ref.sha256) { Log.w(TAG, "$momentId: clip ${ref.name} changed after it was chained, not uploaded"); return@forEachIndexed }
-                    obj.putFile(uri, storageMetadata { contentType = contentType(ext) })
-                        .addOnProgressListener { s -> publish(Upload(sentBefore + s.bytesTransferred, total, todo.size, i)) }
-                        .await()
-                    Log.i(TAG, "$momentId: uploaded clip ${ref.sha256}.$ext (${ref.bytes} bytes)")
+                    val sha = runCatching { sha256(ctx, uri) }.onFailure { Log.w(TAG, "$momentId: can't read clip ${ref.name}", it) }.getOrNull()
+                    if (sha == null) { Log.w(TAG, "$momentId: clip ${ref.name} can't be read on this phone, not uploaded"); return@forEachIndexed }
+                    if (sha != ref.sha256) { Log.w(TAG, "$momentId: clip ${ref.name} changed after it was chained, not uploaded"); return@forEachIndexed }
+                    try {
+                        obj.putFile(uri, storageMetadata { contentType = contentType(ext) })
+                            .addOnProgressListener { s -> publish(Upload(sentBefore + s.bytesTransferred, total, todo.size, i)) }
+                            .await()
+                        Log.i(TAG, "$momentId: uploaded clip ${ref.sha256}.$ext (${ref.bytes} bytes)")
+                    } catch (e: StorageException) {
+                        if (e.errorCode != StorageException.ERROR_NOT_AUTHORIZED) throw e
+                        Log.w(TAG, "$momentId: clip ${ref.sha256}.$ext refused by the rules (already uploaded or not allowed); submit goes ahead")
+                    }
                 }
                 sentBefore += ref.bytes
                 publish(Upload(sentBefore, total, todo.size, i + 1))
