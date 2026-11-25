@@ -176,9 +176,9 @@ private fun FeedIntro(user: FirebaseUser?, all: List<MomentCard>?, onRecord: () 
         )
         Spacer(Modifier.height(20.dp))
         listOf(
-            Triple(Wp.Intent, "Intent", "What the person said they would do, before they started."),
-            Triple(Wp.Proof, "Proof", "GPS, motion and proof shots, hashed into a chain as it happened. Gemini Nano coaches on the phone; it can never verify."),
-            Triple(Wp.Result, "Result", "A judge, a skeptic and a scorer weigh it in the cloud. Then a Cloud Function checks the chain and alone writes the seal."),
+            Triple(Wp.Intent, "Intent", "What they said they would do, before starting. A short voice interview turns it into claims with a place, a goal and numbers."),
+            Triple(Wp.Proof, "Proof", "GPS, motion, proof shots and video, hashed into a chain every 5 seconds. A witness asks for the evidence that matters; it can never verify."),
+            Triple(Wp.Result, "Result", "A judge, a skeptic and a scorer weigh it in the cloud against a bar the AI sets. Then a Cloud Function checks the chain and alone writes the seal."),
         ).forEach { (kind, label, text) ->
             SlideWaypoint(kind, ok = true, last = kind == Wp.Result) {
                 Text(label, color = TokInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
