@@ -10,6 +10,7 @@ import { navigate } from "../router";
 import type { FeedEntry, SealChecks } from "../types";
 import { ago, jpegSrc, Link, TrackSketch } from "../ui";
 import "../feed.css";
+import { FeedVideo, SpeakerIcon, feedClip } from "../components/SharedVideo";
 
 export const CHECK_ORDER: { key: keyof SealChecks; name: string }[] = [
   { key: "chain", name: "Chain" },
@@ -98,6 +99,11 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
   const bar = pct(e.bar);
   const reason = e.cheating ? (e.cheatingSignals?.[0] ?? e.sealReason) : sealed ? (e.scoreReasons?.[0] ?? e.judgeReasons?.[0]) : e.sealReason;
   const ladder = e.ladder?.length ?? 0;
+  const clip = feedClip(e.video?.clips);
+  const [muted, setMuted] = useState(true);
+  useEffect(() => {
+    if (!active) setMuted(true);
+  }, [active]);
   const extras = [
     e.claimsTotal ? `${e.claimsBacked ?? 0}/${e.claimsTotal} claims backed` : null,
     ladder ? `+${ladder} check${ladder > 1 ? "s" : ""}` : null,
@@ -124,6 +130,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
         ) : (
           <div className="slide-photo slide-nophoto" />
         )}
+        {clip && <FeedVideo clip={clip} active={active} muted={muted} />}
         <div className="slide-shade" aria-hidden="true" />
         {/* The whole slide opens the room; the buttons below stop the click. */}
         <button className="slide-hit" onClick={open} aria-label={`Inspect the evidence for: ${e.intention.text}`} tabIndex={-1} />
@@ -180,6 +187,21 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
         </ol>
 
         <div className="rail">
+          {clip && (
+            <button
+              className="rail-btn"
+              aria-pressed={!muted}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                setMuted((m) => !m);
+              }}
+            >
+              <span className="disc" aria-hidden="true">
+                <SpeakerIcon muted={muted} />
+              </span>
+              {muted ? "Sound off" : "Sound on"}
+            </button>
+          )}
           <button
             className="rail-btn rail-primary"
             onClick={(ev) => {

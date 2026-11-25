@@ -5,6 +5,7 @@ import ChainViewer from "../components/ChainViewer";
 import DeleteMoment from "../components/DeleteMoment";
 import Ladder from "../components/Ladder";
 import LocalClips from "../components/LocalClips";
+import { MomentVideos } from "../components/SharedVideo";
 import { evidenceOf } from "../ladder";
 import { LADDER_DEMO } from "../credits";
 import MotionChart from "../components/MotionChart";
@@ -544,6 +545,8 @@ export default function Detail({ id }: { id: string }) {
             </Suspense>
           </aside>
         </section>
+
+        <MomentVideos momentId={id} ownerUid={moment?.ownerUid} review={moment?.videoReview} />
 
         {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
 

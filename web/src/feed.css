@@ -102,6 +102,17 @@ body.immersive .theme {
 .slide-no .slide-photo {
   filter: grayscale(0.7) contrast(0.95);
 }
+/* v4.12: the feed clip plays over the hero photo, which stays as the poster until the first frame renders. */
+.slide-video {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.slide-video.is-on {
+  opacity: 1;
+}
+.slide-no .slide-video {
+  filter: none;
+}
 .slide-shade {
   position: absolute;
   inset: 0;

@@ -7,6 +7,16 @@ export type Platform = "ios" | "android" | "web";
 export type CheckMode = "on_device" | "cloud" | "none";
 export type Verdict = "consistent" | "inconsistent" | "uncertain";
 
+/** v4.12: an uploaded clip on the public feed, played from Cloud Storage. */
+export interface FeedVideoClip {
+  path: string;
+  sha256: string;
+  ext: "mp4" | "mov" | "webm";
+  contentType: string;
+  durationMs: number;
+  hashOk: boolean | null;
+}
+
 export const CATEGORIES: Category[] = ["fishing", "fitness", "outdoors", "making", "other"];
 
 export interface LatLng {
@@ -286,7 +296,7 @@ export interface FeedEntry {
   claimsTotal?: number;
   cheating?: boolean;
   cheatingSignals?: string[];
-  video?: { reviewed: boolean; summary: string | null; status: VideoReview["status"] } | null;
+  video?: { reviewed: boolean; summary: string | null; status: VideoReview["status"]; clips?: FeedVideoClip[] } | null;
   plan?: { recordMode: "video" | "photo"; requirements: FeedRequirement[] } | null;
   sealedAtServer: number | null; // millis (converted from Timestamp on read)
 }
