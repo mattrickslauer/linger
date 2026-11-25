@@ -1,0 +1,75 @@
+{
+  "version": 3,
+  "note": "Verification ladder catalog (docs/ARCHITECTURE.md, v3). Clients show these offers and previews; only the runLadderModule Cloud Function runs a module, spends credits and recomputes the score. Pass: p' = p + s*(1-p). Fail: p' = p*(1-s). Each module runs at most once per Moment, in any order. Credits are spent whether it passes or fails.",
+  "freeCredits": 10,
+  "passConfidence": 0.6,
+  "modules": [
+    {
+      "id": "second_look",
+      "title": "Second opinion",
+      "blurb": "A stricter cloud model re-examines every proof frame.",
+      "cost": 1,
+      "strength": 0.2,
+      "available": true,
+      "needs": ["frames"],
+      "prompt": "moduleSecondLook"
+    },
+    {
+      "id": "place_time",
+      "title": "Place & time check",
+      "blurb": "GPS, clock and daylight are checked against the claim and the light in the frames.",
+      "cost": 1,
+      "strength": 0.2,
+      "available": true,
+      "needs": ["frames", "gps"],
+      "prompt": "modulePlaceTime"
+    },
+    {
+      "id": "witness_review",
+      "title": "Witness review",
+      "blurb": "Did every answer actually show what the witness asked for?",
+      "cost": 2,
+      "strength": 0.3,
+      "available": true,
+      "needs": ["witness_answered"],
+      "prompt": "moduleWitnessReview"
+    },
+    {
+      "id": "count_measure",
+      "title": "Count & measure",
+      "blurb": "Sensors and frames are used to count and measure the claimed numbers.",
+      "cost": 2,
+      "strength": 0.3,
+      "available": true,
+      "needs": ["quantities"],
+      "prompt": "moduleCountMeasure"
+    },
+    {
+      "id": "full_video",
+      "title": "Watch the full video",
+      "blurb": "Upload the clip; its hash must match the chain, then the whole clip is reviewed.",
+      "cost": 3,
+      "strength": 0.45,
+      "available": true,
+      "needs": ["video"],
+      "prompt": "moduleFullVideo"
+    },
+    {
+      "id": "human_review",
+      "title": "Human reviewer",
+      "blurb": "A person reviews the full evidence. Coming soon.",
+      "cost": 10,
+      "strength": 0.6,
+      "available": false,
+      "needs": ["frames"],
+      "prompt": null
+    }
+  ],
+  "needs": {
+    "frames": "at least one proof frame in the chain",
+    "gps": "at least one GPS sample in the chain",
+    "witness_answered": "at least one witness_answer event in the chain",
+    "quantities": "intention.quantities has at least one entry",
+    "video": "a `video` event in the chain AND the clip uploaded to Storage at clips/{uid}/{momentId}/{sha256}.mp4 (the function re-hashes it)"
+  }
+}

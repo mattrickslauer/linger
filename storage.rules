@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Verified — Cloud Storage rules. Contract: docs/ARCHITECTURE.md "v3.6" (full_video ladder module).
+// The owner uploads a chained video clip once; only Cloud Functions (Admin SDK) read it and re-hash it.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /clips/{uid}/{momentId}/{file} {
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && file.matches('^[0-9a-f]{64}\\.(mp4|mov|webm)$')
+        && request.resource.size < 200 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+      allow read, update, delete: if false;
+    }
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

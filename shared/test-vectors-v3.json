@@ -1,0 +1,183 @@
+{
+  "note": "v3 vectors. guestChain: same hashing as test-vectors.json; witness events live in the payload; no owner uid anywhere in the chain. bars: bar = round2(0.5 + 0.45*clamp01(difficulty)). ladders: pass p+s(1-p), fail p(1-s), in order, no intermediate rounding; verified = score >= bar.",
+  "guestChain": {
+    "momentId": "9b2e4c1a-5d6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "headHash": "179389e21e3fe66d62b05c2adbcb76c94265d8e6533b6a893cd52c55fc7ac795",
+    "chunks": [
+      {
+        "seq": 0,
+        "t0": 1764100000000,
+        "t1": 1764100005000,
+        "prevHash": "GENESIS:9b2e4c1a-5d6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "payload": "{\"gps\":[[1764100000000,33.6189,-117.6681,5.2,null,0.4]],\"motion\":[[1764100000100,0.01,9.81,-0.2,0,0.001,0]],\"events\":[{\"t\":1764100000000,\"type\":\"start\"},{\"t\":1764100003000,\"type\":\"witness\",\"wid\":\"w1\",\"ask\":\"Hold the fish next to the ruler\",\"kind\":\"show\",\"by\":\"on_device\"}],\"frameSha\":null,\"check\":null}",
+        "payloadSha": "078ffaa0c16dbf8fb2e7adf25e9da8e03e18ffd5ebf55a16765d99c6e74bfef2",
+        "hash": "ff2d5450cccd84ca383279ce9e49a864622af7dc8c6edc03715593764c90b41e"
+      },
+      {
+        "seq": 1,
+        "t0": 1764100005000,
+        "t1": 1764100008000,
+        "prevHash": "ff2d5450cccd84ca383279ce9e49a864622af7dc8c6edc03715593764c90b41e",
+        "payload": "{\"gps\":[],\"motion\":[],\"events\":[{\"t\":1764100008000,\"type\":\"frame\",\"wid\":\"w1\"},{\"t\":1764100008000,\"type\":\"witness_answer\",\"wid\":\"w1\",\"via\":\"frame\"}],\"frameSha\":\"333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2\",\"check\":{\"ok\":true,\"reason\":\"keep going\",\"mode\":\"on_device\",\"label\":\"bass on ruler\"}}",
+        "payloadSha": "7e6fcdff9ffdf93e63151a92ea740f190c2dfccf839bcc473e28405475647f55",
+        "hash": "269498b49fa6111d143c05111db7f4dd6020ff03c454e731aae704278e3684b3"
+      },
+      {
+        "seq": 2,
+        "t0": 1764100008000,
+        "t1": 1764100030000,
+        "prevHash": "269498b49fa6111d143c05111db7f4dd6020ff03c454e731aae704278e3684b3",
+        "payload": "{\"gps\":[[1764100029000,33.619,-117.668,5,null,0.2]],\"motion\":[],\"events\":[{\"t\":1764100020000,\"type\":\"witness\",\"wid\":\"w2\",\"ask\":\"Say the time on your watch\",\"kind\":\"tell\",\"by\":\"cloud\"},{\"t\":1764100024000,\"type\":\"witness_answer\",\"wid\":\"w2\",\"via\":\"voice\",\"text\":\"it's six forty two\"},{\"t\":1764100026000,\"type\":\"witness\",\"wid\":\"w3\",\"ask\":\"Pan slowly across the lake\",\"kind\":\"show\",\"by\":\"on_device\"},{\"t\":1764100028000,\"type\":\"witness_skip\",\"wid\":\"w3\"},{\"t\":1764100030000,\"type\":\"stop\"}],\"frameSha\":null,\"check\":null}",
+        "payloadSha": "7739a56d201341f6ed7dafe8c78cbd59375ad06822d86780d0ba8aba336cd9bf",
+        "hash": "179389e21e3fe66d62b05c2adbcb76c94265d8e6533b6a893cd52c55fc7ac795"
+      }
+    ]
+  },
+  "bars": [
+    {
+      "difficulty": 0,
+      "bar": 0.5
+    },
+    {
+      "difficulty": 0.1,
+      "bar": 0.55
+    },
+    {
+      "difficulty": 0.2,
+      "bar": 0.59
+    },
+    {
+      "difficulty": 0.5,
+      "bar": 0.73
+    },
+    {
+      "difficulty": 0.67,
+      "bar": 0.8
+    },
+    {
+      "difficulty": 1,
+      "bar": 0.95
+    },
+    {
+      "difficulty": 1.4,
+      "bar": 0.95
+    },
+    {
+      "difficulty": -0.3,
+      "bar": 0.5
+    }
+  ],
+  "ladders": [
+    {
+      "baseline": 0.62,
+      "bar": 0.8,
+      "steps": [
+        {
+          "module": "full_video",
+          "strength": 0.45,
+          "passed": true,
+          "before": 0.62,
+          "after": 0.791
+        }
+      ],
+      "score": 0.791,
+      "verified": false
+    },
+    {
+      "baseline": 0.62,
+      "bar": 0.8,
+      "steps": [
+        {
+          "module": "count_measure",
+          "strength": 0.3,
+          "passed": true,
+          "before": 0.62,
+          "after": 0.734
+        },
+        {
+          "module": "second_look",
+          "strength": 0.2,
+          "passed": true,
+          "before": 0.734,
+          "after": 0.7872
+        }
+      ],
+      "score": 0.7872,
+      "verified": false
+    },
+    {
+      "baseline": 0.62,
+      "bar": 0.8,
+      "steps": [
+        {
+          "module": "second_look",
+          "strength": 0.2,
+          "passed": false,
+          "before": 0.62,
+          "after": 0.496
+        },
+        {
+          "module": "place_time",
+          "strength": 0.2,
+          "passed": true,
+          "before": 0.496,
+          "after": 0.5968
+        }
+      ],
+      "score": 0.5968,
+      "verified": false
+    },
+    {
+      "baseline": 0.62,
+      "bar": 0.8,
+      "steps": [
+        {
+          "module": "full_video",
+          "strength": 0.45,
+          "passed": true,
+          "before": 0.62,
+          "after": 0.791
+        },
+        {
+          "module": "second_look",
+          "strength": 0.2,
+          "passed": true,
+          "before": 0.791,
+          "after": 0.8328
+        }
+      ],
+      "score": 0.8328,
+      "verified": true
+    },
+    {
+      "baseline": 0.55,
+      "bar": 0.5,
+      "steps": [
+        {
+          "module": "witness_review",
+          "strength": 0.3,
+          "passed": true,
+          "before": 0.55,
+          "after": 0.685
+        }
+      ],
+      "score": 0.685,
+      "verified": true
+    },
+    {
+      "baseline": 0.55,
+      "bar": 0.5,
+      "steps": [
+        {
+          "module": "witness_review",
+          "strength": 0.3,
+          "passed": false,
+          "before": 0.55,
+          "after": 0.385
+        }
+      ],
+      "score": 0.385,
+      "verified": false
+    }
+  ]
+}

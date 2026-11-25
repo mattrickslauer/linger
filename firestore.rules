@@ -2,6 +2,9 @@ rules_version = '2';
 
 // Verified — authoritative security rules. Contract: docs/ARCHITECTURE.md.
 // The seal and the public feed are written ONLY by the Cloud Function (Admin SDK bypasses rules).
+// v3: the bar, the verification (final score + ladder results) and the credits ledger are also server-only.
+// Guests (not signed in) write nothing: they read the public feed and keep their Moments in the local raw vault
+// until they sign in and claim them (docs/ARCHITECTURE.md "v3 · Guest mode").
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -26,6 +29,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── credits (v3): balance + ledger, readable by their owner, written ONLY by Cloud Functions
+    // (getCredits grants the free demo credits; runLadderModule spends and refunds).
+    match /credits/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+
+      match /ledger/{entryId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
     // ── user profiles
     match /users/{uid} {
       allow read: if true;
@@ -34,8 +49,16 @@ service cloud.firestore {
 
     // ── moments
     match /moments/{momentId} {
-      function sealUnsetOnCreate() {
-        return !('seal' in request.resource.data) || request.resource.data.seal == null;
+      // Fields only the Cloud Functions write. A client may create them as null (the raw vault re-creates with
+      // seal: null), never with a value, and never change them afterwards.
+      function serverOnlyKeys() {
+        return ['seal', 'bar', 'verification'];
+      }
+      function unsetOnCreate(k) {
+        return !(k in request.resource.data) || request.resource.data[k] == null;
+      }
+      function serverFieldsUnsetOnCreate() {
+        return unsetOnCreate('seal') && unsetOnCreate('bar') && unsetOnCreate('verification');
       }
 
       // `resource == null` lets an offline-first client probe a not-yet-synced id without a permission error.
@@ -46,13 +69,17 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.status == 'recording'
-        && sealUnsetOnCreate();
+        && serverFieldsUnsetOnCreate();
 
       allow update: if signedIn()
         && resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerUid == resource.data.ownerUid
         && resource.data.status in ['recording', 'submitted']
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['seal'])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOnlyKeys())
+        // v3: the bar is computed from the intention at submit, so the intention is frozen once recording ends
+        // (the recording → submitted update itself may still carry it).
+        && (resource.data.status == 'recording'
+            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['intention']))
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'recording' && request.resource.data.status == 'submitted'));
 
