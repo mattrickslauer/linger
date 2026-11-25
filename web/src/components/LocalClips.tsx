@@ -1,5 +1,5 @@
-// Video clips this browser holds for a Moment (raw vault). Only the recording device has them; the chain holds their
-// SHA-256, and they reach the server only if the owner runs the "Watch the full video" ladder check.
+// Video clips this browser holds for a Moment (raw vault). The chain holds their SHA-256; v4 uploads every chained
+// clip at submit (upload.ts) and a Cloud Function reviews it as video, so the clip itself backs the claims.
 
 import { useEffect, useState } from "react";
 import { clipsOf, type StoredClip } from "../vault";
@@ -27,7 +27,7 @@ export default function LocalClips({ momentId, chained }: { momentId: string; ch
     <section className="clips" aria-labelledby="clips-h">
       <div className="section-head">
         <h2 id="clips-h">Video clips</h2>
-        <p className="muted small">On this device only. The chain holds each clip's fingerprint.</p>
+        <p className="muted small">Kept on this device too. The chain holds each clip's fingerprint; the server re-hashes the upload against it.</p>
       </div>
       <div className="clip-grid">
         {clips.map((c) => (

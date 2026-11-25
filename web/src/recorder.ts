@@ -395,8 +395,19 @@ export class Session {
     };
     await journalMomentUpdate(this.id, submit);
     if (this.guest) return;
+    if (this.factsB.facts.clips.length) {
+      // v4.4: chained clips go to Storage BEFORE status = submitted. The vault's submit path does exactly that
+      // (chunks → clips → submit fields) and retries every 30 s while offline or failing; the screen shows progress.
+      void verifyAll();
+      return;
+    }
     updateDoc(doc(db!, "moments", this.id), submit).catch((e) => console.error("submit failed", e));
     void verifyAll();
+  }
+
+  /** v4: this Moment has chained video clips (they upload before the submit). */
+  get hasClips() {
+    return this.factsB.facts.clips.length > 0;
   }
 
   framesForJudge() {

@@ -6,7 +6,8 @@
 // sheet can be seen and tested. It is labelled as a simulation in the UI and never runs in a configured build.
 
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from "firebase/functions";
-import { connectStorageEmulator, getStorage, ref, uploadBytes, type FirebaseStorage } from "firebase/storage";
+import { getMetadata, ref, uploadBytes } from "firebase/storage";
+import { bucket, clipPath } from "./upload";
 import { applyFixtureLadder } from "./data";
 import { app, FIXTURES, USE_EMULATORS } from "./firebase";
 import { applyStep, countsAsPass, FREE_CREDITS, moduleSpec } from "./ladder";
@@ -51,7 +52,6 @@ export const LADDER_DEMO = FIXTURES && typeof location !== "undefined" && new UR
 
 const emuHost = import.meta.env.VITE_EMULATOR_HOST || "127.0.0.1";
 let fns: Functions | null = null;
-let storage: FirebaseStorage | null = null;
 function functions(): Functions {
   if (!app) throw new LadderError("unconfigured", "Firebase is not configured");
   if (!fns) {
@@ -59,14 +59,6 @@ function functions(): Functions {
     if (USE_EMULATORS) connectFunctionsEmulator(fns, emuHost, Number(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT || 5001));
   }
   return fns;
-}
-function bucket(): FirebaseStorage {
-  if (!app) throw new LadderError("unconfigured", "Firebase is not configured");
-  if (!storage) {
-    storage = getStorage(app);
-    if (USE_EMULATORS) connectStorageEmulator(storage, emuHost, Number(import.meta.env.VITE_STORAGE_EMULATOR_PORT || 9199));
-  }
-  return storage;
 }
 
 function wrap(e: unknown): LadderError {
@@ -109,10 +101,17 @@ export async function getCredits(): Promise<Credits> {
 async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s: string) => void): Promise<"uploaded" | "refused" | "absent"> {
   const clip = (await clipsOf(momentId)).find((c) => c.sha256 === sha);
   if (!clip) return "absent"; // maybe uploaded earlier, or recorded elsewhere: the function says clip_missing if not
-  const ext = clip.mime.includes("mp4") ? "mp4" : clip.mime.includes("quicktime") ? "mov" : "webm";
+  const r = ref(bucket(), clipPath(uid, momentId, sha, clip.mime));
+  try {
+    // v4: the clip normally went up at submit; the owner may `get` it, and a second create is refused.
+    await getMetadata(r);
+    return "uploaded";
+  } catch {
+    /* not there (or not readable): upload below */
+  }
   onStep(`Uploading clip (${(clip.bytes / 1e6).toFixed(1)} MB)…`);
   try {
-    await uploadBytes(ref(bucket(), `clips/${uid}/${momentId}/${sha}.${ext}`), clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
+    await uploadBytes(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
     return "uploaded";
   } catch (e) {
     // Rules allow create only; a second upload of the same clip is refused and the first one stands. If the server

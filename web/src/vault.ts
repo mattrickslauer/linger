@@ -31,6 +31,7 @@ import {
 import { auth, db } from "./firebase";
 import type { Chunk, Moment } from "./types";
 import { compareVault, type VaultChunk } from "./vaultCheck";
+import { uploadMomentClips } from "./upload";
 
 const pad6 = (n: number) => String(n).padStart(6, "0");
 
@@ -395,12 +396,18 @@ async function verify(local: StoredMoment, uid: string): Promise<boolean> {
     }
   }
   if (server.get("status") === "recording") {
+    // v4.4: every chained clip reaches Storage BEFORE the submit fields; a failed upload throws and submit waits.
+    await uploadMomentClips(uid, id, localChunks);
+    stopIfDeleted(id);
     const submit: Fields = {};
     for (const k of SUBMIT_FIELDS) submit[k] = k === "submittedAtServer" ? serverTimestamp() : (local[k] ?? null);
     // The intention may ride the submit update (it is frozen after); harmless when unchanged.
     if (local.intention) submit.intention = local.intention;
     stopIfDeleted(id);
     await updateDoc(ref, submit);
+  } else if ((server.get("videoReview") as { status?: string } | undefined)?.status === "waiting") {
+    // Submitted without its clip (an older client, or a lost upload): the server waits 24 h for it. Best effort.
+    await uploadMomentClips(uid, id, localChunks).catch((e) => console.warn(`vault: ${id}: late clip upload failed`, e));
   }
 
   // Read everything back from the server and compare with the journal, byte for byte where it matters.

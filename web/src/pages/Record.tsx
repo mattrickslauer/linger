@@ -12,7 +12,8 @@ import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip } from "../components/Interview";
 import { WitnessAgent } from "../witnessAgent";
 import { clipCapMs, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
-import { captured, type Requirement } from "../v4";
+import { captured, videoStatusText, type Requirement } from "../v4";
+import { uploadText, useClipUpload } from "../upload";
 import { PlanList } from "../components/Plan";
 import { listen, stopSpeaking, sttSupported } from "../voice";
 import { structureIntention } from "../ai";
@@ -533,6 +534,7 @@ function WitnessToast({
 /** A guest's Moment is finished and chained in this browser; uploading it is the first thing that needs an account. */
 function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const up = useClipUpload(session.id);
   const [err, setErr] = useState<string | null>(null);
   return (
     <div className="page done">
@@ -541,6 +543,7 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
       <ol className="steps">
         <li className="step step-done">Recorded and chained on this device ({session.chunks.length} chunks)</li>
         <li className="step step-now">On this device · sign in to verify</li>
+        {session.hasClips && <li className="step step-todo">Video uploads when you sign in, then a free video review</li>}
         <li className="step step-todo">Cloud judge, skeptic + scorer</li>
         <li className="step step-todo">Deterministic seal by Cloud Function</li>
       </ol>
@@ -562,7 +565,7 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
             }
           }}
         >
-          {busy ?? "Upload and verify"}
+          {busy ? (up?.phase === "uploading" ? uploadText(up) : busy) : "Upload and verify"}
         </button>
         <Link to={`/m/${session.id}`} className="btn">
           Open it
@@ -582,6 +585,7 @@ function Done({ session }: { session: Session }) {
   const [review, setReview] = useState<"waiting" | "running" | "done" | "failed">("waiting");
   const [reviewErr, setReviewErr] = useState<string | null>(null);
   const started = useRef(false);
+  const up = useClipUpload(session.id);
 
   useEffect(
     () =>
@@ -612,9 +616,24 @@ function Done({ session }: { session: Session }) {
     return () => window.removeEventListener("online", go);
   }, [m, pending, session]);
 
+  const vr = m?.videoReview ?? null;
+  const submitted = !!m && m.status !== "recording";
   const steps = [
     { name: "Recorded and chained on this device", state: "done" },
     { name: pending ? "Waiting for signal to sync" : "Synced to Firestore", state: pending ? "now" : "done" },
+    // v4.4: the clip goes up before the submit, then the server reviews the clip itself (free).
+    ...(session.hasClips
+      ? [
+          {
+            name: submitted && (!up || up.phase !== "failed") ? "Video uploaded" : (uploadText(up) ?? (navigator.onLine ? "Uploading video…" : "Video waits for signal")),
+            state: submitted || up?.phase === "done" ? "done" : up?.phase === "failed" ? "bad" : "now",
+          },
+          {
+            name: vr?.status === "done" ? `Video reviewed${vr.summary ? `: ${vr.summary}` : ""}` : (videoStatusText(vr) ?? "Free video review by a Cloud Function"),
+            state: !vr ? "todo" : vr.status === "done" ? "done" : vr.status === "running" || vr.status === "waiting" ? "now" : vr.status === "none" ? "done" : "bad",
+          },
+        ]
+      : []),
     {
       name:
         review === "failed"
@@ -628,8 +647,8 @@ function Done({ session }: { session: Session }) {
     {
       // v3.3: the binding bar, set by the Cloud Function from the claim once the Moment is submitted.
       name: m?.bar
-        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
-        : "Cloud Function sets the bar for this claim",
+        ? `Bar set by ${m.bar.source === "ai" ? "AI" : "default"}: ${m.bar.value.toFixed(2)}${m.claims?.items?.length ? ` · ${m.claims.items.length} claim${m.claims.items.length > 1 ? "s" : ""}: ${m.claims.items.map((c) => c.text).join(" · ")}` : ""}${m.bar.rationale ? `. ${m.bar.rationale}` : ""}`
+        : "Cloud Function sets the bar and the claims",
       state: m?.bar ? "done" : m?.status === "submitted" && !pending ? "now" : "todo",
     },
     {
