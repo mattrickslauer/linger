@@ -29,6 +29,9 @@ final class MomentDetailModel {
   private(set) var motion: [MotionPoint] = []
   private(set) var chunkCount = 0
   private(set) var chainVerified: Bool?
+  /// From the chain, for the ladder's `needs` (v3.6): answered witness requests and chained video clips.
+  private(set) var witnessAnswers = 0
+  private(set) var videos: [ChainVideo] = []
   private(set) var loading = false
   var error: String?
   @ObservationIgnored private var listener: ListenerRegistration?
@@ -97,6 +100,8 @@ final class MomentDetailModel {
       chainVerified = parsed.chainOK
       frames = parsed.frames
       motion = parsed.motion
+      witnessAnswers = parsed.witnessAnswers
+      videos = parsed.videos
       if !parsed.track.isEmpty { track = parsed.track }
       if card.heroJpegB64 == nil, let hero = parsed.heroB64 { card.heroJpegB64 = hero }
     } catch {
@@ -124,7 +129,16 @@ final class MomentDetailModel {
     }
   }
 
+  /// A `video` event in the chain: the clip itself stays on the phone that recorded it.
+  nonisolated struct ChainVideo: Sendable, Equatable {
+    let sha256: String
+    let name: String
+    let bytes: Int64
+  }
+
   nonisolated struct Parsed: @unchecked Sendable {  // CGImage is immutable
+    var witnessAnswers = 0
+    var videos: [ChainVideo] = []
     var chunkCount = 0
     var chainOK = false
     var frames: [Frame] = []
@@ -150,6 +164,17 @@ final class MomentDetailModel {
       for g in (obj["gps"] as? [[Any]]) ?? [] where g.count >= 3 {
         if let lat = (g[1] as? NSNumber)?.doubleValue, let lng = (g[2] as? NSNumber)?.doubleValue {
           out.track.append(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
+      }
+      for e in (obj["events"] as? [[String: Any]]) ?? [] {
+        switch e["type"] as? String {
+        case "witness_answer": out.witnessAnswers += 1
+        case "video":
+          if let sha = e["sha256"] as? String {
+            out.videos.append(ChainVideo(sha256: sha, name: e["name"] as? String ?? "",
+                                         bytes: (e["bytes"] as? NSNumber)?.int64Value ?? 0))
+          }
+        default: break
         }
       }
       for m in (obj["motion"] as? [[Any]]) ?? [] where m.count >= 4 {

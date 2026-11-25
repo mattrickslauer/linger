@@ -107,6 +107,11 @@ targets:
         product: FirebaseAppCheck
       - package: Firebase
         product: FirebaseRemoteConfig
+      # v3.7 callables (getCredits, runLadderModule) and the full_video clip upload.
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: Firebase
+        product: FirebaseStorage
       - package: VerifiedCore
     scheme:
       environmentVariables:

@@ -24,6 +24,16 @@ struct MeView: View {
             }
             .padding(.vertical, 4)
             Text(rawData).font(.footnote).foregroundStyle(app.vault.held.isEmpty ? Theme.accent : Theme.warn)
+            if let c = app.credits.credits {
+              HStack {
+                Label("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits")", systemImage: "circle.hexagongrid.fill")
+                  .foregroundStyle(Theme.accent)
+                Spacer()
+                Text(c.justGranted ? "\(c.granted) free to start" : "free demo · \(c.spent) spent")
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+              .font(.subheadline.weight(.semibold))
+            }
           }
         } else {
           Section {

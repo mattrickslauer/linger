@@ -28,6 +28,9 @@ struct MomentDetailView: View {
         if m.bar != nil || m.displayScore != nil {
           section("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
         }
+        if LadderSection.visible(m, uid: app.auth.user?.uid) {
+          section("Verification ladder", icon: "chart.line.uptrend.xyaxis") { LadderSection(model: model) }
+        }
         section("Track", icon: "map") { TrackMap(track: model.track) }
         section("Proof frames", icon: "camera") { frameTimeline }
         section("Motion", icon: "waveform.path.ecg") { motionChart }

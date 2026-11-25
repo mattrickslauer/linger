@@ -30,6 +30,8 @@ final class AppModel {
   /// Raw vault: each Moment's raw data stays on the phone until the server provably has all of it.
   /// Guest Moments live only here until they are claimed at sign-in.
   let vault = Vault.shared
+  /// Free demo credits for the verification ladder (v3.6), signed-in users only.
+  let credits = CreditsModel()
 
   var tab = AppTab.feed
   var signInRequest: SignInRequest?
@@ -73,9 +75,14 @@ final class AppModel {
         signInRequest = nil
         pending.then(user)
       }
-      if uid != lastUid { offerClaimIfNeeded() }
+      if uid != lastUid {
+        offerClaimIfNeeded()
+        credits.clear()
+        Task { await credits.refresh() }
+      }
     } else {
       mine.stop()
+      credits.clear()
     }
   }
 
