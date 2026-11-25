@@ -55,9 +55,11 @@ enum MomentStore {
     chunks(momentId).document(chunk.docId).setData(data) { err in if let err { print("[Verified] chunk \(chunk.seq):", err) } }
   }
 
+  /// `sendNow == false` (v4.4: chained clips must reach Storage first) journals the submit fields only; the caller
+  /// sends them with `sendSubmitFromJournal` once every clip is uploaded (the raw vault retries otherwise).
   static func submit(momentId: String, endedAt: Int64, chunkCount: Int, headHash: String?,
                      summary: MomentSummary, onDevice: (mode: String, checks: Int, retakes: Int),
-                     witness: [String: Any], guest: Bool) throws {
+                     witness: [String: Any], guest: Bool, sendNow: Bool = true) throws {
     let fields: [String: Any] = [
       "status": "submitted",
       "endedAt": endedAt,
@@ -69,7 +71,14 @@ enum MomentStore {
       "submittedAtServer": FieldValue.serverTimestamp(),
     ]
     try Vault.shared.updateMoment(momentId, fields)
-    guard !guest else { return }
+    guard !guest, sendNow else { return }
+    moment(momentId).updateData(fields) { err in if let err { print("[Verified] submit:", err) } }
+  }
+
+  /// The journaled submit fields → `moments/{id}` (queues offline like any write).
+  static func sendSubmitFromJournal(momentId: String) {
+    guard let json = try? Data(contentsOf: VaultIO.momentFile(momentId)),
+          let fields = try? VaultIO.submitUpdate(json) else { return }
     moment(momentId).updateData(fields) { err in if let err { print("[Verified] submit:", err) } }
   }
 

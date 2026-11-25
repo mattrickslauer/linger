@@ -131,6 +131,7 @@ private struct SubmittedBanner: View {
           .controlSize(.small)
           .padding(.top, 4)
         } else {
+        VideoStatusLine(momentId: done.id)
         Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
              : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
              : "Offline: it will sync and be judged when you're back online.")

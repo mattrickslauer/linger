@@ -1,4 +1,5 @@
 import AVFoundation
+@preconcurrency import FirebaseAuth
 import CoreLocation
 import Foundation
 import Observation
@@ -540,11 +541,13 @@ final class RecorderModel {
     closeChunk()
     let endedAt = max(stopT, chunks.last?.t1 ?? stopT)
     let summary = MomentSummary.compute(startedAt: startedAt, endedAt: endedAt, chunks: chunks)
+    // v4.4: chained clips go to Storage before `status = "submitted"` (signed in; guests upload at the claim).
+    let uploadFirst = !isGuest && videoCount > 0
     do {
       try MomentStore.submit(
         momentId: id, endedAt: endedAt, chunkCount: chunks.count, headHash: chain.lastHash,
         summary: summary, onDevice: (onDeviceMode.rawValue, checks, retakes),
-        witness: witnessSummary, guest: isGuest)
+        witness: witnessSummary, guest: isGuest, sendNow: !uploadFirst)
     } catch {
       // Raw vault: not journaled means not submitted; the Moment stays `recording` on the server.
       self.error = "Could not save this Moment on the phone, so it was not submitted: \(error.localizedDescription)"
@@ -554,8 +557,13 @@ final class RecorderModel {
       return
     }
     if !isGuest {
-      // Give the queued writes a head start, then check the server has every chunk.
+      let uid = Auth.auth().currentUser?.uid
       Task {
+        if uploadFirst, let uid, await ClipUploader.shared.ensureUploaded(momentId: id, uid: uid) {
+          MomentStore.sendSubmitFromJournal(momentId: id)
+        }
+        // Give the queued writes a head start, then check the server has every chunk (and, v4, every clip; the
+        // vault submits a Moment whose clips could not be uploaded yet as soon as they are).
         try? await Task.sleep(for: .seconds(5))
         await Vault.shared.verifyAll()
       }

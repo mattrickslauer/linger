@@ -303,6 +303,9 @@ nonisolated enum VaultIO {
         try await chunks().document(Chain.docId(c.seq)).setData(object(json, "chunk \(c.seq)"))
       }
     }
+    // v4.4: every chained clip reaches Storage before the submit update (and before the local copy may go).
+    // Not uploadable yet (offline, failing): keep, don't submit; the next pass retries.
+    guard await ClipUploader.shared.ensureUploaded(momentId: id, uid: uid) else { return .keep(.waiting) }
     if serverStatus == "recording" {
       try await ref().updateData(submitUpdate(momentJSON))
     }

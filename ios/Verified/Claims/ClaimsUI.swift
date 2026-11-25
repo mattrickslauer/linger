@@ -187,3 +187,61 @@ struct PlanSummary: View {
     }
   }
 }
+
+/// v4.11 finish/sync words: "Uploading video · 34 MB" → "Video uploaded" → "Reviewing video" → sealed;
+/// "Waiting for video upload"; "Video never arrived · sealed without it". Nothing for a Moment without video.
+struct VideoStatusLine: View {
+  let momentId: String
+  var review: VideoReviewInfo?
+  var status: String = "submitted"
+
+  var body: some View {
+    let upload = ClipUploader.shared.states[momentId]
+    if let line = text(upload) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 8) {
+          if busy(upload) { ProgressView().controlSize(.small) } else { Image(systemName: icon).foregroundStyle(color) }
+          Text(line).font(.footnote.weight(.semibold)).foregroundStyle(busy(upload) ? .primary : color)
+          Spacer(minLength: 0)
+        }
+        if let f = upload?.fraction { ProgressView(value: f).tint(Theme.accent) }
+        if review?.status == "done", let s = review?.summary { Text(s).font(.caption).foregroundStyle(.secondary) }
+      }
+      .accessibilityElement(children: .combine)
+    }
+  }
+
+  private func text(_ upload: ClipUploader.State?) -> String? {
+    if let upload, case .uploading = upload { return upload.label }
+    switch review?.status {
+    case "waiting": return upload == .uploaded ? "Video uploaded" : "Waiting for video upload"
+    case "running": return "Reviewing video"
+    case "done": return "Video reviewed"
+    case "expired": return "Video never arrived · sealed without it"
+    case "failed": return "Video review failed · sealed without it"
+    case "none": return nil
+    default: return upload?.label
+    }
+  }
+
+  private func busy(_ upload: ClipUploader.State?) -> Bool {
+    if let upload, case .uploading = upload { return true }
+    return review?.status == "running" || (review?.status == "waiting" && status == "submitted")
+  }
+
+  private var icon: String {
+    switch review?.status {
+    case "done": "film.stack"
+    case "expired", "failed": "video.slash"
+    default: "icloud.and.arrow.up"
+    }
+  }
+
+  private var color: Color {
+    switch review?.status {
+    case "done": Theme.accent
+    case "expired", "failed": Theme.warn
+    default: ClipUploader.shared.states[momentId] == .waiting ? Theme.warn : Theme.accent
+    }
+  }
+}

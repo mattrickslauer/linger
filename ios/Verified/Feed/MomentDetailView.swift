@@ -104,6 +104,9 @@ struct MomentDetailView: View {
       if let reason = m.sealReason, !reason.isEmpty {
         Text(reason).font(.footnote).foregroundStyle(m.isVerified ? Theme.accent : Theme.bad)
       }
+      if !m.local {
+        VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
+      }
       if m.local {
         HStack(alignment: .top, spacing: 12) {
           Image(systemName: "iphone").font(.title3).foregroundStyle(.indigo)
