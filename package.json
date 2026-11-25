@@ -11,7 +11,7 @@
     "seed:prod": "npm run build && node functions/scripts/seed.mjs --prod",
     "test": "npm run test:unit && npm run test:rules && npm run test:e2e",
     "test:unit": "npm --prefix functions test",
-    "test:rules": "infra/fb.sh emulators:exec --project demo-verified-rules --only firestore \"npm --prefix functions run test:rules\"",
+    "test:rules": "infra/fb.sh emulators:exec --project demo-verified-rules --only firestore,storage \"npm --prefix functions run test:rules\"",
     "test:e2e": "npm run build && infra/fb.sh emulators:exec --only auth,firestore,functions,storage \"node functions/scripts/seed.mjs && node functions/scripts/feed.mjs && node functions/scripts/ladder-check.mjs && node functions/scripts/delete-check.mjs\"",
     "deploy": "infra/fb.sh deploy --only firestore,functions,storage,hosting",
     "deploy:rules": "infra/fb.sh deploy --only firestore:rules,firestore:indexes,storage",

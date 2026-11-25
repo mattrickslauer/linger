@@ -1,0 +1,3410 @@
+{
+  "note": "v4 vectors (docs/ARCHITECTURE.md v4.5). scoring: reference implementation in shared/make-test-vectors-v4.mjs; per claim p = baseline (0.2 if absent) → max(p, bar) when every requirement of the claim is met and no cheating → ladder modules in run order for the claims they back (pass p+s(1-p) when verdict backed && confidence >= 0.6, else fail p(1-s)) → cheating cap min(p, 0.1). score = min over claims; verified = sealed = every check. videoChain: same hashing as v1; witness events carry rid, the clip is a `video` event.",
+  "constants": {
+    "DEFAULT_BASELINE": 0.2,
+    "CHEATING_CAP": 0.1,
+    "BACKED_CONFIDENCE": 0.6,
+    "DEFAULT_MOTION_SECONDS": 10,
+    "MAX_SIGNALS": 6
+  },
+  "scoring": [
+    {
+      "name": "clap 50 with the full clip: minimum evidence + no cheating = bar",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          }
+        ],
+        "ladder": [],
+        "score": 0.52,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "clap 50 photo only (the production failure): video requirements unmet, stays at baseline",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "none",
+          "claims": [],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [],
+            "unmet": [
+              "r1"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.4,
+            "p": 0.4
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.4,
+            "p": 0.4
+          }
+        ],
+        "ladder": [],
+        "score": 0.4,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "clip shorter than minSeconds: only the count stays unmet",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 12000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.4,
+            "p": 0.4
+          }
+        ],
+        "ladder": [],
+        "score": 0.4,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 1
+      }
+    },
+    {
+      "name": "video review unsure of the count (confidence 0.5): count unmet",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.5,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.4,
+            "p": 0.4
+          }
+        ],
+        "ladder": [],
+        "score": 0.4,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 1
+      }
+    },
+    {
+      "name": "baseline above the bar is kept, not lowered",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.7,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.7,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.7,
+            "p": 0.7
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.7,
+            "p": 0.7
+          }
+        ],
+        "ladder": [],
+        "score": 0.7,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "video review detects cheating: every claim capped at 0.1, rejected",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.6,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": true,
+            "signals": [
+              "loop: the same 3 s repeat 12 times"
+            ]
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.6,
+        "cheating": {
+          "detected": true,
+          "signals": [
+            "video: loop: the same 3 s repeat 12 times"
+          ]
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.6,
+            "p": 0.1
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.6,
+            "p": 0.1
+          }
+        ],
+        "ladder": [],
+        "score": 0.1,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": false,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": false,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "clip hash mismatch is cheating",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": false
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": true,
+          "signals": [
+            "video: clip does not match the chain"
+          ]
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [],
+            "unmet": [
+              "r1"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.4,
+            "p": 0.1
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.4,
+            "p": 0.1
+          }
+        ],
+        "ladder": [],
+        "score": 0.1,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": false,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": false,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "skeptic inconsistent is cheating",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "inconsistent",
+          "confidence": 0.7,
+          "reasons": [
+            "photo of a screen"
+          ]
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": true,
+          "signals": [
+            "skeptic: photo of a screen"
+          ]
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.4,
+            "p": 0.1
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.4,
+            "p": 0.1
+          }
+        ],
+        "ladder": [],
+        "score": 0.1,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": false,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": false,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "broken chain is cheating",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": false,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": true,
+          "signals": [
+            "chain: hashes do not link"
+          ]
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.4,
+            "p": 0.1
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.4,
+            "p": 0.1
+          }
+        ],
+        "ladder": [],
+        "score": 0.1,
+        "checks": {
+          "chain": false,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": false,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": false,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "clip never arrived (expired after 24 h): video unmet, no cheating",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": false,
+              "hashOk": null
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "expired",
+          "claims": [],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [],
+            "unmet": [
+              "r1"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.4,
+            "p": 0.4
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.4,
+            "p": 0.4
+          }
+        ],
+        "ladder": [],
+        "score": 0.4,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "judge says the frames contradict the claim: ai check fails even with video",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "inconsistent",
+          "confidence": 0.8,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          }
+        ],
+        "ladder": [],
+        "score": 0.52,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": false,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "no client scorer: baseline 0.2, still reaches the bar with the minimum evidence",
+      "input": {
+        "bar": 0.52,
+        "baseline": null,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.2,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          }
+        ],
+        "ladder": [],
+        "score": 0.52,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "fish: per-claim frames judge; the scale reading is unclear so the weight stays at baseline",
+      "input": {
+        "bar": 0.73,
+        "baseline": 0.3,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "object",
+            "text": "largemouth bass"
+          },
+          {
+            "id": "c2",
+            "kind": "measure",
+            "text": "at least 6 lb",
+            "metric": "weight",
+            "value": 6,
+            "unit": "lb"
+          },
+          {
+            "id": "c3",
+            "kind": "place",
+            "text": "Lake Mission Viejo"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "frames",
+            "ask": "A clear shot of the bass held up"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "frames",
+            "ask": "The scale reading with the fish on it"
+          },
+          {
+            "id": "r3",
+            "claimId": "c3",
+            "evidence": "gps",
+            "ask": "Keep location on at the lake"
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 3,
+          "gpsFixes": 40,
+          "motionSeconds": 300,
+          "clips": [],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "consistent",
+          "confidence": 0.8,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.85
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.5
+            },
+            {
+              "id": "c3",
+              "verdict": "unclear",
+              "confidence": 0.4
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": null,
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.3,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.3,
+            "p": 0.3
+          },
+          {
+            "id": "c3",
+            "met": [
+              "r3"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "gps"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          }
+        ],
+        "ladder": [],
+        "score": 0.3,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "fish: judge without per-claim verdicts falls back to its overall verdict",
+      "input": {
+        "bar": 0.73,
+        "baseline": 0.3,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "object",
+            "text": "largemouth bass"
+          },
+          {
+            "id": "c2",
+            "kind": "measure",
+            "text": "at least 6 lb",
+            "metric": "weight",
+            "value": 6,
+            "unit": "lb"
+          },
+          {
+            "id": "c3",
+            "kind": "place",
+            "text": "Lake Mission Viejo"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "frames",
+            "ask": "A clear shot of the bass held up"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "frames",
+            "ask": "The scale reading with the fish on it"
+          },
+          {
+            "id": "r3",
+            "claimId": "c3",
+            "evidence": "gps",
+            "ask": "Keep location on at the lake"
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 3,
+          "gpsFixes": 40,
+          "motionSeconds": 300,
+          "clips": [],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "claims": []
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": null,
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.3,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          },
+          {
+            "id": "c3",
+            "met": [
+              "r3"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge",
+              "gps"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          }
+        ],
+        "ladder": [],
+        "score": 0.73,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 3
+      }
+    },
+    {
+      "name": "fish + count_measure pass on the weight, second_look fail on the bass (modules move only claims they back)",
+      "input": {
+        "bar": 0.73,
+        "baseline": 0.3,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "object",
+            "text": "largemouth bass"
+          },
+          {
+            "id": "c2",
+            "kind": "measure",
+            "text": "at least 6 lb",
+            "metric": "weight",
+            "value": 6,
+            "unit": "lb"
+          },
+          {
+            "id": "c3",
+            "kind": "place",
+            "text": "Lake Mission Viejo"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "frames",
+            "ask": "A clear shot of the bass held up"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "frames",
+            "ask": "The scale reading with the fish on it"
+          },
+          {
+            "id": "r3",
+            "claimId": "c3",
+            "evidence": "gps",
+            "ask": "Keep location on at the lake"
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 3,
+          "gpsFixes": 40,
+          "motionSeconds": 300,
+          "clips": [],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "consistent",
+          "confidence": 0.8,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.85
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.5
+            },
+            {
+              "id": "c3",
+              "verdict": "unclear",
+              "confidence": 0.4
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": null,
+        "ladder": [
+          {
+            "module": "count_measure",
+            "strength": 0.3,
+            "backs": [
+              "count",
+              "measure"
+            ],
+            "claims": [
+              {
+                "id": "c2",
+                "verdict": "backed",
+                "confidence": 0.8
+              }
+            ]
+          },
+          {
+            "module": "second_look",
+            "strength": 0.2,
+            "backs": [
+              "action",
+              "object",
+              "outcome"
+            ],
+            "claims": [
+              {
+                "id": "c1",
+                "verdict": "not_backed",
+                "confidence": 0.7
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "baselineUsed": 0.3,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge"
+            ],
+            "sealP": 0.73,
+            "p": 0.584
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "count_measure"
+            ],
+            "sealP": 0.3,
+            "p": 0.51
+          },
+          {
+            "id": "c3",
+            "met": [
+              "r3"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "gps"
+            ],
+            "sealP": 0.73,
+            "p": 0.73
+          }
+        ],
+        "ladder": [
+          {
+            "module": "count_measure",
+            "before": 0.3,
+            "after": 0.51,
+            "passed": true,
+            "claims": [
+              {
+                "id": "c2",
+                "passed": true,
+                "before": 0.3,
+                "after": 0.51
+              }
+            ]
+          },
+          {
+            "module": "second_look",
+            "before": 0.51,
+            "after": 0.51,
+            "passed": false,
+            "claims": [
+              {
+                "id": "c1",
+                "passed": false,
+                "before": 0.73,
+                "after": 0.584
+              }
+            ]
+          }
+        ],
+        "score": 0.51,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 1
+      }
+    },
+    {
+      "name": "count_measure backs the count the video could not: lifts it past the bar",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.4
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": [
+          {
+            "module": "count_measure",
+            "strength": 0.3,
+            "backs": [
+              "count",
+              "measure"
+            ],
+            "claims": [
+              {
+                "id": "c2",
+                "verdict": "backed",
+                "confidence": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [
+              "r2"
+            ],
+            "minimumMet": false,
+            "backedBy": [
+              "count_measure"
+            ],
+            "sealP": 0.4,
+            "p": 0.5800000000000001
+          }
+        ],
+        "ladder": [
+          {
+            "module": "count_measure",
+            "before": 0.4,
+            "after": 0.52,
+            "passed": true,
+            "claims": [
+              {
+                "id": "c2",
+                "passed": true,
+                "before": 0.4,
+                "after": 0.5800000000000001
+              }
+            ]
+          }
+        ],
+        "score": 0.52,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "full_video backs every kind; a missing verdict for a backed claim counts as a fail",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": [
+          {
+            "module": "full_video",
+            "strength": 0.45,
+            "backs": [
+              "action",
+              "count",
+              "measure",
+              "place",
+              "time",
+              "object",
+              "outcome"
+            ],
+            "claims": [
+              {
+                "id": "c1",
+                "verdict": "backed",
+                "confidence": 0.95
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge",
+              "full_video"
+            ],
+            "sealP": 0.52,
+            "p": 0.736
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.52,
+            "p": 0.28600000000000003
+          }
+        ],
+        "ladder": [
+          {
+            "module": "full_video",
+            "before": 0.52,
+            "after": 0.28600000000000003,
+            "passed": false,
+            "claims": [
+              {
+                "id": "c1",
+                "passed": true,
+                "before": 0.52,
+                "after": 0.736
+              },
+              {
+                "id": "c2",
+                "passed": false,
+                "before": 0.52,
+                "after": 0.28600000000000003
+              }
+            ]
+          }
+        ],
+        "score": 0.28600000000000003,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 1
+      }
+    },
+    {
+      "name": "module pass at confidence 0.59 is a fail",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "video",
+            "ask": "One continuous video of all 50 claps",
+            "minSeconds": 20
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": [
+          {
+            "module": "full_video",
+            "strength": 0.45,
+            "backs": [
+              "action",
+              "count",
+              "measure",
+              "place",
+              "time",
+              "object",
+              "outcome"
+            ],
+            "claims": [
+              {
+                "id": "c1",
+                "verdict": "backed",
+                "confidence": 0.59
+              },
+              {
+                "id": "c2",
+                "verdict": "backed",
+                "confidence": 0.59
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.28600000000000003
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.52,
+            "p": 0.28600000000000003
+          }
+        ],
+        "ladder": [
+          {
+            "module": "full_video",
+            "before": 0.52,
+            "after": 0.28600000000000003,
+            "passed": false,
+            "claims": [
+              {
+                "id": "c1",
+                "passed": false,
+                "before": 0.52,
+                "after": 0.28600000000000003
+              },
+              {
+                "id": "c2",
+                "passed": false,
+                "before": 0.52,
+                "after": 0.28600000000000003
+              }
+            ]
+          }
+        ],
+        "score": 0.28600000000000003,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "witness requirement met by an answered request tagged with its rid; witness_review moves only targeted claims",
+      "input": {
+        "bar": 0.6,
+        "baseline": 0.35,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "outcome",
+            "text": "summit reached"
+          },
+          {
+            "id": "c2",
+            "kind": "place",
+            "text": "Mount Baldy"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "witness",
+            "ask": "Show the summit sign"
+          },
+          {
+            "id": "r2",
+            "claimId": "c2",
+            "evidence": "gps",
+            "ask": "Keep location on to the top"
+          },
+          {
+            "id": "r3",
+            "claimId": "c2",
+            "evidence": "motion",
+            "ask": "Carry the phone the whole climb",
+            "minSeconds": 600
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 4,
+          "gpsFixes": 900,
+          "motionSeconds": 3600,
+          "clips": [],
+          "witness": [
+            {
+              "wid": "w1",
+              "rid": "r1",
+              "answered": true
+            },
+            {
+              "wid": "w2",
+              "rid": "r2",
+              "answered": false
+            }
+          ]
+        },
+        "judge": {
+          "verdict": "consistent",
+          "confidence": 0.75,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.7
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.5
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "uncertain",
+          "confidence": 0.4,
+          "reasons": []
+        },
+        "videoReview": null,
+        "ladder": [
+          {
+            "module": "witness_review",
+            "strength": 0.3,
+            "backs": [
+              "action",
+              "count",
+              "measure",
+              "place",
+              "time",
+              "object",
+              "outcome"
+            ],
+            "claims": [
+              {
+                "id": "c1",
+                "verdict": "backed",
+                "confidence": 0.8
+              },
+              {
+                "id": "c2",
+                "verdict": "backed",
+                "confidence": 0.8
+              }
+            ],
+            "targetedOnly": true
+          }
+        ]
+      },
+      "expect": {
+        "baselineUsed": 0.35,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "frames_judge",
+              "witness",
+              "witness_review"
+            ],
+            "sealP": 0.6,
+            "p": 0.72
+          },
+          {
+            "id": "c2",
+            "met": [
+              "r2",
+              "r3"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "gps",
+              "motion"
+            ],
+            "sealP": 0.6,
+            "p": 0.6
+          }
+        ],
+        "ladder": [
+          {
+            "module": "witness_review",
+            "before": 0.6,
+            "after": 0.6,
+            "passed": true,
+            "claims": [
+              {
+                "id": "c1",
+                "passed": true,
+                "before": 0.6,
+                "after": 0.72
+              }
+            ]
+          }
+        ],
+        "score": 0.6,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": true
+        },
+        "sealed": true,
+        "verified": true,
+        "ladderEligible": true,
+        "claimsBacked": 2
+      }
+    },
+    {
+      "name": "motion requirement shorter than minSeconds is unmet",
+      "input": {
+        "bar": 0.55,
+        "baseline": 0.3,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "count",
+            "text": "100 push-ups",
+            "metric": "push-ups",
+            "value": 100,
+            "unit": "reps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "motion",
+            "ask": "Phone on your back for all reps",
+            "minSeconds": 120
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 90,
+          "clips": [],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.6,
+          "reasons": []
+        },
+        "videoReview": null,
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.3,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [],
+            "unmet": [
+              "r1"
+            ],
+            "minimumMet": false,
+            "backedBy": [],
+            "sealP": 0.3,
+            "p": 0.3
+          }
+        ],
+        "ladder": [],
+        "score": 0.3,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 0
+      }
+    },
+    {
+      "name": "a claim with no requirement never earns the bar for free",
+      "input": {
+        "bar": 0.52,
+        "baseline": 0.4,
+        "claims": [
+          {
+            "id": "c1",
+            "kind": "action",
+            "text": "clapping"
+          },
+          {
+            "id": "c2",
+            "kind": "count",
+            "text": "50 claps",
+            "metric": "claps",
+            "value": 50,
+            "unit": "claps"
+          }
+        ],
+        "requirements": [
+          {
+            "id": "r1",
+            "claimId": "c1",
+            "evidence": "video",
+            "ask": "Clap on camera, both hands in frame"
+          }
+        ],
+        "facts": {
+          "integrity": {
+            "chain": true,
+            "timing": true,
+            "physics": true,
+            "frames": true
+          },
+          "frameCount": 1,
+          "gpsFixes": 0,
+          "motionSeconds": 0,
+          "clips": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "durationMs": 35000,
+              "uploaded": true,
+              "hashOk": true
+            }
+          ],
+          "witness": []
+        },
+        "judge": {
+          "verdict": "uncertain",
+          "confidence": 0.5,
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.8
+            },
+            {
+              "id": "c2",
+              "verdict": "unclear",
+              "confidence": 0.3
+            }
+          ]
+        },
+        "skeptic": {
+          "verdict": "consistent",
+          "confidence": 0.7,
+          "reasons": []
+        },
+        "videoReview": {
+          "status": "done",
+          "claims": [
+            {
+              "id": "c1",
+              "verdict": "backed",
+              "confidence": 0.9,
+              "reasons": [
+                "both hands clapping throughout"
+              ]
+            },
+            {
+              "id": "c2",
+              "verdict": "backed",
+              "confidence": 0.8,
+              "reasons": [
+                "counted 50 claps"
+              ],
+              "measured": {
+                "value": 50,
+                "unit": "claps"
+              }
+            }
+          ],
+          "cheating": {
+            "detected": false,
+            "signals": []
+          }
+        },
+        "ladder": []
+      },
+      "expect": {
+        "baselineUsed": 0.4,
+        "cheating": {
+          "detected": false,
+          "signals": []
+        },
+        "claims": [
+          {
+            "id": "c1",
+            "met": [
+              "r1"
+            ],
+            "unmet": [],
+            "minimumMet": true,
+            "backedBy": [
+              "video_review",
+              "frames_judge"
+            ],
+            "sealP": 0.52,
+            "p": 0.52
+          },
+          {
+            "id": "c2",
+            "met": [],
+            "unmet": [],
+            "minimumMet": false,
+            "backedBy": [
+              "video_review"
+            ],
+            "sealP": 0.4,
+            "p": 0.4
+          }
+        ],
+        "ladder": [],
+        "score": 0.4,
+        "checks": {
+          "chain": true,
+          "timing": true,
+          "physics": true,
+          "frames": true,
+          "ai": true,
+          "cheating": true,
+          "bar": false
+        },
+        "sealed": false,
+        "verified": false,
+        "ladderEligible": true,
+        "claimsBacked": 1
+      }
+    }
+  ],
+  "videoChain": {
+    "momentId": "4c7d2a91-0b3e-4f5a-8d6c-1e2f3a4b5c6d",
+    "headHash": "b160e2b2e665f9d743cd9557abc9ad4b6cf7dd9680bb8eeb800a5bc57afe6207",
+    "clipSha": "837b05bb8eb87f023d320537c588220945fb61b0b43ed86bce7bea5d94b6671d",
+    "chunks": [
+      {
+        "seq": 0,
+        "t0": 1764200000000,
+        "t1": 1764200005000,
+        "prevHash": "GENESIS:4c7d2a91-0b3e-4f5a-8d6c-1e2f3a4b5c6d",
+        "payload": "{\"gps\":[],\"motion\":[[1764200000100,0.3,9.7,0.1,0.2,0.1,0]],\"events\":[{\"t\":1764200000000,\"type\":\"start\"},{\"t\":1764200001000,\"type\":\"video_start\"},{\"t\":1764200004000,\"type\":\"witness\",\"wid\":\"w1\",\"ask\":\"Keep both hands in frame\",\"kind\":\"do\",\"by\":\"on_device\",\"rid\":\"r1\"}],\"frameSha\":null,\"check\":null}",
+        "payloadSha": "7e987919a9bf4cb75be0a103350d3090c8267b7741b988dcdad6d085ad063cff",
+        "hash": "069afc6865c5b779df3b7b3db51ec6541ffd5c57f3a5b65429dd1d36bc10d963"
+      },
+      {
+        "seq": 1,
+        "t0": 1764200005000,
+        "t1": 1764200036000,
+        "prevHash": "069afc6865c5b779df3b7b3db51ec6541ffd5c57f3a5b65429dd1d36bc10d963",
+        "payload": "{\"gps\":[],\"motion\":[],\"events\":[{\"t\":1764200036000,\"type\":\"video\",\"sha256\":\"837b05bb8eb87f023d320537c588220945fb61b0b43ed86bce7bea5d94b6671d\",\"bytes\":15,\"durationMs\":35000,\"startedAt\":1764200001000,\"name\":\"verified-clap.webm\"},{\"t\":1764200036000,\"type\":\"frame\"},{\"t\":1764200036000,\"type\":\"witness_answer\",\"wid\":\"w1\",\"via\":\"done\"},{\"t\":1764200036000,\"type\":\"stop\"}],\"frameSha\":\"333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2\",\"check\":{\"ok\":true,\"reason\":\"keep going\",\"mode\":\"on_device\",\"label\":\"hands clapping\"}}",
+        "payloadSha": "b312bbc0e7cebe7ea314d385e348f228977a1d0058ac08c008ecfa7557ac63ae",
+        "hash": "b160e2b2e665f9d743cd9557abc9ad4b6cf7dd9680bb8eeb800a5bc57afe6207"
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@
     "build": "node scripts/copy-shared.mjs && tsc -p tsconfig.json",
     "build:watch": "tsc -p tsconfig.json --watch",
     "test": "vitest run test/seal.test.ts test/contract.test.ts test/v3.test.ts test/ladder.test.ts",
-    "test:rules": "vitest run test/rules.test.ts",
+    "test:rules": "vitest run test/rules.test.ts test/storage.rules.test.ts",
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {

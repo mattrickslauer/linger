@@ -88,7 +88,8 @@ P(claim true | evidence) under an adversarial prior of 0.2 (most submissions ass
 that is hard to fake moves it up; generic evidence leaves it near 0.2. The seal needs ≥ 0.5 when a score is present.
 
 `Seal = { sealed: boolean, at: serverTimestamp, checks: { chain: bool, timing: bool, physics: bool, frames: bool, ai: bool }, reason: string, version: 2 }`
-(version 2 = the `ai` check also gates on the verification score.)
+(version 2 = the `ai` check also gates on the verification score.) **v4** (`version: 4`): per-claim scores, `checks.cheating`;
+see "v4.6".
 **v3** (`version: 3`) adds `checks.bar`, `ladderEligible`, `updatedAt` and moves the score gate from `ai` to `bar`;
 see "v3.5 Seal v3". New Moment fields `bar`, `verification` (server-only), `witness`, `recordedAsGuest`, `claimedAt`
 and the structured `intention` are specified in the v3 section.
@@ -208,6 +209,8 @@ window; paid Moments keep the raw archive permanently plus an exportable, indepe
 - `users/{uid}`: read public; write self.
 - v3: `seal`, `bar`, `verification` are server-only on `moments/*`; `intention` is frozen after recording;
   `credits/*` is readable by its owner and written only by Functions (see v3.9).
+- v4: `claims`, `plan`, `videoReview` are server-only too; `intention.claims`/`intention.plan` follow the intention
+  (writable only while recording); Storage clips gain owner `get` (see v4.9).
 
 ## Prompts (shared — `shared/prompts.json` is authoritative)
 
@@ -220,6 +223,8 @@ window; paid Moments keep the raw archive permanently plus an exportable, indepe
 - v3: `interviewTurn`, `structureIntention`, `barPreview`, `bar`, `witnessDraft`, `witnessRefine`, and one
   `module*` prompt per ladder module. Every prompt has `mode`, `runsIn` (`client`|`functions`), `system`, `user`,
   `schema` (see v3.10).
+- v4: `barAndClaims` and `videoReview` (functions), claims/plan in `interviewTurn`/`structureIntention`, plan +
+  unmet requirements in `witnessDraft`/`witnessRefine`, per-claim verdicts in `judge` and every `module*` (see v4.10).
 
 ## UI (all platforms share the words)
 
@@ -540,11 +545,295 @@ Guests have no `request.auth`, so every write path is closed to them by construc
 | `judge`, `skeptic`, `scorer` | ONLY_IN_CLOUD | client (AI Logic), results gated by the seal | proposes |
 | `bar`, `module*` | ONLY_IN_CLOUD | Cloud Functions | proposes; code decides |
 
+## v4 — claims, evidence plan, video in the free baseline, per-claim scores (contract)
+
+> Status: **binding** (owner-approved 2026-11-25). Design: `docs/superpowers/specs/2026-11-25-claims-evidence-plan-video-baseline-design.md`.
+> Why: "clap 50 times" with a recorded clip scored 0.40 because every model only saw one still frame; the video only
+> counted after paying for `full_video`; `count_measure` stayed locked because a typed intention has no `quantities`.
+> v4 rule in one line: **the interview sets up the minimum evidence per claim; if that evidence arrives and no cheating
+> is detected, the Moment is Verified, for free.** Everything below is additive: v3 Moments (seal `version` ≤ 3) keep
+> v3 behaviour forever (ladder runs on them use the v3 math, no claims). Shared files: `shared/prompts.json`
+> (`version: 4`), `shared/ladder.json` (`version: 4`, `backs`), `shared/test-vectors-v4.json` (regenerate with
+> `node shared/make-test-vectors-v4.mjs`; that script is the **reference implementation** of v4.5), types and constants
+> in `functions/src/v4.ts`.
+
+### v4.1 Claims
+
+An intention is split into **≤ 5 claims**, each checkable on its own.
+```
+Claim = { id: "c1".."c5" (in order), kind: "action"|"count"|"measure"|"place"|"time"|"object"|"outcome",
+          text: string (≤80),                                  // "clapping", "50 claps", "largemouth bass", "at least 6 lb"
+          metric?: string, value?: number, unit?: string }     // count/measure only
+```
+"clap 50 times" → `c1 action "clapping"`, `c2 count "50 claps" {metric:"claps", value:50, unit:"claps"}`.
+Models return `metric: ""`, `value: 0`, `unit: ""` for other kinds (on-device schemas need every field); **normalize**
+(client and server alike): trim, cut `text` to 80, drop entries with an unknown kind or empty text, keep the first 5,
+renumber ids `c1..cN` in order (and remap the plan's `claimId`s), keep `metric/value/unit` only when `kind` is
+`count`/`measure` and `value > 0`, otherwise omit the three keys.
+
+- **Client draft**: `intention.claims` (from `interviewTurn`'s `draft.claims`, then `structureIntention`). Typed
+  intentions may run `structureIntention` on the typed sentence (cloud, optional) to get claims + plan before Start.
+- **Server, authoritative**: `moments/{id}.claims` (server-only), from `barAndClaims` (v4.3). Every v4-sealed Moment
+  has ≥ 1 server claim, typed ones included.
+
+### v4.2 Evidence plan
+
+For each claim, the **minimum evidence** that would convince a fair skeptic.
+```
+Requirement = { id: "r1".."r6", claimId: "c1".., evidence: "video"|"frames"|"gps"|"motion"|"witness",
+                ask: string (≤120),            // "One continuous video of all 50 claps, both hands in frame"
+                minSeconds?: number }          // video/motion only; omitted when 0
+Plan = { requirements: Requirement[] (≤6), recordMode: "video"|"photo", note: string (≤160) }
+```
+Normalize: drop requirements whose `claimId` is unknown or `evidence` invalid, keep the first 6, renumber `r1..rN`,
+omit `minSeconds` when ≤ 0 or not video/motion, `recordMode = "video"` iff any requirement is `video`. **Server only:**
+every claim without a requirement gets one appended (while < 6; else the claim keeps none and can never earn the bar):
+`count`/`action` → `{evidence:"video", ask:"A continuous video showing <text>"}`, `place`/`time` → `{evidence:"gps",
+ask:"Keep location on during the session"}`, else `{evidence:"frames", ask:"A clear proof shot of <text>"}`.
+
+- **Client**: `intention.plan` (same shape), shown at the end of the interview and driving the record screen.
+- **Server, authoritative**: `moments/{id}.plan` (server-only), from `barAndClaims`; the model is told to keep the
+  client's requirements and only add or tighten. The seal checks the **server** plan.
+
+`moments/{id}.intention` v4 (additive to v3.2; all v3 keys unchanged):
+```
+intention: { …v3 fields…, v: 4, claims?: Claim[] (≤5), plan?: Plan|null }
+```
+Writable only while `status == "recording"` (and on the recording → submitted update), frozen afterwards (rules).
+
+**Client checklist ("captured", never "verified").** While recording, the record screen ticks a requirement off when
+its evidence exists locally: `video` — a finished clip (`video` event) of ≥ `minSeconds` (any length if absent);
+`frames` — ≥ 1 proof frame; `gps` — ≥ 1 fix with accuracy ≤ 100 m; `motion` — non-zero motion samples spanning ≥
+`minSeconds` (default 10 s); `witness` — an answered witness request tagged with that requirement's `rid`. The server
+decides "met" (v4.5); the client's tick only means "captured".
+
+### v4.3 Bar + claims + plan at submit (`barAndClaims`)
+
+Replaces the v3 `bar` agent for every bar written by v4 functions (the `bar` prompt stays in `prompts.json` for
+compatibility; nothing new calls it). Trigger, lease (`barLeases/{momentId}`, 150 s) and timing are as v3.3:
+runs while `status == "submitted"` and (`bar == null` **or** `claims == null`). Inputs: `{{intention}}` (the intention
+without `claims`/`plan`), `{{draft}}` = `{"claims": intention.claims ?? [], "plan": intention.plan ?? null}`,
+`{{context}}` as v3.3. One update writes:
+```
+bar:    as v3.3 (value = round2(0.5 + 0.45 * clamp01(difficulty)); kept if already set — first bar wins)
+claims: { items: Claim[] (1..5), source: "ai"|"client"|"default", model: string|null, ranAt: number }
+plan:   Plan & { source: "ai"|"client"|"default" }
+```
+On model failure: bar = v3 default; claims = normalized `intention.claims` if non-empty (`source: "client"`), else
+`[{id:"c1", kind:"outcome", text: (intention.goal || intention.text) cut to 80}]` (`source: "default"`); plan = the
+normalized `intention.plan` if it covers them, else the server default requirements above. A Moment whose `bar` was set
+by v3 functions but has no `claims` runs `barAndClaims` once and keeps its bar.
+
+### v4.4 Video in the free baseline
+
+**Clip upload at submit (client, all platforms).** Every chained `video` clip is uploaded **before** the client writes
+`status = "submitted"`, to `clips/{uid}/{momentId}/{sha256}.{mp4|mov|webm}` (unchanged path and limits, < 200 MB,
+`video/*`). Order at Finish: write the last chunks → upload every clip (sequentially, resumable upload) → submit update.
+Idempotent retry: `getMetadata` on the path first (owner may `get`; v4.9); exists → skip. Offline or upload failing:
+submit **waits** (the Moment stays `recording` locally, journal keeps everything, retried by the raw vault loop; the UI
+says "Uploading video · 34 MB"). A clip > 200 MB is not uploaded (its requirements stay unmet) and submit proceeds.
+Guests: the same upload runs during the claim (after the chunks, before the submit fields). The raw vault's re-create
+path does the same. v3 clients that never upload are handled by the 24 h expiry below.
+
+**Video review (server, free, `videoReview` prompt, ONLY_IN_CLOUD, Gemini on Vertex with `fileData` `gs://` URIs,
+like `moduleFullVideo`).** Runs as part of sealing, after all chunks arrived (`chunkCount` reached), when the chain has
+≥ 1 `video` event. Server-only state on the Moment:
+```
+videoReview: {
+  status: "waiting"|"running"|"done"|"failed"|"expired"|"none",
+  clips: [{ sha256, ext: "mp4"|"mov"|"webm"|null, durationMs, startedAt: number|null, uploaded: boolean, hashOk: boolean|null }],
+  claims: [{ id, verdict: "backed"|"not_backed"|"unclear", confidence, reasons: string[] (≤3), measured?: {value, unit} }],
+  cheating: { detected: boolean, signals: string[] (≤4) },
+  summary: string (≤160), attempts: number, reason: string|null,    // reason e.g. "waiting for video upload"
+  model: string|null, ranAt: number|null, updatedAtServer
+}
+```
+1. No `video` event in the chain → `{status:"none"}` (written once, with empty lists).
+2. Any chained clip not in Storage → `status:"waiting"`, `reason:"waiting for video upload"`. A Storage
+   `onObjectFinalized` trigger on `clips/` touches the Moment (`videoReview.updatedAtServer`) to re-run the trigger.
+   A scheduled function (every 30 min) marks Moments waiting longer than **24 h** since `submittedAtServer` as
+   `status:"expired"` (`reason:"video never arrived"`) and lets them seal without it.
+3. All clips present → re-hash each (SHA-256 of the bytes, lowercase hex) against its `video` event: mismatch →
+   `hashOk:false` (cheating, v4.5; the bad object is **not** deleted, it is the evidence). Then under the lease
+   `videoLeases/{momentId}` (300 s, server-only) call the model once with the ≤ 3 last clips in chain order,
+   `{{intention}}`, `{{claims}}` (server claims), `{{plan}}`, `{{summary}}`, `{{sensors}}` (GPS distance, motion reps,
+   local time, sun elevation — the code facts of `place_time`/`count_measure`), `{{clips}}`. → `status:"done"`.
+4. Model/infra failure → `attempts += 1`, retried on the next trigger; after 2 attempts `status:"failed"` (video
+   requirements unmet, **not** cheating).
+5. Seal waits while `status` is `waiting` or `running` (Moment stays `submitted`; detail shows "Waiting for video upload").
+
+`isReadyToSeal` v4: `status == "submitted" && judge && skeptic && bar && claims && plan && videoReview.status in
+["done","failed","expired","none"] && !seal`.
+
+### v4.5 Per-claim scores, "minimum evidence + no cheating = bar" (deterministic code)
+
+Inputs: `bar.value`, baseline `b = clamp01(score.probability)` or **0.2** when the Moment has no `score`, server claims
+and plan, the chain facts, `judge`, `skeptic`, `videoReview`, and (later) ladder results. Constants: `BACKED = 0.6`,
+`CAP = 0.1`. **Reference implementation: `shared/make-test-vectors-v4.mjs` (`scoreV4`)**; vectors
+`shared/test-vectors-v4.json` `scoring[]` (21 cases); IEEE doubles, no rounding between steps.
+
+A **verdict backs** a claim when `verdict == "backed" && confidence ≥ 0.6`.
+- **frames judge backs claim c**: chain has ≥ 1 frame AND (if `judge.claims` is a non-empty list: its entry for `c.id`
+  backs; else `judge.verdict == "consistent" && judge.confidence ≥ 0.6`).
+- **video review backs claim c**: `videoReview.status == "done"`, ≥ 1 clip `uploaded && hashOk`, and its entry for
+  `c.id` backs.
+
+**Requirement met** (`r`, for claim `c = r.claimId`):
+| evidence | met when |
+|---|---|
+| `video` | a clip with `uploaded && hashOk == true && durationMs > 0 && durationMs ≥ (minSeconds ?? 0) × 1000` exists **and** the video review backs c |
+| `frames` | the frames judge backs c |
+| `gps` | ≥ 1 GPS fix with accuracy ≤ 100 m |
+| `motion` | non-zero motion samples spanning ≥ (`minSeconds` or 10) s (last t − first t) |
+| `witness` | an answered (`witness_answer`, not skip) request whose `witness` event has `rid == r.id`, or has no `rid` (pre-v4 clients) |
+
+**Cheating detected** iff any signal, collected in this order (≤ 6 kept):
+`!chain` → `"chain: hashes do not link"` · `!timing` → `"timing: clock does not add up"` · `!physics` →
+`"physics: impossible movement"` · skeptic `inconsistent` → `"skeptic: " + (reasons[0] ?? "fake signal")` · any clip
+`uploaded && hashOk == false` → `"video: clip does not match the chain"` · `videoReview.status == "done" &&
+cheating.detected` → `"video: " + s` per signal (or `"video: cheating detected"` if none).
+
+**Per claim, in order:**
+1. `p = b`.
+2. `met`/`unmet` = its requirements split by the table; `minimumMet = requirements.length > 0 && unmet == []`.
+3. `minimumMet && !cheating` → `p = max(p, bar)` — **the minimum evidence earns the bar.** `sealP = p`.
+4. Ladder modules, in run order (v4.6): for each module, for each claim it backs: verdict backs →
+   `p = p + s(1 − p)`, else (not_backed, unclear, low confidence, **missing**) → `p = p(1 − s)`. Modules work on the
+   uncapped p.
+5. Cheating → reported `p = min(p, 0.1)` (also for each module's before/after).
+
+`backedBy` (in this order): `"video_review"` if the video review backs it, `"frames_judge"` if the frames judge backs
+it, `"gps"`/`"motion"`/`"witness"` if it has a met requirement of that evidence, then each module id that counted a
+pass for it (run order).
+
+**Moment**: `score = min over claims of p`; `claimsBacked = #claims with p ≥ bar`.
+Checks: `chain, timing, physics, frames` as v3; **`ai` = NOT (judge.verdict == "inconsistent" && confidence ≥ 0.6)**;
+**`cheating` = no cheating detected**; **`bar` = every claim p ≥ bar**. `sealed` = all seven. `verified = sealed`.
+`ladderEligible = chain && timing && physics && frames && cheating` (no score needed: the baseline defaults to 0.2).
+
+### v4.6 Seal v4, verification v4, modules back claims
+
+```
+Seal (v4) = { sealed, at, updatedAt, checks: { chain, timing, physics, frames, ai, cheating, bar }, reason,
+              version: 4, ladderEligible, cheatingSignals: string[] (≤6) }
+verification (v4) = { version: 4, baseline: number|null, baselineUsed: number, score: number, bar: number,
+                      verified: boolean, cheating: { detected, signals }, claimsBacked: number,
+                      claims: ClaimScore[], modules: LadderResult[], updatedAtServer }
+ClaimScore = { id, p, sealP, met: string[], unmet: string[], minimumMet: boolean, backedBy: string[] }
+```
+`reason` (UI words, first that applies): cheating → `"Cheating detected: " + signals.join("; ")`; an integrity check →
+the v3 reason; `!ai` → `"The proof frames contradict the intention"`; `!bar` → `"<k> of <n> claims backed · <text of
+the lowest claim> <p> < bar <bar>"` (2 decimals); sealed → `"All <n> claims backed · score <s> ≥ bar <bar>"`.
+Which seal: **every seal written by v4 functions is v4** (incl. Moments from old clients: they get server claims);
+`seal.version ≤ 3` Moments are never re-sealed and their ladder runs keep v3 math. Seal and verification are written
+in one transaction as in v3.5.
+
+**Modules back claim kinds** (`shared/ladder.json` `backs[]`):
+| module | backs | note |
+|---|---|---|
+| `second_look` | action, object, outcome | |
+| `place_time` | place, time | |
+| `witness_review` | all kinds, `backsTargetedOnly: true` | only claims whose requirements an answered request targeted (`rid`); any answered request without `rid` → all claims |
+| `count_measure` | count, measure | need `quantities` = a server claim of kind count/measure (v4) / `intention.quantities` (v3) |
+| `full_video` | all kinds | deeper second pass (stricter, frame-by-frame count); clip is already uploaded at submit |
+| `human_review` | all kinds | `available: false` |
+
+A module is **offered** (v4 Moments) only if it backs ≥ 1 claim (after `backsTargetedOnly`) and its `needs` are met;
+the offer row lists those claims. Each module prompt gets `{{claims}}` (only the claims it backs; `[]` for v3 Moments)
+and returns, besides v3's `passed/confidence/reasons(/measured)`, `claims: [{id, verdict, confidence, reasons,
+measured?}]`. Code uses the per-claim verdicts for v4 Moments (v4.5 step 4) and the overall `passed` for v3 Moments.
+`LadderResult` (v4) adds `claims: ModuleClaimOutcome[]`:
+```
+ModuleClaimOutcome = { id, verdict: "backed"|"not_backed"|"unclear"|"missing", confidence, passed: boolean,
+                       before: number, after: number, reasons: string[] (≤2), measured?: {value, unit} }
+```
+and its `passed` = every backed claim passed; `confidence` = the model's overall; `before`/`after` = the Moment score.
+After a run the function recomputes **all** claims from `sealP` with every module in run order (v4.5 step 4-5), then
+`score`, `claimsBacked`, `checks.bar`, `sealed`, `reason`, `updatedAt`, `status`, feed — as v3.5 does.
+
+### v4.7 Callables (changes only)
+
+`getCredits`: unchanged. `runLadderModule` request unchanged; response adds (v4 Moments):
+```
+claims: ModuleClaimOutcome[], claimScores: ClaimScore[], claimsBacked: number
+```
+`passed`, `before`, `after`, `score`, `verified`, `status` keep their v3 meaning (overall). New `failed-precondition`
+reason: `no_claims_backed` (the module backs none of this Moment's claims). `needs_quantities`
+now means "no count/measure claim" on v4 Moments. `full_video` on a v4 Moment uses the clip already uploaded at submit;
+`clip_missing` stays for v3 Moments and expired uploads. No new callables (seal, video review and expiry are triggers).
+
+### v4.8 Feed v4 (`feed/{momentId}`, Function-only)
+
+Adds to v3.8: `sealVersion: 4`,
+`claims: [{ id, kind, text, p, backed: boolean /* p ≥ bar */, backedBy: string[], met: number, total: number }]`,
+`claimsBacked: number`, `claimsTotal: number`, `cheating: boolean`, `cheatingSignals: string[]`,
+`video: { reviewed: boolean /* status done */, summary: string|null, status }`,
+`plan: { recordMode, requirements: [{ id, claimId, evidence, ask, met: boolean }] }`.
+`verificationScore` = `verification.score` (the min). `baselineScore` = `verification.baselineUsed`.
+Card: badge unchanged + chip **"2/2 claims backed"**.
+
+### v4.9 Rules delta
+
+| Path | Change |
+|---|---|
+| `moments/{id}` | **`claims`, `plan`, `videoReview` join `seal`, `bar`, `verification` as server-only** (create only as null/absent; never changed by a client). `intention.claims` (list ≤ 5) and `intention.plan` (map: `requirements` list ≤ 6, `recordMode` in video/photo) are validated when written; like the whole intention, writable only while `status == "recording"` (incl. the submit update). |
+| `videoLeases/{id}` | server-only (no client access; default deny, like `barLeases`) |
+| Storage `clips/{uid}/{momentId}/{sha}.{ext}` | adds **`get` for the owner** (metadata check before an idempotent re-upload); create now also requires `resource == null` (an upload over an existing object evaluated as create, so clips could be overwritten); no list/update/delete |
+
+Tests: `functions/test/rules.test.ts` (Firestore) and `functions/test/storage.rules.test.ts` (Storage), both in
+`npm run test:rules` (emulators `firestore,storage`).
+
+### v4.10 Prompts and hybrid map (v4 changes)
+
+| Prompt | Mode | Runs in | v4 change |
+|---|---|---|---|
+| `interviewTurn` | PREFER_ON_DEVICE | client | `draft.claims`, `draft.plan` |
+| `structureIntention` | ONLY_IN_CLOUD | client | `claims`, `plan` |
+| `witnessDraft` / `witnessRefine` | PREFER_ON_DEVICE / ONLY_IN_CLOUD | client | new vars `{{plan}}` (JSON) and `{{unmet}}` (JSON list of unmet requirements `{id, claimId, evidence, ask}`); output `requirementId` ("" if none) |
+| `judge` | ONLY_IN_CLOUD | client | new var `{{claims}}` (server claims, JSON); output `claims: [{id, verdict, confidence}]` |
+| `skeptic`, `scorer`, `liveCheck`, `barPreview` | as v3 | client | unchanged |
+| `barAndClaims` | ONLY_IN_CLOUD | functions | **new** (v4.3): difficulty, rationale, factors, claims, plan |
+| `videoReview` | ONLY_IN_CLOUD | functions | **new** (v4.4): claims verdicts, cheating, summary |
+| `bar` | ONLY_IN_CLOUD | functions | kept, unused by v4 code |
+| `module*` | ONLY_IN_CLOUD | functions | new var `{{claims}}`; output `claims[]` per-claim verdicts |
+
+None of them can verify: the on-device model still only coaches/drafts; cloud models propose verdicts; code decides.
+
+**Client judge timing.** After submit (online, signed in), the client waits for the server `claims` on the Moment
+(snapshot listener, ≤ 30 s), then runs judge + skeptic + scorer with `{{claims}}` = `claims.items` as JSON. If no
+server claims arrived in time, `{{claims}}` = `[]` (the judge then returns `claims: []` and the seal falls back to its
+overall verdict). Write `judge.claims` as returned (inside `judge`, same update as v3).
+
+**Witness chain event (v4).** `witness` events gain an optional last key `rid` (the plan requirement the request
+serves, from `requirementId`; omitted when ""): `{"t","type":"witness","wid","ask","kind","by","rid"}`. Vector:
+`shared/test-vectors-v4.json` `videoChain`. The witness asks for **unmet requirements first**; pacing as v3.4.
+
+### v4.11 UI words (all platforms, same words)
+
+- **Interview end card**: claims as chips (`clapping` · `50 claps`), then **"To get this verified"** with one row per
+  requirement (`ask`, evidence icon, `minSeconds` as "≥ 20 s"), the plan `note`, then "Bar ≈ 0.52 (preview)" and
+  **Start Moment**. Record screen opens in `recordMode` ("Video" / "Photo").
+- **Record screen**: the checklist under the timer: `○ One continuous video of all 50 claps` → `● captured` when the
+  local evidence exists. Witness prompts for unmet items first.
+- **Finish / sync**: "Uploading video · 34 MB" → "Video uploaded" → "Reviewing video" (server `running`) → sealed.
+  Waiting: "Waiting for video upload". Expired: "Video never arrived · sealed without it".
+- **Detail**: overall verdict on top (**Verified ✓** / **Not verified**, "score 0.52 · bar 0.52", "2/2 claims backed").
+  One row per claim: `clapping ✓ backed by video review` (backed, p ≥ bar) or `50 claps · 0.40 / bar 0.52` (not
+  backed), its requirements as `✓ met` / `○ not met` with `ask`, and the modules that can still back it with
+  previews ("Count & measure · if it passes → 0.58 · if it fails → 0.28"). Source labels: `video_review` "video
+  review", `frames_judge` "proof shots", `gps` "GPS", `motion` "motion", `witness` "witness", module ids → module title.
+  Cheating: red banner "Cheating detected" + signals.
+- **Feed card**: badge unchanged + chip "2/2 claims backed"; cheating → "Not verified · cheating detected".
+
+Previews on the detail are computed locally with the v4.5 math (module pass/fail on just that claim), exactly like the
+v3 previews but per claim.
+
 ## Repo layout
 
 ```
 docs/ARCHITECTURE.md  this file
-shared/               prompts.json, ladder.json, test-vectors.json, test-vectors-v3.json, sample-moments/ (seed data)
+shared/               prompts.json, ladder.json, test-vectors.json, test-vectors-v3.json, test-vectors-v4.json
+                      (+ make-test-vectors*.mjs generators; v4 is the reference scoring), sample-moments/ (seed data)
 functions/            Cloud Function (TS) + emulator tests
 firestore.rules, storage.rules, firestore.indexes.json, firebase.json
 web/                  React app (feed public, recorder)

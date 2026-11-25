@@ -3,6 +3,8 @@ rules_version = '2';
 // Verified — authoritative security rules. Contract: docs/ARCHITECTURE.md.
 // The seal and the public feed are written ONLY by the Cloud Function (Admin SDK bypasses rules).
 // v3: the bar, the verification (final score + ladder results) and the credits ledger are also server-only.
+// v4: the authoritative claims, the evidence plan and the video review are server-only too; the client's draft claims
+// and plan live inside the intention (frozen once recording ends). Leases (barLeases, videoLeases) have no match: denied.
 // Guests (not signed in) write nothing: they read the public feed and keep their Moments in the local raw vault
 // until they sign in and claim them (docs/ARCHITECTURE.md "v3 · Guest mode").
 service cloud.firestore {
@@ -52,13 +54,27 @@ service cloud.firestore {
       // Fields only the Cloud Functions write. A client may create them as null (the raw vault re-creates with
       // seal: null), never with a value, and never change them afterwards.
       function serverOnlyKeys() {
-        return ['seal', 'bar', 'verification'];
+        return ['seal', 'bar', 'verification', 'claims', 'plan', 'videoReview'];
       }
       function unsetOnCreate(k) {
         return !(k in request.resource.data) || request.resource.data[k] == null;
       }
       function serverFieldsUnsetOnCreate() {
-        return unsetOnCreate('seal') && unsetOnCreate('bar') && unsetOnCreate('verification');
+        return unsetOnCreate('seal') && unsetOnCreate('bar') && unsetOnCreate('verification')
+          && unsetOnCreate('claims') && unsetOnCreate('plan') && unsetOnCreate('videoReview');
+      }
+      // v4: the client's draft claims (≤ 5) and evidence plan (≤ 6 requirements) inside the intention.
+      function draftOk(i) {
+        return (!('claims' in i) || i.claims == null || (i.claims is list && i.claims.size() <= 5))
+          && (!('plan' in i) || i.plan == null
+              || (i.plan is map
+                  && i.plan.requirements is list && i.plan.requirements.size() <= 6
+                  && i.plan.recordMode in ['video', 'photo']));
+      }
+      function intentionOk() {
+        return !('intention' in request.resource.data)
+          || !(request.resource.data.intention is map)
+          || draftOk(request.resource.data.intention);
       }
 
       // `resource == null` lets an offline-first client probe a not-yet-synced id without a permission error.
@@ -69,7 +85,8 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.status == 'recording'
-        && serverFieldsUnsetOnCreate();
+        && serverFieldsUnsetOnCreate()
+        && intentionOk();
 
       allow update: if signedIn()
         && resource.data.ownerUid == request.auth.uid
@@ -80,6 +97,7 @@ service cloud.firestore {
         // (the recording → submitted update itself may still carry it).
         && (resource.data.status == 'recording'
             || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['intention']))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['intention']) || intentionOk())
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'recording' && request.resource.data.status == 'submitted'));
 

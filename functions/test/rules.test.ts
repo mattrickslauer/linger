@@ -249,6 +249,71 @@ describe("v3: credits", () => {
   });
 });
 
+describe("v4: claims, plan, videoReview server-only; draft claims/plan inside the intention", () => {
+  const claims = [
+    { id: "c1", kind: "action", text: "clapping" },
+    { id: "c2", kind: "count", text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+  ];
+  const plan = {
+    requirements: [
+      { id: "r1", claimId: "c1", evidence: "video", ask: "Clap on camera" },
+      { id: "r2", claimId: "c2", evidence: "video", ask: "One continuous video of all 50 claps", minSeconds: 20 },
+    ],
+    recordMode: "video",
+    note: "One continuous clip is enough.",
+  };
+  const v4intention = { text: "Clap 50 times", category: "fitness", v: 4, claims, plan };
+
+  it("create may carry claims/plan/videoReview only as null; draft claims + plan in the intention are fine", async () => {
+    await assertSucceeds(setDoc(doc(alice(), "moments/m1"), newMoment("alice", { intention: v4intention, claims: null, plan: null, videoReview: null })));
+    await assertFails(setDoc(doc(alice(), "moments/m2"), newMoment("alice", { claims: { items: claims } })));
+    await assertFails(setDoc(doc(alice(), "moments/m3"), newMoment("alice", { plan })));
+    await assertFails(setDoc(doc(alice(), "moments/m4"), newMoment("alice", { videoReview: { status: "done" } })));
+  });
+  it("owner can never write claims, plan or videoReview, before or after submit", async () => {
+    await admin("moments/m1", newMoment());
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { claims: { items: claims } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { plan }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { videoReview: { status: "none" } }));
+    await admin("moments/m2", newMoment("alice", { status: "submitted", claims: { items: claims }, plan, videoReview: { status: "waiting" } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m2"), { claims: null }));
+    await assertFails(updateDoc(doc(alice(), "moments/m2"), { plan: { ...plan, requirements: [] } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m2"), { videoReview: { status: "expired" } }));
+    // the cloud review still works after submit
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m2"), { judge: { verdict: "consistent", claims: [{ id: "c1", verdict: "backed", confidence: 0.8 }] }, skeptic: { verdict: "consistent" } }));
+  });
+  it("intention.claims / intention.plan are writable while recording (and on the submit update), frozen after", async () => {
+    await admin("moments/m1", newMoment());
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m1"), { intention: v4intention }));
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m1"), { status: "submitted", chunkCount: 1, headHash: "h", intention: { ...v4intention, plan: { ...plan, note: "tightened" } } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { intention: { ...v4intention, claims: [] } }));
+    await assertFails(updateDoc(doc(alice(), "moments/m1"), { "intention.plan": null }));
+  });
+  it("draft claims ≤ 5, plan requirements ≤ 6, recordMode video|photo", async () => {
+    const six = [1, 2, 3, 4, 5, 6].map((n) => ({ id: `c${n}`, kind: "action", text: "x" }));
+    const seven = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: `r${n}`, claimId: "c1", evidence: "frames", ask: "x" }));
+    await assertFails(setDoc(doc(alice(), "moments/m1"), newMoment("alice", { intention: { ...v4intention, claims: six } })));
+    await assertFails(setDoc(doc(alice(), "moments/m2"), newMoment("alice", { intention: { ...v4intention, plan: { ...plan, requirements: seven } } })));
+    await assertFails(setDoc(doc(alice(), "moments/m3"), newMoment("alice", { intention: { ...v4intention, plan: { ...plan, recordMode: "audio" } } })));
+    await assertFails(setDoc(doc(alice(), "moments/m4"), newMoment("alice", { intention: { ...v4intention, claims: "c1" } })));
+    await assertSucceeds(setDoc(doc(alice(), "moments/m5"), newMoment("alice", { intention: { ...v4intention, plan: null } })));
+    await admin("moments/m6", newMoment());
+    await assertFails(updateDoc(doc(alice(), "moments/m6"), { intention: { ...v4intention, claims: six } }));
+    await assertSucceeds(updateDoc(doc(alice(), "moments/m6"), { intention: { ...v4intention, claims: six.slice(0, 5) } }));
+  });
+  it("public reads of a sealed v4 Moment include its claims, plan and video review; videoLeases are server-only", async () => {
+    await admin("moments/m1", newMoment("alice", { status: "sealed", claims: { items: claims }, plan, videoReview: { status: "done" } }));
+    await assertSucceeds(getDoc(doc(anon(), "moments/m1")));
+    await admin("moments/m2", newMoment("alice", { status: "submitted", videoReview: { status: "waiting" } }));
+    await assertSucceeds(getDoc(doc(alice(), "moments/m2")));
+    await assertFails(getDoc(doc(bob(), "moments/m2")));
+    await admin("videoLeases/m1", { at: 1 });
+    await assertFails(getDoc(doc(alice(), "videoLeases/m1")));
+    await assertFails(getDoc(doc(anon(), "videoLeases/m1")));
+    await assertFails(setDoc(doc(alice(), "videoLeases/m2"), { at: 1 }));
+  });
+});
+
 describe("feed and users", () => {
   it("public can read the feed; nobody can write it", async () => {
     await admin("feed/m1", { status: "sealed" });

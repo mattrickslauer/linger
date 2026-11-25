@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "note": "Verification ladder catalog (docs/ARCHITECTURE.md, v3). Clients show these offers and previews; only the runLadderModule Cloud Function runs a module, spends credits and recomputes the score. Pass: p' = p + s*(1-p). Fail: p' = p*(1-s). Each module runs at most once per Moment, in any order. Credits are spent whether it passes or fails.",
+  "version": 4,
+  "note": "Verification ladder catalog (docs/ARCHITECTURE.md v3.6 + v4.6). v4: every module lists the claim kinds it `backs`; it is offered for a claim only if it backs that claim's kind and its `needs` are met, and it moves only those claims' scores (witness_review with backsTargetedOnly: only claims whose requirements an answered witness request targeted). Clients show these offers and previews; only the runLadderModule Cloud Function runs a module, spends credits and recomputes the score. Pass: p' = p + s*(1-p). Fail: p' = p*(1-s). Each module runs at most once per Moment, in any order. Credits are spent whether it passes or fails.",
   "freeCredits": 10,
   "passConfidence": 0.6,
   "modules": [
@@ -12,6 +12,7 @@
       "strength": 0.2,
       "available": true,
       "needs": ["frames"],
+      "backs": ["action", "object", "outcome"],
       "prompt": "moduleSecondLook"
     },
     {
@@ -22,6 +23,7 @@
       "strength": 0.2,
       "available": true,
       "needs": ["frames", "gps"],
+      "backs": ["place", "time"],
       "prompt": "modulePlaceTime"
     },
     {
@@ -32,6 +34,8 @@
       "strength": 0.3,
       "available": true,
       "needs": ["witness_answered"],
+      "backs": ["action", "count", "measure", "place", "time", "object", "outcome"],
+      "backsTargetedOnly": true,
       "prompt": "moduleWitnessReview"
     },
     {
@@ -42,6 +46,7 @@
       "strength": 0.3,
       "available": true,
       "needs": ["quantities"],
+      "backs": ["count", "measure"],
       "prompt": "moduleCountMeasure"
     },
     {
@@ -52,6 +57,7 @@
       "strength": 0.45,
       "available": true,
       "needs": ["video"],
+      "backs": ["action", "count", "measure", "place", "time", "object", "outcome"],
       "prompt": "moduleFullVideo"
     },
     {
@@ -62,14 +68,16 @@
       "strength": 0.6,
       "available": false,
       "needs": ["frames"],
+      "backs": ["action", "count", "measure", "place", "time", "object", "outcome"],
       "prompt": null
     }
   ],
+  "kinds": ["action", "count", "measure", "place", "time", "object", "outcome"],
   "needs": {
     "frames": "at least one proof frame in the chain",
     "gps": "at least one GPS sample in the chain",
     "witness_answered": "at least one witness_answer event in the chain",
-    "quantities": "intention.quantities has at least one entry",
-    "video": "a `video` event in the chain AND the clip uploaded to Storage at clips/{uid}/{momentId}/{sha256}.mp4 (the function re-hashes it)"
+    "quantities": "v4 seals: a server claim (moments/{id}.claims) of kind count or measure; v3 seals: intention.quantities has at least one entry",
+    "video": "a `video` event in the chain AND the clip uploaded to Storage at clips/{uid}/{momentId}/{sha256}.{mp4|mov|webm} (v4: uploaded at submit; the function re-hashes it)"
   }
 }
