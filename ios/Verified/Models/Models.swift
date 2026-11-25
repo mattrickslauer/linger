@@ -32,10 +32,12 @@ struct AiOpinion: Sendable, Equatable {
   var reasons: [String]
   var model: String
   var ranAt: Int64
+  /// v4 judge only: per-claim verdicts (`judge.claims`), nil for the skeptic and pre-v4 judges.
+  var claims: [V4.Verdict]?
 
-  init(verdict: String, confidence: Double, reasons: [String], model: String, ranAt: Int64) {
+  init(verdict: String, confidence: Double, reasons: [String], model: String, ranAt: Int64, claims: [V4.Verdict]? = nil) {
     self.verdict = verdict; self.confidence = confidence; self.reasons = reasons
-    self.model = model; self.ranAt = ranAt
+    self.model = model; self.ranAt = ranAt; self.claims = claims
   }
 
   init?(_ d: [String: Any]?) {
@@ -45,10 +47,86 @@ struct AiOpinion: Sendable, Equatable {
     reasons = d["reasons"] as? [String] ?? []
     model = d.str("model") ?? ""
     ranAt = d.i64("ranAt") ?? 0
+    claims = (d["claims"] as? [[String: Any]]).map { $0.compactMap(V4Parse.verdict) }
   }
 
   var firestoreData: [String: Any] {
-    ["verdict": verdict, "confidence": confidence, "reasons": reasons, "model": model, "ranAt": ranAt]
+    var d: [String: Any] = ["verdict": verdict, "confidence": confidence, "reasons": reasons, "model": model, "ranAt": ranAt]
+    if let claims {
+      d["claims"] = claims.map { ["id": $0.id, "verdict": $0.verdict, "confidence": $0.confidence ?? 0] as [String: Any] }
+    }
+    return d
+  }
+}
+
+/// Parsing helpers for the v4 server fields (docs/ARCHITECTURE.md v4.4–v4.8).
+nonisolated enum V4Parse {
+  static func verdict(_ d: [String: Any]) -> V4.Verdict? {
+    guard let id = d.str("id"), let v = d.str("verdict") else { return nil }
+    return V4.Verdict(id: id, verdict: v, confidence: d.dbl("confidence"))
+  }
+}
+
+/// One claim's score (`verification.claims[]` on the Moment, or the feed's `claims[]`).
+struct ClaimScoreInfo: Sendable, Equatable {
+  var p: Double
+  var sealP: Double?
+  var backedBy: [String]
+  /// Requirement ids met / not met (Moment doc). The feed only has counts.
+  var met: [String] = []
+  var unmet: [String] = []
+  var metCount: Int
+  var total: Int
+  var minimumMet: Bool?
+
+  init?(_ d: [String: Any]) {
+    guard let p = d.dbl("p") else { return nil }
+    self.p = p
+    sealP = d.dbl("sealP")
+    backedBy = d["backedBy"] as? [String] ?? []
+    met = d["met"] as? [String] ?? []
+    unmet = d["unmet"] as? [String] ?? []
+    // Moment: met/unmet are id lists; feed: met/total are numbers.
+    metCount = d.int("met") ?? met.count
+    total = d.int("total") ?? (met.count + unmet.count)
+    minimumMet = d.bool("minimumMet")
+  }
+}
+
+/// `moments/{id}.videoReview` (server-only) or the feed's `video`.
+struct VideoReviewInfo: Sendable, Equatable {
+  struct ClaimVerdict: Sendable, Equatable {
+    var verdict: V4.Verdict
+    var reasons: [String]
+    var measured: String?
+  }
+  var status: String  // waiting|running|done|failed|expired|none
+  var summary: String?
+  var reason: String?
+  var clipsTotal = 0
+  var clipsUploaded = 0
+  var claims: [String: ClaimVerdict] = [:]
+  var cheatingSignals: [String] = []
+
+  init(status: String, summary: String?) { self.status = status; self.summary = summary }
+
+  init?(_ d: [String: Any]?) {
+    guard let d, let status = d.str("status") else { return nil }
+    self.status = status
+    summary = d.str("summary").flatMap { $0.isEmpty ? nil : $0 }
+    reason = d.str("reason")
+    let clips = d["clips"] as? [[String: Any]] ?? []
+    clipsTotal = clips.count
+    clipsUploaded = clips.filter { $0.bool("uploaded") == true }.count
+    for c in d["claims"] as? [[String: Any]] ?? [] {
+      guard let v = V4Parse.verdict(c) else { continue }
+      let m = c.obj("measured")
+      let measured = m.flatMap { m in
+        m.dbl("value").map { "\(formatValue($0)) \(m.str("unit") ?? "")".trimmingCharacters(in: .whitespaces) }
+      }
+      claims[v.id] = ClaimVerdict(verdict: v, reasons: c["reasons"] as? [String] ?? [], measured: measured)
+    }
+    cheatingSignals = d.obj("cheating")?["signals"] as? [String] ?? []
   }
 }
 
@@ -131,7 +209,30 @@ struct LadderEntry: Sendable, Equatable, Identifiable {
   var reasons: [String]
   var measured: [Measured] = []
   var model: String?
+  /// v4 `ModuleClaimOutcome[]`: which claims this module moved, and how.
+  var claims: [ClaimOutcome] = []
   var id: String { runId.isEmpty ? module : runId }
+
+  struct ClaimOutcome: Sendable, Equatable, Identifiable {
+    var id: String
+    var verdict: String
+    var confidence: Double
+    var passed: Bool
+    var before: Double
+    var after: Double
+    var reasons: [String]
+
+    init?(_ d: [String: Any]) {
+      guard let id = d.str("id") else { return nil }
+      self.id = id
+      verdict = d.str("verdict") ?? "missing"
+      confidence = d.dbl("confidence") ?? 0
+      passed = d.bool("passed") ?? false
+      before = d.dbl("before") ?? 0
+      after = d.dbl("after") ?? 0
+      reasons = d["reasons"] as? [String] ?? []
+    }
+  }
 
   init?(_ d: [String: Any]) {
     guard let module = d.str("module") else { return nil }
@@ -150,6 +251,7 @@ struct LadderEntry: Sendable, Equatable, Identifiable {
       return Measured(metric: metric, value: v, unit: m.str("unit") ?? "")
     }
     model = d.str("model")
+    claims = (d["claims"] as? [[String: Any]] ?? []).compactMap(ClaimOutcome.init)
   }
 }
 
@@ -194,6 +296,23 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var witnessAnswered = 0
   var witnessSkipped = 0
   var recordedAsGuest = false
+  // v4
+  /// Server claims (`moments/{id}.claims.items` / feed `claims`) when present, else the intention's draft claims.
+  var claims: [Claim] = []
+  var claimsFromServer = false
+  /// Server plan (`moments/{id}.plan` / feed `plan`) when present, else the intention's draft plan.
+  var plan: EvidencePlan?
+  /// Feed only: which plan requirements the server counted as met.
+  var planMet: Set<String> = []
+  var claimScores: [String: ClaimScoreInfo] = [:]
+  var claimsBacked: Int?
+  var cheating = false
+  var cheatingSignals: [String] = []
+  var videoReview: VideoReviewInfo?
+
+  /// Sealed (or being sealed) under the v4 rules: per-claim scores.
+  var isV4: Bool { (sealVersion ?? 0) >= 4 || claimsFromServer }
+  var claimsTotal: Int { claims.count }
 
   var isVerified: Bool { status == "sealed" }
   /// Score shown against the bar: the final (ladder) score, else the scorer's probability.
@@ -240,6 +359,27 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
       c.witnessAsked = w.int("asked") ?? 0; c.witnessAnswered = w.int("answered") ?? 0; c.witnessSkipped = w.int("skipped") ?? 0
     }
     if let b = c.bar, let s = c.finalScore { c.verifiedByScore = s >= b.value }
+    // v4.8
+    if let fc = d["claims"] as? [[String: Any]], !fc.isEmpty {
+      let n = V4.normalizeClaims(fc)
+      c.claims = n.claims
+      c.claimsFromServer = true
+      for raw in fc {
+        if let old = raw.str("id"), let id = n.remap[old], let score = ClaimScoreInfo(raw) { c.claimScores[id] = score }
+      }
+    } else {
+      c.claims = c.structured?.claims ?? []
+    }
+    if let fp = d.obj("plan") {
+      c.plan = V4.normalizePlan(fp, remap: [:], claims: c.claims)
+      c.planMet = Set((fp["requirements"] as? [[String: Any]] ?? []).compactMap { $0.bool("met") == true ? $0.str("id") : nil })
+    } else {
+      c.plan = c.structured?.plan
+    }
+    c.claimsBacked = d.int("claimsBacked")
+    c.cheating = d.bool("cheating") ?? false
+    c.cheatingSignals = d["cheatingSignals"] as? [String] ?? []
+    if let v = d.obj("video"), let st = v.str("status") { c.videoReview = VideoReviewInfo(status: st, summary: v.str("summary")) }
     return c
   }
 
@@ -261,11 +401,34 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     if let w = d.obj("witness") {
       c.witnessAsked = w.int("asked") ?? 0; c.witnessAnswered = w.int("answered") ?? 0; c.witnessSkipped = w.int("skipped") ?? 0
     }
+    // v4: server claims/plan (server-only), per-claim scores, cheating, video review.
+    if let items = d.obj("claims")?["items"] as? [[String: Any]], !items.isEmpty {
+      let n = V4.normalize(claims: items, plan: d.obj("plan"))
+      c.claims = n.claims
+      c.plan = n.plan ?? c.structured?.plan
+      c.claimsFromServer = true
+    } else {
+      c.claims = c.structured?.claims ?? []
+      c.plan = c.structured?.plan
+    }
+    if let v = d.obj("verification") {
+      for raw in v["claims"] as? [[String: Any]] ?? [] {
+        if let id = raw.str("id"), let score = ClaimScoreInfo(raw) { c.claimScores[id] = score }
+      }
+      c.claimsBacked = v.int("claimsBacked")
+      if let ch = v.obj("cheating") {
+        c.cheating = ch.bool("detected") ?? false
+        c.cheatingSignals = ch["signals"] as? [String] ?? []
+      }
+    }
+    if let sig = seal?["cheatingSignals"] as? [String], !sig.isEmpty { c.cheatingSignals = sig; c.cheating = true }
+    if seal?.obj("checks")?.bool("cheating") == false { c.cheating = true }
+    c.videoReview = VideoReviewInfo(d.obj("videoReview"))
     return c
   }
 
   static func structured(_ intention: [String: Any]) -> StructuredIntention? {
-    guard intention.int("v") == 3 else { return nil }
+    guard (intention.int("v") ?? 0) >= 3 else { return nil }
     let place = intention.obj("place")
     let loc = place.flatMap { p in p.dbl("lat").flatMap { lat in p.dbl("lng").map { (lat: lat, lng: $0) } } }
     var s = StructuredIntention(json: intention, location: loc)

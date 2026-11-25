@@ -43,7 +43,7 @@ struct InterviewCard: View {
         .accessibilityLabel("Talk it through")
         VStack(alignment: .leading, spacing: 4) {
           Text("Talk it through").font(.title3.bold())
-          Text("Say what you're about to do. Your witness asks up to 3 quick questions, then sets the bar it must reach.")
+          Text("Say what you're about to do. Your witness asks up to 3 quick questions, splits it into claims and tells you the minimum evidence to get it verified.")
             .font(.subheadline).foregroundStyle(.secondary)
         }
       }
@@ -187,7 +187,11 @@ struct IntentionSummary: View {
       if let place = result.place?.label {
         Label(place, systemImage: "mappin.and.ellipse").font(.subheadline).foregroundStyle(.secondary)
       }
-      if !result.quantities.isEmpty || result.expectedMinutes != nil {
+      if !result.claims.isEmpty {
+        // v4: claims + "To get this verified" (the evidence plan) replace the quantity chips.
+        PlanSummary(claims: result.claims, plan: result.plan, removeClaim: { iv.removeClaim($0) })
+        if let m = result.expectedMinutes { Chip(text: "~\(Int(m)) min", systemImage: "clock") }
+      } else if !result.quantities.isEmpty || result.expectedMinutes != nil {
         FlowChips {
           ForEach(result.quantities) { q in
             Button { iv.removeQuantity(q) } label: {

@@ -1,0 +1,189 @@
+import SwiftUI
+import VerifiedCore
+
+// v4 building blocks shared by the interview card, the record screen and the detail screen (docs/ARCHITECTURE.md
+// v4.11 words: "To get this verified", "captured", "✓ met" / "○ not met", "backed by video review").
+
+extension ClaimKind {
+  var icon: String {
+    switch self {
+    case .action: "figure.wave"
+    case .count: "number"
+    case .measure: "ruler"
+    case .place: "mappin.and.ellipse"
+    case .time: "clock"
+    case .object: "cube"
+    case .outcome: "flag.checkered"
+    }
+  }
+}
+
+extension Evidence {
+  var icon: String {
+    switch self {
+    case .video: "video.fill"
+    case .frames: "camera.fill"
+    case .gps: "location.fill"
+    case .motion: "waveform.path.ecg"
+    case .witness: "person.wave.2.fill"
+    }
+  }
+
+  var label: String {
+    switch self {
+    case .video: "video"
+    case .frames: "proof shots"
+    case .gps: "GPS"
+    case .motion: "motion"
+    case .witness: "witness"
+    }
+  }
+}
+
+enum V4Words {
+  /// Source labels for `backedBy` (v4.11).
+  static func source(_ s: String) -> String {
+    switch s {
+    case "video_review": "video review"
+    case "frames_judge": "proof shots"
+    case "gps": "GPS"
+    case "motion": "motion"
+    case "witness": "witness"
+    default: LadderCatalog.shared.module(s)?.title ?? s
+    }
+  }
+
+  static func backedBy(_ sources: [String]) -> String {
+    sources.isEmpty ? "" : "backed by " + sources.map(source).joined(separator: " + ")
+  }
+
+  /// "≥ 20 s"
+  static func minSeconds(_ s: Double?) -> String? {
+    guard let s, s > 0 else { return nil }
+    return s >= 120 && s.truncatingRemainder(dividingBy: 60) == 0 ? "≥ \(Int(s / 60)) min" : "≥ \(Int(s.rounded())) s"
+  }
+
+  static func p(_ v: Double) -> String { String(format: "%.2f", v) }
+}
+
+/// "clapping" · "50 claps": one chip per claim. Tappable for removal on the interview card.
+struct ClaimChip: View {
+  let claim: Claim
+  var removable = false
+  var tint: Color = Theme.accent
+
+  var body: some View {
+    HStack(spacing: 5) {
+      Image(systemName: claim.kind.icon).font(.caption2.weight(.bold))
+      Text(claim.text).lineLimit(1)
+      if removable { Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).opacity(0.6) }
+    }
+    .font(.subheadline.weight(.semibold))
+    .padding(.horizontal, 10).padding(.vertical, 6)
+    .foregroundStyle(tint)
+    .background(tint.opacity(0.12), in: Capsule())
+    .overlay(Capsule().stroke(tint.opacity(0.25), lineWidth: 0.5))
+    .accessibilityLabel("\(claim.kind.rawValue) claim: \(claim.text)")
+  }
+}
+
+/// One plan requirement row. `state`: nil = just the plan (interview), `.captured`/`.missing` on the record screen,
+/// `.met`/`.unmet` once the server has scored it.
+struct RequirementRow: View {
+  enum Status { case plan, captured, missing, met, unmet }
+  let requirement: Requirement
+  var claim: Claim?
+  var state: Status = .plan
+  var compact = false
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      marker
+      VStack(alignment: .leading, spacing: 2) {
+        Text(requirement.ask.isEmpty ? requirement.evidence.label.capitalized : requirement.ask)
+          .font(compact ? .footnote.weight(.medium) : .subheadline)
+          .foregroundStyle(state == .captured || state == .met ? .secondary : .primary)
+          .fixedSize(horizontal: false, vertical: true)
+        if !compact {
+          HStack(spacing: 6) {
+            Label(requirement.evidence.label, systemImage: requirement.evidence.icon)
+            if let m = V4Words.minSeconds(requirement.minSeconds) { Text(m).monospacedDigit() }
+            if let claim { Text("· \(claim.text)").lineLimit(1) }
+          }
+          .font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+      Spacer(minLength: 0)
+      trailing
+    }
+    .animation(.snappy, value: state)
+  }
+
+  @ViewBuilder private var marker: some View {
+    switch state {
+    case .plan:
+      Image(systemName: requirement.evidence.icon).font(.footnote).foregroundStyle(Theme.accent).frame(width: 18)
+    case .captured, .met:
+      Image(systemName: state == .met ? "checkmark.circle.fill" : "circle.inset.filled")
+        .foregroundStyle(Theme.accent).frame(width: 18)
+        .transition(.scale.combined(with: .opacity))
+    case .missing, .unmet:
+      Image(systemName: "circle").foregroundStyle(.secondary).frame(width: 18)
+    }
+  }
+
+  @ViewBuilder private var trailing: some View {
+    switch state {
+    case .captured: Text("captured").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+    case .met: Text("✓ met").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+    case .unmet: Text("○ not met").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+    case .missing:
+      if compact, let m = V4Words.minSeconds(requirement.minSeconds) {
+        Text(m).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+      }
+    case .plan: EmptyView()
+    }
+  }
+}
+
+/// Interview end card (v4.11): claims as chips, then "To get this verified" with one row per requirement and the note.
+struct PlanSummary: View {
+  let claims: [Claim]
+  let plan: EvidencePlan?
+  var removeClaim: ((String) -> Void)?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if !claims.isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+          Text("Claims").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+          FlowChips {
+            ForEach(claims) { c in
+              if let removeClaim, claims.count > 1 {
+                Button { removeClaim(c.id) } label: { ClaimChip(claim: c, removable: true) }.buttonStyle(.plain)
+              } else {
+                ClaimChip(claim: c)
+              }
+            }
+          }
+        }
+      }
+      if let plan, !plan.requirements.isEmpty {
+        VStack(alignment: .leading, spacing: 10) {
+          HStack {
+            Label("To get this verified", systemImage: "checklist").font(.subheadline.bold())
+            Spacer()
+            Chip(text: plan.isVideo ? "Video" : "Photo", systemImage: plan.isVideo ? "video.fill" : "camera.fill",
+                 color: plan.isVideo ? Theme.bad : Theme.accent)
+          }
+          ForEach(plan.requirements) { r in
+            RequirementRow(requirement: r, claim: claims.first { $0.id == r.claimId })
+          }
+          if !plan.note.isEmpty { Text(plan.note).font(.caption).foregroundStyle(.secondary) }
+        }
+        .padding(12)
+        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+      }
+    }
+  }
+}

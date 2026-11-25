@@ -4,7 +4,8 @@ import MapKit
 import Observation
 import VerifiedCore
 
-/// The voice interview (docs/ARCHITECTURE.md v3.2): a few spoken turns → a structured intention → a bar preview.
+/// The voice interview (docs/ARCHITECTURE.md v3.2, v4.1–v4.2): a few spoken turns → a structured intention with its
+/// claims and evidence plan → a bar preview.
 ///  - turns: `interviewTurn`, PREFER_ON_DEVICE (Apple Foundation Models first, Gemini fallback)
 ///  - final: `structureIntention`, ONLY_IN_CLOUD; offline or failing → the last on-device draft
 ///  - preview: `barPreview`, PREFER_ON_DEVICE → `bar = round2(0.5 + 0.45·difficulty)` (the binding bar is server-side)
@@ -96,6 +97,8 @@ final class InterviewModel {
   func removeAssumption(_ a: String) { result?.assumptions.removeAll { $0 == a } }
   func removeCondition(_ c: String) { result?.conditions.removeAll { $0 == c } }
   func removeQuantity(_ q: StructuredIntention.Quantity) { result?.quantities.removeAll { $0 == q } }
+  /// v4: drop a claim the AI got wrong (and its requirements).
+  func removeClaim(_ id: String) { result?.removeClaim(id) }
 
   private func reset() {
     phase = .idle

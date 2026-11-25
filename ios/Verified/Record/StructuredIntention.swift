@@ -1,8 +1,9 @@
 import Foundation
 import VerifiedCore
 
-/// `moments/{id}.intention` v3 (docs/ARCHITECTURE.md v3.2). All v3 keys are optional on the server, so a plain
-/// `{text, category}` stays valid; this type is what the voice interview produces.
+/// `moments/{id}.intention` v3/v4 (docs/ARCHITECTURE.md v3.2, v4.1, v4.2). All v3 keys are optional on the server, so
+/// a plain `{text, category}` stays valid; this type is what the voice interview produces. v4 adds the draft `claims`
+/// and evidence `plan` (the server derives the authoritative copies at submit).
 struct StructuredIntention: Equatable, Sendable {
   struct Quantity: Equatable, Sendable, Identifiable {
     var metric: String
@@ -48,6 +49,12 @@ struct StructuredIntention: Equatable, Sendable {
   var turns = 0
   var mode = "typed"  // on_device | cloud | mixed | typed
   var preview: Preview?
+  /// v4.1 draft claims (≤ 5, normalized) and v4.2 evidence plan.
+  var claims: [Claim] = []
+  var plan: EvidencePlan?
+
+  /// The plan's record mode; a plan with a video requirement starts the record screen in Video.
+  var startsInVideo: Bool { plan?.isVideo ?? false }
 
   /// From the JSON the interview / structuring prompts return (their shared `draft` shape). "" → nil, 0 → nil.
   init?(json d: [String: Any], location: (lat: Double, lng: Double)?) {
@@ -76,6 +83,16 @@ struct StructuredIntention: Equatable, Sendable {
     if let m = (d["expectedMinutes"] as? NSNumber)?.doubleValue, m > 0 { expectedMinutes = m }
     conditions = Array(((d["conditions"] as? [String]) ?? []).filter { !$0.isEmpty }.prefix(6))
     assumptions = Array(((d["assumptions"] as? [String]) ?? []).filter { !$0.isEmpty }.prefix(6))
+    let n = V4.normalize(claims: d["claims"], plan: d["plan"])
+    claims = n.claims
+    plan = n.plan
+  }
+
+  /// Drops a claim and its requirements (tap × on the card); ids are renumbered.
+  mutating func removeClaim(_ id: String) {
+    let n = V4.removing(id, claims: claims, plan: plan)
+    claims = n.claims
+    plan = n.plan
   }
 
   /// The draft shape the prompts read back as `{{draft}}` / `{{intention}}`.
@@ -85,6 +102,8 @@ struct StructuredIntention: Equatable, Sendable {
       "quantities": quantities.map { ["metric": $0.metric, "value": $0.value, "unit": $0.unit, "measuredBy": $0.measuredBy] },
       "place": ["name": place?.name ?? "", "region": place?.region ?? "", "country": place?.country ?? ""],
       "expectedMinutes": expectedMinutes ?? 0, "conditions": conditions, "assumptions": assumptions,
+      "claims": claims.map(\.firestoreData),
+      "plan": plan.map { $0.firestoreData as Any } ?? NSNull(),
     ]
   }
 
@@ -92,7 +111,7 @@ struct StructuredIntention: Equatable, Sendable {
   func firestoreData(startedAt: Int64) -> [String: Any] {
     func orNull(_ v: Any?) -> Any { v ?? NSNull() }
     var d: [String: Any] = [
-      "text": String(text.prefix(200)), "category": category.rawValue, "v": 3,
+      "text": String(text.prefix(200)), "category": category.rawValue, "v": 4,
       "activity": String(activity.prefix(40)), "goal": String(goal.prefix(120)),
       "quantities": quantities.prefix(5).map {
         ["metric": $0.metric, "value": $0.value, "unit": $0.unit, "measuredBy": $0.measuredBy] as [String: Any]
@@ -105,6 +124,8 @@ struct StructuredIntention: Equatable, Sendable {
       "conditions": Array(conditions.prefix(6)),
       "assumptions": Array(assumptions.prefix(6)),
       "interview": ["turns": turns, "mode": mode] as [String: Any],
+      "claims": claims.prefix(V4.maxClaims).map(\.firestoreData),
+      "plan": plan.map { $0.firestoreData as Any } ?? NSNull(),
     ]
     d["preview"] = preview.map {
       ["bar": $0.bar, "difficulty": $0.difficulty, "mode": $0.mode] as [String: Any] as Any

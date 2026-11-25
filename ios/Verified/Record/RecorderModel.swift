@@ -43,6 +43,9 @@ final class RecorderModel {
   private(set) var videoCount = 0
   /// Start time (ms) of the clip being recorded right now, nil when not recording video.
   private(set) var clipStartedAt: Int64?
+  /// v4.2: the evidence plan this Moment records against (from the interview), nil for a typed intention.
+  private(set) var plan: EvidencePlan?
+  private(set) var claims: [Claim] = []
 
   // Camera controls (kept across Moments and re-applied on start, like the controller's session).
   private(set) var videoMode = false
@@ -156,6 +159,13 @@ final class RecorderModel {
     frameLabels = []
     recentFrames = []
     witness.reset(startedAt: t)
+    plan = structured?.plan
+    claims = structured?.claims ?? []
+    // v4.11: the record screen opens in the plan's mode ("Video" / "Photo").
+    if let plan {
+      videoMode = plan.isVideo
+      if videoMode && flash == .auto { flash = .off }
+    }
     WitnessNotifier.requestPermission()
     coach = Coach(kind: .info, text: "Take a proof shot when something happens")
     do {
