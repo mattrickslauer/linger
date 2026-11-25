@@ -195,6 +195,13 @@ export function acceptRebuttal(c: ChallengeDoc | null, uid: string): { next: Cha
   return { next: { ...base, accepted, status: reviewing ? "reviewing" : "open", tries: 0, rebutters: [...(base.rebutters ?? []), uid] }, reviewing };
 }
 
+/** The current round's rebutters: `rebutters` keeps every round in order (voided rounds removed), so they are the
+ * last `accepted` uids. */
+export const currentRoundUids = (c: ChallengeDoc): string[] => (c.accepted > 0 ? (c.rebutters ?? []).slice(-c.accepted) : []);
+
+/** A ladder run dropped the seal while a round was open with rebuttals in it: that round is moot. */
+export const mootIfDropped = (c: ChallengeDoc | null, newStatus: string): boolean => !!c && newStatus === "rejected" && c.status === "open" && c.accepted > 0;
+
 /** Ends the current round without a verdict (`error` after 3 failed reviews, `moot` when the seal dropped): its
  * rebutters are freed and the same round reopens empty. */
 export function voidRound(c: ChallengeDoc, outcome: "error" | "moot", roundUids: string[], now: number, summary: string | null = null): ChallengeDoc {

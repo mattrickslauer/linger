@@ -328,3 +328,27 @@ describe("feed and users", () => {
     await assertSucceeds(getDoc(doc(anon(), "users/alice")));
   });
 });
+
+describe("v5: rebuttals, rebutters, challenge server-only", () => {
+  it("a client cannot create a Moment with a challenge, and cannot write rebuttals or rebutter records", async () => {
+    await assertFails(setDoc(doc(alice(), "moments/m9"), newMoment("alice", { challenge: { status: "open" } })));
+    await assertSucceeds(setDoc(doc(alice(), "moments/m9"), newMoment("alice", { challenge: null })));
+    await admin("moments/m1", newMoment("alice", { status: "sealed" }));
+    await assertFails(setDoc(doc(bob(), "moments/m1/rebuttals/r1"), { text: "fake", verdict: "upheld" }));
+    await assertFails(setDoc(doc(bob(), "rebutters/bob"), { upheld: 99 }));
+    await assertFails(setDoc(doc(bob(), "rebuttalRate/bob"), { times: [] }));
+    await assertFails(getDoc(doc(bob(), "challengeLeases/m1")));
+  });
+  it("anyone reads rebuttals of a sealed or rejected Moment and every rebutter record; a recording Moment keeps them private", async () => {
+    await admin("moments/m1", newMoment("alice", { status: "sealed" }));
+    await admin("moments/m1/rebuttals/r1", { text: "count restarts", verdict: "pending" });
+    await assertSucceeds(getDoc(doc(anon(), "moments/m1/rebuttals/r1")));
+    await assertSucceeds(getDocs(collection(anon(), "moments/m1/rebuttals")));
+    await admin("moments/m2", newMoment("alice", { status: "submitted" }));
+    await admin("moments/m2/rebuttals/r1", { text: "x" });
+    await assertFails(getDoc(doc(bob(), "moments/m2/rebuttals/r1")));
+    await assertSucceeds(getDoc(doc(alice(), "moments/m2/rebuttals/r1")));
+    await admin("rebutters/bob", { upheld: 1 });
+    await assertSucceeds(getDoc(doc(anon(), "rebutters/bob")));
+  });
+});

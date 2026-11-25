@@ -54,14 +54,15 @@ service cloud.firestore {
       // Fields only the Cloud Functions write. A client may create them as null (the raw vault re-creates with
       // seal: null), never with a value, and never change them afterwards.
       function serverOnlyKeys() {
-        return ['seal', 'bar', 'verification', 'claims', 'plan', 'videoReview'];
+        return ['seal', 'bar', 'verification', 'claims', 'plan', 'videoReview', 'challenge'];
       }
       function unsetOnCreate(k) {
         return !(k in request.resource.data) || request.resource.data[k] == null;
       }
       function serverFieldsUnsetOnCreate() {
         return unsetOnCreate('seal') && unsetOnCreate('bar') && unsetOnCreate('verification')
-          && unsetOnCreate('claims') && unsetOnCreate('plan') && unsetOnCreate('videoReview');
+          && unsetOnCreate('claims') && unsetOnCreate('plan') && unsetOnCreate('videoReview')
+          && unsetOnCreate('challenge');
       }
       // v4: the client's draft claims (≤ 5) and evidence plan (≤ 6 requirements) inside the intention.
       function draftOk(i) {
@@ -123,6 +124,19 @@ service cloud.firestore {
 
         allow update, delete: if false;
       }
+
+      // ── v5 rebuttals: public with their (sealed / rejected) Moment, written ONLY by submitRebuttal / the review.
+      match /rebuttals/{rebuttalId} {
+        allow read: if isPublicStatus(get(/databases/$(database)/documents/moments/$(momentId)).data.status)
+          || (signedIn() && get(/databases/$(database)/documents/moments/$(momentId)).data.ownerUid == request.auth.uid);
+        allow write: if false;
+      }
+    }
+
+    // ── v5 rebutter records ("upheld 4 of 6"): public, Functions only. challengeLeases / rebuttalRate: no match, denied.
+    match /rebutters/{uid} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

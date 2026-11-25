@@ -56,6 +56,8 @@ import {
   runVideoReview,
 } from "./video";
 import { Claim, ClaimScore, ModuleClaimOutcome, VIDEO_LEASE_MS, VideoReview } from "./v4";
+import { challengeOf, currentRoundUids, feedChallenge, mootIfDropped, voidRound } from "./challenge";
+import * as rebuttals from "./rebuttals";
 
 initializeApp();
 setGlobalOptions({ maxInstances: 10, region: "us-central1" });
@@ -73,7 +75,7 @@ const millis = (t: unknown): number | null => {
  * writes around submit to one barAndClaims call, `videoLeases` keeps the video review to one model call at a time.
  * A lease older than its TTL (a crashed instance) is taken over by the next trigger.
  */
-async function takeLease(collection: "barLeases" | "videoLeases", momentId: string, ttlMs: number): Promise<boolean> {
+async function takeLease(collection: "barLeases" | "videoLeases" | "challengeLeases", momentId: string, ttlMs: number): Promise<boolean> {
   const lease = db.collection(collection).doc(momentId);
   return db.runTransaction(async (tx) => {
     const l = await tx.get(lease);
@@ -83,7 +85,7 @@ async function takeLease(collection: "barLeases" | "videoLeases", momentId: stri
     return true;
   });
 }
-const dropLease = (collection: "barLeases" | "videoLeases", momentId: string) => db.collection(collection).doc(momentId).delete().catch(() => undefined);
+const dropLease = (collection: "barLeases" | "videoLeases" | "challengeLeases", momentId: string) => db.collection(collection).doc(momentId).delete().catch(() => undefined);
 
 // ───────────────────────────────── bar + claims + plan (v4.3)
 
@@ -368,6 +370,12 @@ export async function advance(momentId: string): Promise<string> {
 
 export const onMomentWritten = onDocumentWritten({ document: "moments/{momentId}", timeoutSeconds: 540, memory: "1GiB" }, async (event) => {
   const after = event.data?.after?.data() as MomentDoc | undefined;
+  // v5: a challenge round reached its threshold → re-verify once (lease-guarded; failures keep the lease so the
+  // scheduler, not this trigger, retries).
+  if (after && challengeOf(after)?.status === "reviewing") {
+    await rebuttals.runChallenge(db, event.params.momentId);
+    return;
+  }
   if (!after || after.status !== "submitted" || after.seal) return;
   await advance(event.params.momentId);
 });
@@ -439,6 +447,8 @@ export const onMomentDeleted = onDocumentDeleted("moments/{momentId}", async (ev
   await db.doc(`feed/${momentId}`).delete();
   await dropLease("barLeases", momentId);
   await dropLease("videoLeases", momentId);
+  await dropLease("challengeLeases", momentId);
+  await db.recursiveDelete(db.collection(`moments/${momentId}/rebuttals`));
   // The owner's uploaded clips go too (best effort: Storage may not be enabled in every project).
   if (before?.ownerUid) {
     await getStorage()
@@ -723,8 +733,10 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
     const reason = reasonV4(re.checks, signals, seal.reason, res.claims, new Map(claimsDoc.map((c) => [c.id, c.text])), bar, res.score);
     const status = re.sealed ? "sealed" : "rejected";
     const now = FieldValue.serverTimestamp();
+    const moot = mootChallenge(cur, status);
     tx.update(momentRef, {
       status,
+      ...moot.moment,
       "seal.checks": re.checks,
       "seal.sealed": re.sealed,
       "seal.reason": reason,
@@ -750,6 +762,7 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
         claimsBacked: fv4.claimsBacked,
         plan: fv4.plan,
         ladderUpdatedAtServer: now,
+        ...moot.feed,
       },
       { merge: true },
     );
@@ -760,8 +773,18 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
 
   // Record: append the result, recompute the score from the baseline, re-seal (bar check only), update the feed.
   const passConfidence = getLadder().passConfidence;
+  // v5: a run that drops the seal while a challenge round is open ends that round as moot (its rebuttals void).
+  let mootRound: number | null = null;
+  const mootChallenge = (cur: MomentDoc, status: string): { moment: Record<string, unknown>; feed: Record<string, unknown> } => {
+    const ch = challengeOf(cur);
+    if (!ch || !mootIfDropped(ch, status)) return { moment: {}, feed: {} };
+    mootRound = ch.round;
+    const next = voidRound(ch, "moot", currentRoundUids(ch), Date.now(), "The seal dropped before the challenge was reviewed");
+    return { moment: { challenge: next }, feed: { challenge: feedChallenge(next) } };
+  };
   try {
-    return await db.runTransaction(async (tx) => {
+    const out = await db.runTransaction(async (tx) => {
+      mootRound = null;
       const [ms, cs] = await Promise.all([tx.get(momentRef), tx.get(creditsRef(db, uid))]);
       const cur = ms.data() as MomentDoc | undefined;
       const v = cur?.verification as Verification | undefined;
@@ -794,8 +817,10 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
       const verified = score >= v.bar;
       const re = resealAfterLadder(seal, score, v.bar);
       const now = FieldValue.serverTimestamp();
+      const moot = mootChallenge(cur, re.status);
       tx.update(momentRef, {
         status: re.status,
+        ...moot.moment,
         "seal.checks": re.checks,
         "seal.sealed": re.sealed,
         "seal.reason": re.reason,
@@ -808,16 +833,31 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
       });
       tx.set(
         db.collection("feed").doc(momentId),
-        { status: re.status, sealReason: re.reason, checks: re.checks, verificationScore: score, ladder: ladderFeed(modules), ladderUpdatedAtServer: now },
+        { status: re.status, sealReason: re.reason, checks: re.checks, verificationScore: score, ladder: ladderFeed(modules), ladderUpdatedAtServer: now, ...moot.feed },
         { merge: true },
       );
       logger.info("ladder module recorded", { momentId, module, passed, before, after: result.after, score, bar: v.bar, status: re.status });
       const balance = Number(cs.data()?.balance ?? 0);
       return responseFor(result, { ...v, score, verified, modules }, re.status, balance);
     });
+    if (mootRound != null) await rebuttals.voidPendingRebuttals(db, momentId, mootRound);
+    return out;
   } catch (e) {
     if (!(e instanceof MomentGone)) throw e;
     await refundRun(uid, momentRef, module, requestId, cost, "Refund: Moment was deleted");
     throw fail("not-found", "moment_missing", "The Moment was deleted while the module ran; your credits were refunded.");
   }
+});
+
+// ───────────────────────────────── v5 crowd rebuttals (docs/ARCHITECTURE.md v5)
+
+export const submitRebuttal = onCall({ timeoutSeconds: 60 }, async (req) => {
+  const uid = requireUid(req);
+  const name = typeof req.auth?.token?.name === "string" ? req.auth.token.name : null;
+  return rebuttals.submitRebuttal(db, uid, name, req.data);
+});
+
+/** Re-runs challenge reviews whose lease expired (failed or crashed). The trigger itself never retries. */
+export const retryChallenges = onSchedule({ schedule: "every 30 minutes", timeoutSeconds: 540, memory: "1GiB" }, async () => {
+  await rebuttals.retryChallenges(db);
 });

@@ -11,7 +11,9 @@ import {
   claimsOf,
   coerceReview,
   coerceScreen,
+  currentRoundUids,
   feedChallenge,
+  mootIfDropped,
   framesForReview,
   rateCheck,
   resolveRound,
@@ -202,6 +204,19 @@ describe("agents (fake engine)", () => {
   it("anchorText", () => {
     expect(anchorText({ claimId: "c1", kind: "clip", clipSha: SHA, clipMs: 61000 }, facts)).toBe("video clip aaaaaaaa at 1:01");
     expect(anchorText({ claimId: "c1", kind: "track", trackIndex: 4 }, facts)).toBe("map point 4 of the GPS track");
+  });
+});
+
+describe("round helpers", () => {
+  it("current round uids are the last `accepted` rebutters; moot only for an open round with rebuttals dropping to rejected", () => {
+    const c = { round: 2, threshold: 6, accepted: 2, status: "open" as const, tries: 0, rebutters: ["a", "b", "c", "d", "e"], rounds: [] };
+    expect(currentRoundUids(c)).toEqual(["d", "e"]);
+    expect(currentRoundUids({ ...c, accepted: 0 })).toEqual([]);
+    expect(mootIfDropped(c, "rejected")).toBe(true);
+    expect(mootIfDropped(c, "sealed")).toBe(false);
+    expect(mootIfDropped({ ...c, accepted: 0 }, "rejected")).toBe(false);
+    expect(mootIfDropped({ ...c, status: "survived" }, "rejected")).toBe(false);
+    expect(mootIfDropped(null, "rejected")).toBe(false);
   });
 });
 
