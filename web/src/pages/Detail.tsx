@@ -18,6 +18,8 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
+import ClaimsPanel from "../components/Claims";
+import { claimViews, videoStatusText } from "../v4";
 
 const TrackMap = lazy(() => import("../components/TrackMap"));
 
@@ -33,6 +35,13 @@ const CHECKS_V3: typeof CHECKS = [
   ...CHECKS.slice(0, 4),
   { key: "ai", name: "AI review", ok: "The judge found it consistent and the skeptic found no fake signal.", bad: "The judge was not convinced, or the skeptic found a fake signal." },
   { key: "bar", name: "Score clears the bar", ok: "The final verification score is at or above the bar the AI set for this claim.", bad: "The final verification score is below the bar the AI set for this claim." },
+];
+// Seal v4 (docs/ARCHITECTURE.md v4.5/v4.6): per-claim bar, and cheating as its own check.
+const CHECKS_V4: typeof CHECKS = [
+  ...CHECKS.slice(0, 4),
+  { key: "ai", name: "AI review", ok: "The judge didn't find the proof frames contradicting the intention.", bad: "The proof frames contradict the intention." },
+  { key: "cheating", name: "No cheating", ok: "No broken chain, no fake signal from the skeptic, and the video matches the chain.", bad: "A cheating signal was found (see above)." },
+  { key: "bar", name: "Every claim clears the bar", ok: "The minimum evidence for every claim arrived, or extra checks lifted it to the bar.", bad: "At least one claim is still below the bar." },
 ];
 
 /**
@@ -334,6 +343,22 @@ export default function Detail({ id }: { id: string }) {
   const finalScore = moment?.verification?.score ?? feed?.verificationScore ?? moment?.score?.probability ?? null;
   const sealV3 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 3 || checks?.bar !== undefined;
   const sealReason = moment?.seal?.reason ?? feed?.sealReason ?? "Waiting for the seal.";
+  // v4: claims (server, or the client draft before the seal), per-claim scores, video review.
+  const sealV4 = (moment?.seal?.version ?? feed?.sealVersion ?? 0) >= 4;
+  const ver = moment?.verification ?? null;
+  const draftClaims = !moment?.seal ? intention.claims : null;
+  const views = claimViews({
+    claims: moment?.claims?.items ?? draftClaims ?? null,
+    plan: moment?.plan ?? (draftClaims ? intention.plan : null) ?? null,
+    scores: ver?.version === 4 ? ver.claims : null,
+    bar: barValue,
+    feedClaims: feed?.claims ?? null,
+    feedPlan: feed?.plan ?? null,
+  });
+  const showClaims = views.length > 0 && (sealV4 || !moment?.seal);
+  const cheatingSignals =
+    moment?.seal?.checks.cheating === false ? (moment.seal.cheatingSignals ?? []) : feed?.cheating ? (feed.cheatingSignals ?? []) : null;
+  const vr = moment?.videoReview ?? (feed?.video ? { status: feed.video.status } : null);
   // Only the owner, only when opened from their own Moments: never from the public feed.
   const deletable = canDeleteMoment({ fixtures: FIXTURES, uid: user?.uid, ownerUid: moment?.ownerUid, fromMe, id, recordingId: recordingMomentId() });
 
@@ -365,6 +390,20 @@ export default function Detail({ id }: { id: string }) {
         </div>
         {!pending && <Stamp sealed={sealed} size="lg" />}
       </header>
+
+      {showClaims && (
+        <ClaimsPanel
+          views={views}
+          bar={barValue}
+          score={sealV4 ? finalScore : null}
+          verified={sealed}
+          sealed={!pending && sealV4}
+          claimsBacked={ver?.claimsBacked ?? feed?.claimsBacked ?? null}
+          cheating={cheatingSignals}
+          videoStatus={vr && vr.status !== "none" ? videoStatusText(vr) : null}
+          videoSummary={moment?.videoReview?.summary || feed?.video?.summary || null}
+        />
+      )}
 
       {summary && (
         <dl className="stats stats-wide">
@@ -537,7 +576,7 @@ export default function Detail({ id }: { id: string }) {
         <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
         {checks ? (
           <ul className="checklist">
-            {(sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
+            {(sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
               <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
                 <span className="mark" aria-hidden="true">
                   {checks[c.key] ? "✓" : "✗"}

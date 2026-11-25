@@ -3,6 +3,7 @@ import v4 from "../../shared/test-vectors-v4.json";
 import {
   captured,
   claimsBackedByModule,
+  claimViews,
   factsOf,
   judgeClaims,
   normalizeClaims,
@@ -107,6 +108,45 @@ describe("normalize claims and plan (v4.1 / v4.2)", () => {
   it("a plan with nothing usable is null", () => {
     expect(normalizePlan({ requirements: [], recordMode: "video", note: "" }, [{ id: "c1", kind: "action", text: "x" }])).toBeNull();
     expect(normalizePlan(null, [])).toBeNull();
+  });
+});
+
+describe("claimViews (detail rows)", () => {
+  const claims = [
+    { id: "c1", kind: "action" as const, text: "clapping" },
+    { id: "c2", kind: "count" as const, text: "50 claps", metric: "claps", value: 50, unit: "claps" },
+  ];
+  const plan = {
+    requirements: [
+      { id: "r1", claimId: "c1", evidence: "video" as const, ask: "Clap on camera" },
+      { id: "r2", claimId: "c2", evidence: "video" as const, ask: "All 50 claps", minSeconds: 20 },
+    ],
+  };
+  it("owner view: scores and met/unmet from verification.claims", () => {
+    const v = claimViews({
+      claims,
+      plan,
+      bar: 0.52,
+      scores: [
+        { id: "c1", p: 0.52, sealP: 0.52, met: ["r1"], unmet: [], minimumMet: true, backedBy: ["video_review"] },
+        { id: "c2", p: 0.4, sealP: 0.4, met: [], unmet: ["r2"], minimumMet: false, backedBy: [] },
+      ],
+    });
+    expect(v.map((c) => [c.id, c.p, c.backed, c.requirements.map((r) => r.met)])).toEqual([
+      ["c1", 0.52, true, [true]],
+      ["c2", 0.4, false, [false]],
+    ]);
+  });
+  it("before the seal: p null, met unknown", () => {
+    const v = claimViews({ claims, plan });
+    expect(v[1]).toMatchObject({ p: null, backed: false, requirements: [{ id: "r2", met: null }] });
+  });
+  it("public view from the feed entry", () => {
+    const v = claimViews({
+      feedClaims: [{ id: "c1", kind: "action", text: "clapping", p: 0.6, backed: true, backedBy: ["video_review"] }],
+      feedPlan: { requirements: [{ id: "r1", claimId: "c1", evidence: "video", ask: "x", met: true }] },
+    });
+    expect(v).toEqual([{ id: "c1", kind: "action", text: "clapping", p: 0.6, backed: true, backedBy: ["video_review"], requirements: [{ id: "r1", claimId: "c1", evidence: "video", ask: "x", met: true }] }]);
   });
 });
 

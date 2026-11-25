@@ -449,6 +449,78 @@ export function scoreV4(input: ScoreInput) {
   };
 }
 
+/**
+ * v4.6 seal reason (UI words), first that applies. Used by the sample data and the simulated ladder; the real seal
+ * reason is written by the Cloud Function. `integrityReason` is the v3 text for a failed integrity check.
+ */
+export function sealReasonV4(r: ReturnType<typeof scoreV4>, claims: Pick<Claim, "id" | "text">[], bar: number, integrityReason = "An integrity check failed"): string {
+  if (r.cheating.detected) return "Cheating detected: " + r.cheating.signals.join("; ");
+  if (!(r.checks.chain && r.checks.timing && r.checks.physics && r.checks.frames)) return integrityReason;
+  if (!r.checks.ai) return "The proof frames contradict the intention";
+  const n = r.claims.length;
+  if (!r.checks.bar) {
+    const low = r.claims.reduce((a, b) => (b.p < a.p ? b : a));
+    const text = claims.find((c) => c.id === low.id)?.text ?? low.id;
+    return `${r.claimsBacked} of ${n} claims backed · ${text} ${low.p.toFixed(2)} < bar ${bar.toFixed(2)}`;
+  }
+  return `All ${n} claims backed · score ${r.score.toFixed(2)} ≥ bar ${bar.toFixed(2)}`;
+}
+
+// ---------------------------------------------------------------- detail view model (v4.11)
+
+export interface ClaimView {
+  id: string;
+  kind: ClaimKind;
+  text: string;
+  /** final p (after modules and the cheating cap); null before the seal */
+  p: number | null;
+  backed: boolean;
+  backedBy: string[];
+  requirements: (Pick<Requirement, "id" | "claimId" | "evidence" | "ask" | "minSeconds"> & { met: boolean | null })[];
+}
+
+/**
+ * One row per claim, from the owner's Moment (server claims + plan + verification.claims) or, for everyone else, the
+ * feed entry (v4.8). Before the seal: the server claims/plan (or the client draft) with p = null.
+ */
+export function claimViews(a: {
+  claims?: Claim[] | null;
+  plan?: Pick<Plan, "requirements"> | null;
+  scores?: ClaimScore[] | null;
+  bar?: number | null;
+  feedClaims?: { id: string; kind: ClaimKind; text: string; p: number; backed: boolean; backedBy: string[] }[] | null;
+  feedPlan?: { requirements: (Pick<Requirement, "id" | "claimId" | "evidence" | "ask"> & { met: boolean })[] } | null;
+}): ClaimView[] {
+  if (a.claims?.length) {
+    const reqs = a.plan?.requirements ?? a.feedPlan?.requirements ?? [];
+    return a.claims.map((c) => {
+      const s = a.scores?.find((x) => x.id === c.id) ?? null;
+      const fc = a.feedClaims?.find((x) => x.id === c.id) ?? null;
+      const p = s?.p ?? fc?.p ?? null;
+      return {
+        id: c.id,
+        kind: c.kind,
+        text: c.text,
+        p,
+        backed: p != null && a.bar != null ? p >= a.bar : (fc?.backed ?? false),
+        backedBy: s?.backedBy ?? fc?.backedBy ?? [],
+        requirements: reqs
+          .filter((r) => r.claimId === c.id)
+          .map((r) => ({ ...r, met: s ? s.met.includes(r.id) : "met" in r ? Boolean((r as { met?: boolean }).met) : null })),
+      };
+    });
+  }
+  return (a.feedClaims ?? []).map((c) => ({
+    id: c.id,
+    kind: c.kind,
+    text: c.text,
+    p: c.p,
+    backed: c.backed,
+    backedBy: c.backedBy,
+    requirements: (a.feedPlan?.requirements ?? []).filter((r) => r.claimId === c.id),
+  }));
+}
+
 // ---------------------------------------------------------------- UI words (v4.11)
 
 export const SOURCE_LABEL: Record<string, string> = {

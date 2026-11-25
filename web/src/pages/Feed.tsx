@@ -151,6 +151,13 @@ function Card({ e, lead }: { e: FeedEntry; lead?: boolean }) {
         </dl>
         <span className="chips">
           <Chips platform={e.platform} mode={e.onDeviceMode} />
+          {e.cheating ? (
+            <span className="chip chip-cheat">Not verified · cheating detected</span>
+          ) : e.claimsTotal ? (
+            <span className={`chip chip-claims ${(e.claimsBacked ?? 0) < e.claimsTotal ? "low" : ""}`}>
+              {e.claimsBacked ?? 0}/{e.claimsTotal} claims backed
+            </span>
+          ) : null}
           {extra > 0 && <span className="chip chip-ladder">+{extra} check{extra > 1 ? "s" : ""}</span>}
           {e.witness && e.witness.answered > 0 && <span className="chip">witness {e.witness.answered}/{e.witness.asked}</span>}
         </span>
