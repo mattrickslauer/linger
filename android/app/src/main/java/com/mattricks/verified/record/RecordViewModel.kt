@@ -158,8 +158,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         if (now != _ui.value.captured) _ui.update { it.copy(captured = now) }
     }
 
-    fun setIntention(s: String) = _ui.update { it.copy(intention = s.take(200)) }
-    fun setCategory(s: String) = _ui.update { it.copy(category = s) }
+    fun setIntention(s: String) = _ui.update {
+        it.copy(intention = s.take(200), category = if (it.structured == null) com.mattricks.verified.data.guessCategory(s) else it.category)
+    }
 
     /** From the interview card: the structured intention (its text drives the live coach). */
     fun useStructured(i: Intention?, transcript: List<String> = emptyList()) {

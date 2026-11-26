@@ -1105,28 +1105,6 @@ path.lf-cursor {
 .field textarea::placeholder {
   color: var(--ink-3);
 }
-.cats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.cat-chip {
-  font: inherit;
-  font-weight: 600;
-  text-transform: capitalize;
-  padding: 8px 16px;
-  min-height: 40px;
-  border-radius: 999px;
-  border: 1.5px solid var(--rule);
-  background: transparent;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.cat-chip.on {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-}
 .page.live {
   display: flex;
   flex-direction: column;

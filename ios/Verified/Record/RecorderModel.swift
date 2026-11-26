@@ -120,7 +120,7 @@ final class RecorderModel {
   /// The intention as written on `moments/{id}.intention` (v1 `{text, category}`; v3 adds the structured keys).
   func intentionData(startedAt: Int64) -> [String: Any] {
     let text = String(intention.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-    guard var s = structured else { return ["text": text, "category": category.rawValue] }
+    guard var s = structured else { return ["text": text, "category": InterviewModel.guessCategory(text).rawValue] }
     s.text = text
     s.category = category
     return s.firestoreData(startedAt: startedAt)
