@@ -1,5 +1,11 @@
 package com.mattricks.verified.ui
 
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.IconButton
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -57,43 +63,7 @@ import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Vault
 import kotlinx.coroutines.launch
 
-const val PITCH = "Proof that it really happened. Recorded, chained and checked by AI."
-
-/** Feed header: the app IS the landing page (v3.1). Pitch, big Record CTA, quiet sign-in. */
-@Composable
-fun FeedHero(user: FirebaseUser?, onRecord: () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = Color.Transparent,
-    ) {
-        Box(Modifier.background(Brush.linearGradient(listOf(GreenDark, Green, Color(0xFF2FA36B))))) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Verified, null, tint = Color.White, modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Verified", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    if (user == null) TextButton(onClick = { Gate.signIn() }) { Text("Sign in", color = Color.White) }
-                    else Pill(user.displayName?.substringBefore(' ') ?: "Signed in", Color(0x33FFFFFF))
-                }
-                Text(PITCH, color = Color.White, fontSize = 17.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium)
-                Button(
-                    onClick = onRecord, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = GreenDark),
-                ) {
-                    Icon(Icons.Filled.FiberManualRecord, null, tint = Red, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Record a Moment", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-                Text(
-                    if (user == null) "No account needed to record. Your Moments stay on this phone until you sign in to verify them."
-                    else "GPS, motion and proof shots are hash-chained, coached on-device and judged in the cloud.",
-                    color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
-                )
-            }
-        }
-    }
-}
-
-/** "Sign in to <action>" (v3.1), shown by [Gate]. Resumes the action after sign-in (MainActivity watches the user). */
+/** "Sign in to <action>" (v3.1), shown by [Gate]: one hero line, three glyph tiles, one button. Resumes the action after sign-in. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignInSheet(ask: Gate.Ask) {
@@ -105,21 +75,22 @@ fun SignInSheet(ask: Gate.Ask) {
     val working = busy || state == Auth.SignIn.InBrowser || state == Auth.SignIn.Finishing
     ModalBottomSheet(onDismissRequest = { Gate.dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp).navigationBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Icon(Icons.Filled.Verified, null, tint = Green, modifier = Modifier.size(48.dp))
-            Text("Sign in to ${ask.action}", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-            Text(
-                "Browsing and recording work without an account. Signing in lets Verified store your Moments on the " +
-                    "server, run the cloud review and seal them.",
-                color = Color.Gray, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(6.dp))
+            Box(Modifier.size(64.dp).clip(CircleShape).background(SealGold), contentAlignment = Alignment.Center) {
+                Icon(Glyph.Result, null, tint = SealInk, modifier = Modifier.size(36.dp))
+            }
+            Text("Sign in to ${ask.action}", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlyphTile(Glyph.Cloud, "Stored", "On the server", Modifier.weight(1f))
+                GlyphTile(Glyph.Ai, "Reviewed", "By cloud AI", Modifier.weight(1f))
+                GlyphTile(Glyph.Result, "Sealed", "By code", Modifier.weight(1f), tint = MaterialTheme.colorScheme.tertiary)
+            }
             Button(
                 enabled = !working, onClick = { error = null; Auth.startSignIn(activity) },
-                modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp),
-            ) { Text("Sign in", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(28.dp),
+            ) { Text("Sign in", style = MaterialTheme.typography.titleMedium) }
             if (BuildConfig.USE_EMULATOR) OutlinedButton(enabled = !working, onClick = {
                 busy = true; error = null
                 scope.launch { error = Auth.signInEmulatorTestUser(); busy = false }
@@ -127,15 +98,16 @@ fun SignInSheet(ask: Gate.Ask) {
             if (working) Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(if (state == Auth.SignIn.Finishing) "Signing you in…" else "Finish in the browser…", color = Color.Gray)
+                Text(if (state == Auth.SignIn.Finishing) "Signing you in…" else "Finish in the browser…", color = Ink2)
             }
-            (error ?: (state as? Auth.SignIn.Failed)?.message)?.let { Text(it, color = Red, textAlign = TextAlign.Center) }
+            (error ?: (state as? Auth.SignIn.Failed)?.message)?.let { Text(it, color = Bad, textAlign = TextAlign.Center) }
+            Text("Browsing and recording need no account.", style = MaterialTheme.typography.bodySmall, color = Ink2, textAlign = TextAlign.Center)
             TextButton(onClick = { Gate.dismiss() }) { Text("Not now") }
         }
     }
 }
 
-/** "You recorded N Moments as a guest" (v3.1 claim flow). */
+/** "You recorded N Moments as a guest" (v3.1 claim flow): thumbnails, keep or delete each, one Upload all. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClaimSheet() {
@@ -150,33 +122,39 @@ fun ClaimSheet() {
         return
     }
     ModalBottomSheet(onDismissRequest = { Claims.dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.CloudUpload, null, tint = Green)
+                Icon(Icons.Filled.CloudUpload, null, tint = Lake)
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    "You recorded ${shown.size} Moment${if (shown.size == 1) "" else "s"} as a guest",
-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    "${shown.size} guest Moment${if (shown.size == 1) "" else "s"} on this phone",
+                    style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f),
                 )
+                InfoButton("Upload guest Moments") {
+                    Text("Upload them to your account to get them verified. Their hash chains stay exactly as recorded.")
+                }
             }
-            Text("Upload them to your account to get them verified? Their hash chains stay exactly as recorded.", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
-            shown.forEach { m ->
-                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        B64Image(m.heroB64, Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(m.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                            Text("${fmtDuration(m.summary.durationMs)} · ${m.summary.frameCount} frames", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(shown, key = { it.id }) { m ->
+                    Column(Modifier.width(150.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(Modifier.size(150.dp, 180.dp).clip(RoundedCornerShape(16.dp))) {
+                            B64Image(m.heroB64, Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.5f to androidx.compose.ui.graphics.Color.Transparent, 1f to MediaBg.copy(alpha = 0.9f))))
+                            Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+                                Text(m.text, color = TokInk, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                StatOverlay(Glyph.Time, fmtDuration(m.summary.durationMs))
+                            }
                         }
-                        TextButton(onClick = { kept = kept + m.id }) { Text("Keep here", fontSize = 12.sp) }
-                        TextButton(onClick = { confirmDelete = m.id }) { Text("Delete", color = Red, fontSize = 12.sp) }
+                        Row {
+                            TextButton(onClick = { kept = kept + m.id }, modifier = Modifier.weight(1f)) { Text("Keep here") }
+                            IconButton(onClick = { confirmDelete = m.id }) { Icon(Icons.Filled.Delete, "Delete", tint = Bad) }
+                        }
                     }
                 }
             }
             Button(
-                onClick = { Claims.claim(shown.map { it.id }) }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp),
-            ) { Text("Upload all", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                onClick = { Claims.claim(shown.map { it.id }) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(28.dp),
+            ) { Icon(Icons.Filled.CloudUpload, null); Spacer(Modifier.width(8.dp)); Text("Upload all", style = MaterialTheme.typography.titleMedium) }
             TextButton(onClick = { Claims.dismiss() }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Not now") }
         }
     }

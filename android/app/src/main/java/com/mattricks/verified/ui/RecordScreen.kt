@@ -1,5 +1,27 @@
 package com.mattricks.verified.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
@@ -122,6 +144,11 @@ fun RecordScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
     }
 }
 
+/** Witness answers, as plain callbacks (so the HUD can be drawn without a view model). */
+internal class WitnessActions(
+    val onShow: () -> Unit, val onVoice: () -> Unit, val onText: (String) -> Unit, val onDone: () -> Unit, val onSkip: () -> Unit,
+)
+
 @Composable
 private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     val view = LocalView.current
@@ -145,197 +172,309 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     val recording = cam.recordingSince != null
     DisposableEffect(Unit) { onDispose { cam.stopVideo() } }
 
-    Column(Modifier.fillMaxSize()) {
-        // Compact stats bar: the camera gets the rest of the screen.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(ui.intention, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(fmtDuration(ui.elapsedMs), fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(10.dp))
-                    Text(fmtDistance(ui.distanceM), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+    LiveHud(
+        ui, mode, recordingSince = cam.recordingSince, shooting = shooting, mapBig = mapBig,
+        onMode = { mode = it }, onSwap = { mapBig = !mapBig },
+        witness = WitnessActions(
+            onShow = { mode = Prefs.CaptureMode.Photo; mapBig = false; vm.armWitnessShot() },
+            onVoice = vm::answerWitnessByVoice, onText = { vm.answerWitnessText(it) }, onDone = vm::witnessDone, onSkip = vm::skipWitness,
+        ),
+        onShutter = {
+            when {
+                mode == Prefs.CaptureMode.Photo -> {
+                    shooting = true
+                    takeProof(ctx, cam.image) { bmp, b64 ->
+                        shooting = false
+                        if (bmp != null && b64 != null) { view.hapticConfirm(); vm.proofShot(bmp, b64) }
+                    }
+                }
+                !recording -> if (cam.startVideo(ctx, ui.momentId ?: "moment")) { view.hapticConfirm(); vm.videoStarted() }
+                else -> {
+                    shooting = true
+                    view.hapticStop()
+                    cam.stopVideo { uri, startedAt, endedAt ->
+                        scope.launch {
+                            val r = if (uri != null) withContext(Dispatchers.IO) { finishClip(ctx, uri, startedAt, endedAt) } else null
+                            shooting = false
+                            if (r != null) vm.videoClip(r.clip, r.poster, r.posterB64)
+                            else Toast.makeText(ctx, "Video clip failed to save", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SyncBadge(ui)
-                ui.heartRate?.let { Pill("♥ $it bpm", Red) }
-            }
-        }
-        ui.plan?.let { EvidenceChecklist(it, ui.captured, Modifier.padding(horizontal = 12.dp).padding(bottom = 6.dp)) }
-
-        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black)) {
-            val miniPos = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 10.dp).size(width = 116.dp, height = 150.dp)
-            val mini = miniPos.zIndex(2f).clip(RoundedCornerShape(14.dp)).border(2.dp, Color.White, RoundedCornerShape(14.dp))
-            val full = Modifier.fillMaxSize().zIndex(1f)
+        },
+        onFinish = { view.hapticStop(); vm.finish() },
+        cameraButtons = { CameraButtons(cam, mode, flipEnabled = !recording && !ui.checking && !shooting) },
+        media = { mini, full ->
             // Both always composed in the same order, so swapping never rebinds the camera or reloads the map.
             CameraPreview(cam, mode, if (mapBig) mini else full)
             TrackMap(ui.track, if (mapBig) full else mini, live = true, compact = !mapBig)
-            // Tap the small window to swap camera ↔ map (also keeps the mini map from eating pan gestures).
-            Box(miniPos.zIndex(3f).clickable { mapBig = !mapBig })
+        },
+    )
+}
 
-            CoachBanner(ui, Modifier.align(Alignment.TopCenter).padding(8.dp).zIndex(4f))
-            ui.witness?.let { w ->
-                WitnessToast(
-                    w, ui, vm,
-                    onShow = { mode = Prefs.CaptureMode.Photo; mapBig = false; vm.armWitnessShot() },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 10.dp, end = 10.dp, bottom = 62.dp).zIndex(6f),
-                )
-            }
-            cam.recordingSince?.let { since ->
-                Pill(
-                    "● REC ${fmtDuration(max(0L, ui.elapsedMs - (since - ui.startedAt)))}", Red,
-                    modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 56.dp).zIndex(4f),
-                )
-            }
-            ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, Modifier.align(Alignment.BottomCenter).padding(12.dp).zIndex(4f)) {
-                mode = it
-            }
-            if (!mapBig) CameraButtons(cam, mode, flipEnabled = !recording && !ui.checking && !shooting, Modifier.align(Alignment.BottomEnd).padding(12.dp).zIndex(4f))
-        }
+/**
+ * The live recording screen: camera (or map) full-bleed, a HUD over it (timer, GPS / motion / chain / shots
+ * indicators, the evidence checklist as pips, coach toasts, the witness card) and big thumb-zone controls.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun LiveHud(
+    ui: RecUi, mode: Prefs.CaptureMode, recordingSince: Long?, shooting: Boolean, mapBig: Boolean,
+    onMode: (Prefs.CaptureMode) -> Unit, onSwap: () -> Unit, witness: WitnessActions,
+    onShutter: () -> Unit, onFinish: () -> Unit,
+    cameraButtons: @Composable () -> Unit,
+    media: @Composable BoxScope.(mini: Modifier, full: Modifier) -> Unit,
+) = MediaTheme {
+    val recording = recordingSince != null
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // Everything under the HUD is placed from its measured height, so it never overlaps at large font scales.
+        var hudPx by remember { mutableIntStateOf(0) }
+        val hudH = with(LocalDensity.current) { hudPx.toDp() }
+        val miniPos = Modifier.align(Alignment.TopEnd).padding(top = hudH + 8.dp, end = 12.dp).size(width = 104.dp, height = 136.dp)
+        val mini = miniPos.zIndex(2f).clip(RoundedCornerShape(16.dp)).border(2.dp, TokInk, RoundedCornerShape(16.dp))
+        val full = Modifier.fillMaxSize().zIndex(1f)
+        media(mini, full)
+        // Tap the small window to swap camera ↔ map (also keeps the mini map from eating pan gestures).
+        Box(miniPos.zIndex(3f).clip(RoundedCornerShape(16.dp)).clickable(onClickLabel = if (mapBig) "Show the camera" else "Show the map", onClick = onSwap))
 
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Sparkline(ui.sparkline, Modifier.fillMaxWidth().height(28.dp))
+        // Scrims so the HUD reads on any picture.
+        Box(Modifier.fillMaxWidth().height(200.dp).zIndex(4f).background(Brush.verticalGradient(listOf(MediaBg.copy(alpha = 0.75f), Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(260.dp).zIndex(4f).background(Brush.verticalGradient(listOf(Color.Transparent, MediaBg.copy(alpha = 0.85f)))))
+
+        // ── top HUD
+        Column(Modifier.zIndex(5f).fillMaxWidth().onSizeChanged { hudPx = it.height }.statusBarsPadding().padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RecDot()
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    buildString {
-                        append("${ui.frameCount} frames")
-                        if (ui.videoCount > 0) append(" · ${ui.videoCount} clips")
-                        if (ui.witnessAsked > 0) append(" · witness ${ui.witnessAnswered}/${ui.witnessAsked}")
-                        append(" · ").append(ui.accuracyM?.let { "GPS ±${it.roundToInt()} m" } ?: "GPS…")
-                    },
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 2,
+                    fmtDuration(ui.elapsedMs), color = TokInk, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, style = Tnum,
+                    modifier = Modifier.semantics { contentDescription = "Recording, ${fmtDuration(ui.elapsedMs)}" },
                 )
+                Spacer(Modifier.width(10.dp))
+                Text(fmtDistance(ui.distanceM), color = TokInk2, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, style = Tnum)
+                Spacer(Modifier.weight(1f))
+                SyncChip(ui)
             }
-            Spacer(Modifier.width(12.dp))
-            Shutter(
-                mode = mode, recording = recording, busy = shooting || ui.checking,
-                onClick = {
-                    when {
-                        mode == Prefs.CaptureMode.Photo -> {
-                            shooting = true
-                            takeProof(ctx, cam.image) { bmp, b64 -> shooting = false; if (bmp != null && b64 != null) vm.proofShot(bmp, b64) }
-                        }
-                        !recording -> if (cam.startVideo(ctx, ui.momentId ?: "moment")) vm.videoStarted()
-                        else -> {
-                            shooting = true
-                            cam.stopVideo { uri, startedAt, endedAt ->
-                                scope.launch {
-                                    val r = if (uri != null) withContext(Dispatchers.IO) { finishClip(ctx, uri, startedAt, endedAt) } else null
-                                    shooting = false
-                                    if (r != null) vm.videoClip(r.clip, r.poster, r.posterB64)
-                                    else Toast.makeText(ctx, "Video clip failed to save", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
+            Text(ui.intention, color = TokInk2, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val gpsOk = ui.accuracyM != null && ui.accuracyM < 25
+                ScrimChip(Modifier.semantics(mergeDescendants = true) { contentDescription = ui.accuracyM?.let { "GPS plus or minus ${it.roundToInt()} metres" } ?: "Waiting for GPS" }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (gpsOk) TokOk else if (ui.accuracyM != null) SealGold else TokInk2))
+                        Spacer(Modifier.width(5.dp))
+                        StatOverlay(Glyph.Place, ui.accuracyM?.let { "±${it.roundToInt()} m" } ?: "…")
                     }
-                },
+                }
+                ScrimChip(Modifier.semantics(mergeDescendants = true) { contentDescription = "Motion" }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Glyph.Motion, null, Modifier.size(15.dp), tint = TokInk2)
+                        Spacer(Modifier.width(5.dp))
+                        Sparkline(ui.sparkline, Modifier.size(width = 44.dp, height = 16.dp))
+                    }
+                }
+                ScrimChip { StatOverlay(Glyph.Frames, "${ui.frameCount}") }
+                if (ui.videoCount > 0) ScrimChip { StatOverlay(Glyph.Video, "${ui.videoCount}") }
+                if (ui.witnessAsked > 0) ScrimChip { StatOverlay(Glyph.Witness, "${ui.witnessAnswered}/${ui.witnessAsked}") }
+                ui.heartRate?.let { ScrimChip(Modifier.semantics(mergeDescendants = true) { contentDescription = "Heart rate $it" }) { StatOverlay(Icons.Filled.Favorite, "$it", tint = TokInk, sub = TokBad) } }
+            }
+            ui.plan?.takeIf { it.requirements.isNotEmpty() }?.let { EvidencePips(it, ui.captured) }
+        }
+
+        // ── coach toast + video REC pill, under the HUD
+        Column(
+            Modifier.zIndex(6f).align(Alignment.TopStart).padding(start = 14.dp, end = 128.dp, top = hudH + 8.dp),
+            horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            recordingSince?.let { since ->
+                GlyphPill(Icons.Filled.FiberManualRecord, "REC ${fmtDuration(max(0L, ui.elapsedMs - (since - ui.startedAt)))}", FillBad)
+            }
+            CoachToast(ui)
+        }
+
+        // ── witness card, floating above the controls
+        ui.witness?.let { w ->
+            WitnessCard(
+                w, ui, witness,
+                Modifier.zIndex(7f).align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 190.dp),
             )
-            Spacer(Modifier.width(12.dp))
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                OutlinedButton(enabled = !ui.checking && !recording && !shooting, onClick = vm::finish, modifier = Modifier.height(52.dp)) { Text("Finish") }
+        }
+
+        // ── camera buttons on the right edge, thumb height
+        if (!mapBig) Box(Modifier.zIndex(5f).align(Alignment.CenterEnd).padding(end = 12.dp)) { cameraButtons() }
+
+        // ── thumb zone
+        Column(
+            Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, onChange = onMode)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    FinishButton(ui.elapsedMs, enabled = !ui.checking && !recording && !shooting, onFinish)
+                }
+                Shutter(mode = mode, recording = recording, busy = shooting || ui.checking, onClick = onShutter)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    HudButton(if (mapBig) Glyph.Proof else Glyph.Place, if (mapBig) "Show the camera" else "Show the map", onClick = onSwap)
+                }
             }
         }
-        if (ui.elapsedMs < 20_000) Text(
-            "Moments shorter than 20 s can't be sealed.", style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
-        )
+    }
+}
+
+@Composable
+private fun RecDot() {
+    val reduce = rememberReduceMotion()
+    val pulse = if (reduce) 1f else {
+        val t = rememberInfiniteTransition(label = "rec")
+        t.animateFloat(1f, 0.35f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "rec").value
+    }
+    Box(Modifier.size(14.dp).graphicsLayer { alpha = pulse }.clip(CircleShape).background(FillBad))
+}
+
+/** Stop: a 56dp round button whose ring fills over the first 20 s (shorter Moments can't be sealed). */
+@Composable
+private fun FinishButton(elapsedMs: Long, enabled: Boolean, onClick: () -> Unit) {
+    val progress = (elapsedMs / 20_000f).coerceIn(0f, 1f)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(60.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.14f))
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Finish the Moment", onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (progress < 1f) CircularProgressIndicator(progress = { progress }, Modifier.size(60.dp), color = SealGold, trackColor = Color.Transparent, strokeWidth = 3.dp)
+            Icon(Icons.Filled.Stop, null, tint = TokInk.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(30.dp))
+        }
+        Text(if (progress < 1f) "20 s min" else "Finish", color = TokInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun HudButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(60.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.14f)).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = TokInk, modifier = Modifier.size(26.dp)) }
+        Text(if (icon == Glyph.Place) "Map" else "Camera", color = TokInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 /**
- * v4.2/v4.11 live checklist under the timer: `○ ask` → `● captured` when the local evidence exists. "Captured" only:
- * the server decides "met". Collapsed it shows the tally and the next missing item; tap to see every requirement.
+ * v4.2/v4.11 live checklist as pips: one glyph pip per requirement, filled once this phone has captured it ("captured"
+ * only: the server decides "met"). Tap for the list with the asks.
  */
 @Composable
-private fun EvidenceChecklist(plan: com.mattricks.verified.data.Plan, captured: Map<String, Boolean>, modifier: Modifier) {
+private fun EvidencePips(plan: com.mattricks.verified.data.Plan, captured: Map<String, Boolean>) {
     var open by remember { mutableStateOf(false) }
     val done = plan.requirements.count { captured[it.id] == true }
     val next = plan.requirements.firstOrNull { captured[it.id] != true }
-    Surface(modifier.fillMaxWidth().clickable { open = !open }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Surface(
+        onClick = { open = !open }, color = MediaBg.copy(alpha = 0.62f), shape = RoundedCornerShape(18.dp), contentColor = TokInk,
+        modifier = Modifier.semantics { contentDescription = "Evidence: $done of ${plan.requirements.size} captured" + (next?.let { ". Next: ${it.ask}" } ?: "") },
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("To get this verified", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Text("$done/${plan.requirements.size} captured", fontSize = 12.sp, color = if (next == null) Green else Color.Gray, fontWeight = FontWeight.SemiBold)
-                Text(if (open) "  ▴" else "  ▾", fontSize = 12.sp, color = Color.Gray)
+                plan.requirements.forEach { r ->
+                    val ok = captured[r.id] == true
+                    Box(
+                        Modifier.padding(end = 5.dp).size(24.dp).clip(CircleShape)
+                            .then(if (ok) Modifier.background(TokOk) else Modifier.border(1.5.dp, TokInk2, CircleShape)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(evidenceIcon(r.evidence), null, Modifier.size(13.dp), tint = if (ok) MediaBg else TokInk2) }
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("$done/${plan.requirements.size}", fontWeight = FontWeight.Bold, style = Tnum, color = if (next == null) TokOk else TokInk)
+                if (!open && next != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(next.ask, fontSize = 13.sp, color = TokInk2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                }
+                Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TokInk2)
             }
-            val rows = if (open) plan.requirements else listOfNotNull(next)
-            rows.forEach { r ->
+            if (open) plan.requirements.forEach { r ->
                 val ok = captured[r.id] == true
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (ok) "●" else "○", color = if (ok) Green else Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
-                    Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp), tint = Color.Gray)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        r.ask + (r.minSeconds?.let { " (≥ ${fmtNum(it)} s)" } ?: ""), fontSize = 13.sp, maxLines = if (open) 2 else 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
-                    if (ok) Text(" captured", fontSize = 11.sp, color = Green, fontWeight = FontWeight.SemiBold)
+                    Icon(if (ok) Icons.Filled.CheckCircle else evidenceIcon(r.evidence), null, Modifier.size(16.dp), tint = if (ok) TokOk else TokInk2)
+                    Spacer(Modifier.width(8.dp))
+                    Text(r.ask + (r.minSeconds?.let { " (≥ ${fmtNum(it)} s)" } ?: ""), fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f))
                 }
             }
         }
     }
 }
 
-/** The witness's open request (v3.4): spoken + this toast. Show → next proof shot answers it; Answer → voice/typed; Done; Skip. */
+/** The witness's open request (v3.4): spoken + this floating card. Show → next proof shot answers it; Answer → voice/typed; Done; Skip. */
 @Composable
-private fun WitnessToast(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, vm: RecordViewModel, onShow: () -> Unit, modifier: Modifier) {
+private fun WitnessCard(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, act: WitnessActions, modifier: Modifier) {
     var typing by remember(w.wid) { mutableStateOf(false) }
     var text by remember(w.wid) { mutableStateOf("") }
-    Surface(modifier.fillMaxWidth(), color = Color(0xEE10241A), shape = RoundedCornerShape(18.dp), shadowElevation = 6.dp) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    var why by remember(w.wid) { mutableStateOf(false) }
+    Surface(modifier.fillMaxWidth(), color = Color(0xF20F2127), shape = RoundedCornerShape(22.dp), shadowElevation = 8.dp, contentColor = TokInk) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Visibility, null, tint = Color(0xFF6FD3A0), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("WITNESS", color = Color(0xFF6FD3A0), fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.5.sp, modifier = Modifier.weight(1f))
-                Text(modeChip(w.by), color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                Box(Modifier.size(32.dp).clip(CircleShape).background(SealGold), contentAlignment = Alignment.Center) {
+                    Icon(Glyph.Witness, null, Modifier.size(18.dp), tint = SealInk)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text("Witness", color = SealGold, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                HybridBadge(w.by, onMedia = true)
+                if (w.why.isNotBlank()) IconButton(onClick = { why = !why }) { Icon(Icons.Filled.Info, "Why", tint = TokInk2) }
             }
-            Text(w.ask, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            if (w.why.isNotBlank()) Text(w.why, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            Text(w.ask, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+            if (why) Text(w.why, color = TokInk2, fontSize = 13.sp)
             ui.plan?.requirements?.firstOrNull { it.id == w.rid }?.let { r ->
-                Text("For: ${r.ask}", color = Color(0xFF6FD3A0).copy(alpha = 0.85f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp), tint = TokInk2); Spacer(Modifier.width(5.dp))
+                    Text(r.ask, color = TokInk2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
-            if (ui.witnessArmed) Text("Take the proof shot now — it will be tagged with this request.", color = Color(0xFFFFD27A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (ui.witnessArmed) GlyphPill(Glyph.Proof, "Take the proof shot now", SealGold, fg = SealInk)
             if (typing) Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = text, onValueChange = { text = it.take(200) }, singleLine = true, modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type your answer", color = Color.White.copy(alpha = 0.5f)) },
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    placeholder = { Text("Type your answer") }, shape = RoundedCornerShape(24.dp),
                 )
-                TextButton(enabled = text.isNotBlank(), onClick = { vm.answerWitnessText(text) }) { Text("Send", color = Color.White) }
+                IconButton(enabled = text.isNotBlank(), onClick = { act.onText(text) }) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                val btn = ButtonDefaults.buttonColors(containerColor = Color(0xFF6FD3A0), contentColor = Color(0xFF0B2A1B))
+                val btn = ButtonDefaults.buttonColors(containerColor = SealGold, contentColor = SealInk)
+                val big = Modifier.heightIn(min = 52.dp)
                 when (w.kind) {
-                    "show" -> if (!ui.witnessArmed) Button(onClick = onShow, colors = btn) { Icon(Icons.Filled.CameraAlt, null, Modifier.size(16.dp)); Text(" Show") }
-                    "tell" -> {
-                        Button(onClick = { vm.answerWitnessByVoice() }, enabled = !ui.witnessListening, colors = btn) {
-                            Icon(Icons.Filled.Mic, null, Modifier.size(16.dp)); Text(if (ui.witnessListening) " Listening…" else " Answer")
-                        }
-                        if (!typing) TextButton(onClick = { typing = true }) { Text("Type", color = Color.White) }
+                    "show" -> if (!ui.witnessArmed) Button(onClick = act.onShow, colors = btn, modifier = big) {
+                        Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(6.dp)); Text("Show", fontWeight = FontWeight.Bold)
                     }
-                    else -> Button(onClick = { vm.witnessDone() }, colors = btn) { Text("Done") }
+                    "tell" -> {
+                        Button(onClick = act.onVoice, enabled = !ui.witnessListening, colors = btn, modifier = big) {
+                            Icon(Icons.Filled.Mic, null); Spacer(Modifier.width(6.dp)); Text(if (ui.witnessListening) "Listening…" else "Answer", fontWeight = FontWeight.Bold)
+                        }
+                        if (!typing) IconButton(onClick = { typing = true }) { Icon(Icons.Filled.Keyboard, "Type the answer", tint = TokInk) }
+                    }
+                    else -> Button(onClick = act.onDone, colors = btn, modifier = big) { Icon(Icons.Filled.Check, null); Spacer(Modifier.width(6.dp)); Text("Done", fontWeight = FontWeight.Bold) }
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { vm.skipWitness() }) { Text("Skip", color = Color.White.copy(alpha = 0.8f)) }
+                TextButton(onClick = act.onSkip, modifier = big) { Text("Skip", color = TokInk2) }
             }
         }
     }
 }
 
 @Composable
-private fun ModeToggle(mode: Prefs.CaptureMode, enabled: Boolean, modifier: Modifier, onChange: (Prefs.CaptureMode) -> Unit) {
-    Surface(modifier, color = Color(0x99000000), shape = RoundedCornerShape(50)) {
-        Row(Modifier.padding(4.dp)) {
-            Prefs.CaptureMode.entries.forEach { m ->
-                val sel = m == mode
-                Box(
-                    Modifier.clip(RoundedCornerShape(50)).background(if (sel) Color.White else Color.Transparent)
-                        .clickable(enabled = enabled && !sel) { onChange(m) }.padding(horizontal = 16.dp, vertical = 7.dp),
+private fun ModeToggle(mode: Prefs.CaptureMode, enabled: Boolean, onChange: (Prefs.CaptureMode) -> Unit) {
+    Row(Modifier.clip(RoundedCornerShape(50)).background(MediaBg.copy(alpha = 0.6f)).padding(horizontal = 4.dp)) {
+        Prefs.CaptureMode.entries.forEach { m ->
+            val sel = m == mode
+            Box(
+                Modifier.heightIn(min = 48.dp).clickable(enabled = enabled && !sel, role = Role.Tab) { onChange(m) }.semantics { selected = sel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(if (sel) TokInk else Color.Transparent).padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        m.name.uppercase(), color = if (sel) Color.Black else Color.White.copy(alpha = if (enabled) 1f else 0.5f),
-                        fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp,
-                    )
+                    val c = if (sel) MediaBg else TokInk.copy(alpha = if (enabled) 1f else 0.5f)
+                    Icon(if (m == Prefs.CaptureMode.Photo) Glyph.Proof else Glyph.Video, null, Modifier.size(16.dp), tint = c)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (m == Prefs.CaptureMode.Photo) "Photo" else "Video", color = c, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
@@ -344,8 +483,8 @@ private fun ModeToggle(mode: Prefs.CaptureMode, enabled: Boolean, modifier: Modi
 
 /** Flash (only when the lens has one) and front/back flip, as round buttons over the camera. */
 @Composable
-private fun CameraButtons(cam: CaptureController, mode: Prefs.CaptureMode, flipEnabled: Boolean, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun CameraButtons(cam: CaptureController, mode: Prefs.CaptureMode, flipEnabled: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (cam.hasFlash) {
             val (icon, label) = when {
                 cam.flash == Flash.On -> Icons.Filled.FlashOn to "Flash on"
@@ -365,57 +504,79 @@ private fun CameraButtons(cam: CaptureController, mode: Prefs.CaptureMode, flipE
 @Composable
 private fun RoundIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(44.dp).clip(CircleShape).background(Color(0x99000000))
+        Modifier.size(48.dp).clip(CircleShape).background(MediaBg.copy(alpha = 0.6f))
             .clickable(enabled = enabled, onClick = onClick, role = Role.Button, onClickLabel = label),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = Color.White.copy(alpha = if (enabled) 1f else 0.5f)) }
+    ) { Icon(icon, label, tint = TokInk.copy(alpha = if (enabled) 1f else 0.5f)) }
 }
 
-/** Big round shutter: green camera disc for photo, red disc for video, red rounded square while recording. */
+/** Big round shutter: camera disc for photo, red disc for video, red rounded square while recording. */
 @Composable
 private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, onClick: () -> Unit) {
+    val label = when { recording -> "Stop video"; mode == Prefs.CaptureMode.Video -> "Start video"; else -> "Take a proof shot" }
     Box(
-        Modifier.size(78.dp).clip(CircleShape).border(4.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-            .clickable(enabled = !busy, onClick = onClick, role = Role.Button),
+        Modifier.size(84.dp).clip(CircleShape).border(4.dp, TokInk, CircleShape)
+            .clickable(enabled = !busy, onClick = onClick, role = Role.Button, onClickLabel = label)
+            .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
         when {
-            busy -> CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp)
-            recording -> Box(Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(Red))
-            mode == Prefs.CaptureMode.Video -> Box(Modifier.size(58.dp).clip(CircleShape).background(Red))
-            else -> Box(Modifier.size(58.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.CameraAlt, "Proof shot", tint = Color.White)
+            busy -> CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp, color = TokInk)
+            recording -> Box(Modifier.size(30.dp).clip(RoundedCornerShape(7.dp)).background(FillBad))
+            mode == Prefs.CaptureMode.Video -> Box(Modifier.size(64.dp).clip(CircleShape).background(FillBad))
+            else -> Box(Modifier.size(64.dp).clip(CircleShape).background(TokInk), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.CameraAlt, null, tint = MediaBg, modifier = Modifier.size(28.dp))
             }
         }
     }
 }
 
+/** Chain status pill: link glyph + chunk count; colour = guest / offline / synced. */
 @Composable
-private fun SyncBadge(ui: RecUi) {
-    val (text, color) = when {
-        ui.guest -> "On this phone · ${ui.chunksTotal} chunks" to Color(0xFF3D5A4C)
-        ui.chunksPending > 0 -> "Offline · ${ui.chunksPending} chunks queued" to Amber
-        ui.chunksTotal > 0 -> "Synced · ${ui.chunksTotal} chunks" to Green
-        else -> "Recording · first chunk in 5 s" to Color.DarkGray
+private fun SyncChip(ui: RecUi) {
+    val (icon, text, bg) = when {
+        ui.guest -> Triple(Glyph.OnDevice, "${ui.chunksTotal}", FillInk)
+        ui.chunksPending > 0 -> Triple(Icons.Filled.CloudOff, "${ui.chunksPending} queued", Color(0xFF8A6100))
+        ui.chunksTotal > 0 -> Triple(Glyph.Chain, "${ui.chunksTotal}", FillOk)
+        else -> Triple(Glyph.Chain, "5 s", FillInk)
     }
-    Pill(text, color)
+    val desc = when {
+        ui.guest -> "On this phone, ${ui.chunksTotal} chunks"
+        ui.chunksPending > 0 -> "Offline, ${ui.chunksPending} chunks queued"
+        ui.chunksTotal > 0 -> "Synced, ${ui.chunksTotal} chunks"
+        else -> "First chunk in 5 seconds"
+    }
+    GlyphPill(icon, text, bg, Modifier.semantics { contentDescription = desc })
 }
 
+/** Coach result as a transient toast: green "keep going" / amber "retake"; checking shows a spinner chip. */
 @Composable
-private fun CoachBanner(ui: RecUi, modifier: Modifier) {
+private fun CoachToast(ui: RecUi) {
     val c = ui.coach
-    val (text, color) = when {
-        ui.checking -> "Checking frame…" to Color(0xCC333333)
-        c == null -> "Take a proof shot of your progress" to Color(0x99333333)
-        c.mode == "none" -> "Frame saved · ${c.reason}" to Color(0xCC555555)
-        !c.ok -> "Retake: ${c.reason}" to Red.copy(alpha = 0.9f)
-        c.mode == "on_device" -> "On-device: keep going" to Green.copy(alpha = 0.92f)
-        else -> "Keep going · checked in the cloud (no on-device model)" to Green.copy(alpha = 0.92f)
-    }
-    Surface(modifier, color = color, shape = RoundedCornerShape(12.dp)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (ui.checking) { CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
-            Text(text, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(c) { if (c != null) { visible = true; delay(4_000); visible = false } }
+    when {
+        ui.checking -> ScrimChip {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(14.dp), color = TokInk, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp)); Text("Checking", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+        }
+        c == null -> ScrimChip { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Glyph.Proof, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Take a proof shot", fontSize = 14.sp) } }
+        else -> AnimatedVisibility(visible, enter = fadeIn() + slideInVertically(), exit = fadeOut()) {
+            val (bg, icon, text) = when {
+                c.mode == "none" -> Triple(FillInk, Glyph.Frames, "Saved · ${c.reason}")
+                !c.ok -> Triple(Color(0xFFB26A00), Icons.Filled.Refresh, "Retake: ${c.reason}")
+                else -> Triple(FillOk, Icons.Filled.CheckCircle, "Keep going")
+            }
+            Surface(color = bg, shape = RoundedCornerShape(50), contentColor = Color.White) {
+                Row(Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                    Text(text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(6.dp))
+                    if (c.mode != "none") HybridBadge(c.mode, onMedia = true)
+                }
+            }
         }
     }
 }
@@ -588,54 +749,111 @@ private fun takeProof(ctx: Context, capture: ImageCapture, done: (Bitmap?, Strin
     })
 }
 
-/** v4.11 Finish/sync words: "Uploading video · 34 MB" → "Video uploaded" (the submit follows the upload). */
+/** v4.11 Finish/sync words ("Uploading video · 34 MB" → "Video uploaded") with an upload progress ring. */
 @Composable
 fun VideoUploadLine(momentId: String?) {
     val uploads by com.mattricks.verified.data.Clips.uploads.collectAsState()
     val u = momentId?.let { uploads[it] }
     val mb = { b: Long -> "${(b + 512 * 1024) / (1024 * 1024)} MB" }
     val (text, color) = when {
-        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection") to Amber
-        u.finished -> "Video uploaded" to Green
-        u.error != null -> "Video upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Amber
-        else -> "Uploading video · ${mb(u.totalBytes)}" to Green
+        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection") to Warn
+        u.finished -> "Video uploaded" to Ok
+        u.error != null -> "Upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Warn
+        else -> "Uploading video · ${mb(u.totalBytes)}" to Lake
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Pill(text, color)
-        if (u != null && !u.finished && u.totalBytes > 0) androidx.compose.material3.LinearProgressIndicator(
-            progress = { (u.sentBytes.toFloat() / u.totalBytes).coerceIn(0f, 1f) }, modifier = Modifier.width(200.dp),
-        )
+    val frac = if (u != null && u.totalBytes > 0) (u.sentBytes.toFloat() / u.totalBytes).coerceIn(0f, 1f) else null
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics(mergeDescendants = true) {}) {
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            when {
+                u?.finished == true -> Icon(Icons.Filled.CheckCircle, null, tint = Ok, modifier = Modifier.size(32.dp))
+                frac != null -> {
+                    CircularProgressIndicator(progress = { frac }, Modifier.size(40.dp), color = color, strokeWidth = 4.dp)
+                    Text("${(frac * 100).roundToInt()}", style = Tnum, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                else -> CircularProgressIndicator(Modifier.size(28.dp), color = color, strokeWidth = 3.dp)
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Icon(Glyph.Video, null, Modifier.size(16.dp), tint = color)
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
+/** Review / submit: one card with the track sketch, the stats, sync and upload state; then the two actions. */
 @Composable
 private fun FinishedView(ui: RecUi, vm: RecordViewModel, user: FirebaseUser?, onOpen: (String) -> Unit) {
     val judging by Judging.status.collectAsState()
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(24.dp))
-        Text(if (ui.guest) "Moment saved" else "Moment submitted", style = MaterialTheme.typography.headlineSmall)
-        Text("${fmtDuration(ui.elapsedMs)} · ${fmtDistance(ui.distanceM)} · ${ui.frameCount} frames")
-        SyncBadge(ui)
-        if (ui.guest) {
-            val guests by com.mattricks.verified.data.Vault.guests.collectAsState()
-            val stillLocal = guests.any { it.id == ui.momentId }
-            Text(
-                if (stillLocal) "Saved on this phone, hash chain and all. Sign in to upload it, run the cloud review and get it sealed."
-                else "Uploading to your account — the cloud review runs next.",
-                color = Color.Gray, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-            if (stillLocal) Button(onClick = {
-                val id = ui.momentId ?: return@Button
-                com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(id)) }
-            }) { Text(if (user == null) "Sign in to verify" else "Upload & verify") }
-        } else {
-            if (ui.hasVideo) VideoUploadLine(ui.momentId)
-            Text(
-                judging ?: if (Judging.online()) "Judge, skeptic + scorer run in the cloud, then the seal is computed." else "Offline — judging will run when you're back online.",
-                color = Color.Gray, style = MaterialTheme.typography.bodyMedium,
-            )
+    val guests by com.mattricks.verified.data.Vault.guests.collectAsState()
+    val stillLocal = ui.guest && guests.any { it.id == ui.momentId }
+    FinishedContent(
+        ui, stillLocal = stillLocal, signedIn = user != null, judging = judging, online = Judging.online(),
+        onVerify = {
+            ui.momentId?.let { id -> com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(id)) } }
+        },
+        onOpen = { ui.momentId?.let(onOpen) }, onNew = vm::reset,
+    )
+}
+
+@Composable
+internal fun FinishedContent(
+    ui: RecUi, stillLocal: Boolean, signedIn: Boolean, judging: String?, online: Boolean,
+    onVerify: () -> Unit, onOpen: () -> Unit, onNew: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(72.dp).clip(CircleShape).background(if (ui.guest) FillInk else FillLake), contentAlignment = Alignment.Center) {
+            Icon(if (ui.guest) Glyph.OnDevice else Icons.Filled.CloudUpload, null, tint = Color.White, modifier = Modifier.size(36.dp))
         }
-        ui.momentId?.let { id -> Button(onClick = { onOpen(id) }) { Text("View Moment") } }
-        OutlinedButton(onClick = vm::reset, colors = ButtonDefaults.outlinedButtonColors()) { Text("New Moment") }
+        Text(if (ui.guest) "Moment saved" else "Moment submitted", style = MaterialTheme.typography.headlineMedium)
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(24.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(96.dp, 80.dp)) { TrackCanvas(ui.track, Modifier.matchParentSize()) }
+                    Spacer(Modifier.width(14.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val ink = MaterialTheme.colorScheme.onSurface
+                        StatOverlay(Glyph.Time, fmtDuration(ui.elapsedMs), tint = ink, sub = Ink2, big = true)
+                        StatOverlay(Glyph.Distance, fmtDistance(ui.distanceM), tint = ink, sub = Ink2, big = true)
+                        StatOverlay(Glyph.Frames, "${ui.frameCount}", "shots", tint = ink, sub = Ink2, big = true)
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SyncChip(ui)
+                    if (ui.witnessAsked > 0) GlyphPill(Glyph.Witness, "${ui.witnessAnswered}/${ui.witnessAsked}", FillInk)
+                    if (ui.videoCount > 0) GlyphPill(Glyph.Video, "${ui.videoCount}", FillInk)
+                }
+                if (!ui.guest && ui.hasVideo) VideoUploadLine(ui.momentId)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (ui.guest) Glyph.OnDevice else Glyph.Ai, null, Modifier.size(18.dp), tint = Lake)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            ui.guest && stillLocal -> "On this phone, hash chain and all. Sign in to verify."
+                            ui.guest -> "Uploading to your account — the cloud review runs next."
+                            judging != null -> judging
+                            online -> "Judge, skeptic + scorer run next, then the seal."
+                            else -> "Offline — judging runs when you're back online."
+                        },
+                        style = MaterialTheme.typography.bodyMedium, color = Ink2, modifier = Modifier.weight(1f),
+                    )
+                    if (!ui.guest) HybridBadge("cloud")
+                }
+            }
+        }
+        if (ui.guest && stillLocal) Button(onClick = onVerify, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(28.dp)) {
+            Icon(Icons.Filled.CloudUpload, null); Spacer(Modifier.width(8.dp)); Text(if (!signedIn) "Sign in to verify" else "Upload & verify", fontWeight = FontWeight.Bold)
+        }
+        if (ui.momentId != null) {
+            val primary = !(ui.guest && stillLocal)
+            val mod = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            if (primary) Button(onClick = onOpen, modifier = mod, shape = RoundedCornerShape(28.dp)) { Icon(Glyph.Result, null); Spacer(Modifier.width(8.dp)); Text("View Moment", fontWeight = FontWeight.Bold) }
+            else OutlinedButton(onClick = onOpen, modifier = mod, shape = RoundedCornerShape(28.dp)) { Text("View Moment") }
+        }
+        OutlinedButton(onClick = onNew, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(28.dp)) {
+            Icon(Icons.Filled.FiberManualRecord, null, tint = FillBad); Spacer(Modifier.width(8.dp)); Text("New Moment")
+        }
     }
 }

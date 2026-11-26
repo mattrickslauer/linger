@@ -4,6 +4,11 @@ import android.net.Uri
 import android.util.Log
 import android.view.LayoutInflater
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -126,7 +131,7 @@ fun FeedVideo(clip: SharedClip, player: ExoPlayer, muted: Boolean, modifier: Mod
 @Composable
 fun MuteButton(muted: Boolean, onToggle: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(TokBg.copy(alpha = 0.6f)).clickable(onClickLabel = if (muted) "Sound on" else "Sound off", onClick = onToggle),
+        Modifier.size(48.dp).clip(CircleShape).background(TokBg.copy(alpha = 0.6f)).clickable(onClickLabel = if (muted) "Sound on" else "Sound off", onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -137,33 +142,37 @@ fun MuteButton(muted: Boolean, onToggle: () -> Unit) {
 }
 
 /**
- * Evidence room "Video": every uploaded clip of the Moment, each playable with controls (never autoplayed). One
- * player at a time: tapping a clip opens it in place; leaving the screen or the app pauses it.
+ * Evidence room "Video": every uploaded clip of the Moment as 16:9 tiles in a row, each playable with controls (never
+ * autoplayed). One player at a time: tapping a tile opens it above the row; leaving the screen or the app pauses it.
  */
 @Composable
 fun SharedVideoSection(d: MomentDetail) {
     if (d.sharedClips.isEmpty()) return
     var open by remember(d.card.id) { mutableStateOf<String?>(null) }
-    Text("Video", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        d.sharedClips.forEachIndexed { i, c ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (open == c.path) ClipPlayer(c)
-                    else Box(
-                        Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black)
-                            .clickable(onClickLabel = "Play clip ${i + 1}") { open = c.path },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(32.dp)) }
+    BlockTitle(Glyph.Video, "Video") { Text("${d.sharedClips.size}", style = Tnum.merge(MaterialTheme.typography.titleMedium), color = Ink2) }
+    d.sharedClips.firstOrNull { it.path == open }?.let { ClipPlayer(it) }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(d.sharedClips) { i, c ->
+            val on = open == c.path
+            Box(
+                Modifier.size(width = 200.dp, height = 112.dp).clip(RoundedCornerShape(14.dp)).background(MediaBg)
+                    .border(if (on) 3.dp else 0.dp, if (on) SealGold else Color.Transparent, RoundedCornerShape(14.dp))
+                    .clickable(onClickLabel = "Play clip ${i + 1}") { open = c.path },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(48.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.PlayArrow, "Play", tint = MediaBg, modifier = Modifier.size(30.dp))
+                }
+                if (c.durationMs > 0) ScrimChip(Modifier.align(Alignment.BottomStart).padding(6.dp)) { StatOverlay(Glyph.Time, fmtDuration(c.durationMs)) }
+                val (icon, tint, what) = when (c.hashOk) {
+                    true -> Triple(Glyph.Chain, TokOk, "hash matches the chain")
+                    false -> Triple(Glyph.Warning, TokBad, "Hash does not match the chain")
+                    null -> Triple(Glyph.Cloud, TokInk2, "uploaded")
+                }
+                ScrimChip(Modifier.align(Alignment.TopEnd).padding(6.dp).semantics { contentDescription = what }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Clip ${i + 1}", fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(8.dp))
-                        if (c.durationMs > 0) Text(fmtDuration(c.durationMs), color = Color.Gray, fontSize = 13.sp)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            when (c.hashOk) { true -> "hash ✓"; false -> "Hash does not match the chain"; null -> "uploaded" },
-                            color = when (c.hashOk) { true -> Green; false -> Red; null -> Color.Gray }, fontSize = 12.sp,
-                        )
+                        Icon(icon, null, Modifier.size(14.dp), tint = tint)
+                        if (c.hashOk == false) { Spacer(Modifier.width(4.dp)); Text("mismatch", fontSize = 11.sp, color = tint) }
                     }
                 }
             }
@@ -180,7 +189,10 @@ private fun ClipPlayer(c: SharedClip) {
     val u = url
     if (u == null || u == Uri.EMPTY) {
         Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
-            if (u == Uri.EMPTY) Text("Couldn't load this clip.", color = Color.Gray, fontSize = 13.sp)
+            if (u == Uri.EMPTY) Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Glyph.Warning, null, Modifier.size(16.dp), tint = Ink2); Spacer(Modifier.width(6.dp))
+                Text("Couldn't load this clip.", color = Ink2, fontSize = 13.sp)
+            }
             else CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
         return
@@ -197,6 +209,6 @@ private fun ClipPlayer(c: SharedClip) {
     AndroidView(
         factory = { inflatePlayerView(it, controls = true).also { v -> v.player = player } },
         onRelease = { it.player = null },
-        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(10.dp)),
+        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)),
     )
 }

@@ -6,6 +6,7 @@ import { claimAndVerify, claimPrompted, markClaimPrompted } from "../claim";
 import { fmtDuration } from "../geo";
 import { navigate } from "../router";
 import { forgetMoment, unclaimed, useLocalMoments } from "../vault";
+import { Glyph } from "../kit";
 
 export default function ClaimSheet({ user }: { user: User | null }) {
   const local = useLocalMoments();
@@ -53,16 +54,21 @@ export default function ClaimSheet({ user }: { user: User | null }) {
       onClick={(e) => e.target === e.currentTarget && close()}
     >
       <div className="sheet-box">
+        <span className="sheet-grab" aria-hidden="true" />
+        <span className="signin-mark" aria-hidden="true">
+          <Glyph name="upload" />
+        </span>
         <h2 id={id}>
           You recorded {waiting.length === 1 ? "a Moment" : `${waiting.length} Moments`} as a guest
         </h2>
-        <p className="muted">Upload {waiting.length === 1 ? "it" : "them"} to your account to get {waiting.length === 1 ? "it" : "them"} verified. Nothing in the recording changes.</p>
+        <p className="muted small">Upload to get {waiting.length === 1 ? "it" : "them"} verified. Nothing in the recording changes.</p>
         <ul className="claim-list">
           {waiting.map((m) => (
             <li key={m.id} className={keep.has(m.id) ? "claim-kept" : ""}>
               <div>
                 <strong>{m.intention.text}</strong>
                 <span className="muted small">
+                  <Glyph name="device" />{" "}
                   {new Date(m.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                   {m.summary ? `, ${fmtDuration(m.summary.durationMs)}, ${m.summary.frameCount} proof shots` : ""}
                 </span>
@@ -83,8 +89,8 @@ export default function ClaimSheet({ user }: { user: User | null }) {
                 >
                   {keep.has(m.id) ? "Upload this" : "Keep on this device"}
                 </button>
-                <button className="btn btn-small btn-danger-quiet" disabled={!!busy} onClick={() => void forgetMoment(m.id)}>
-                  Delete
+                <button className="btn btn-small btn-danger-quiet" disabled={!!busy} onClick={() => void forgetMoment(m.id)} aria-label={`Delete ${m.intention.text}`}>
+                  <Glyph name="trash" />
                 </button>
               </div>
             </li>

@@ -148,10 +148,19 @@ struct SharedClipsSection: View {
   let clips: [SharedClip]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      ForEach(Array(clips.enumerated()), id: \.element.id) { i, clip in
-        SharedClipRow(clip: clip, index: i + 1, count: clips.count)
+    if clips.count == 1, let clip = clips.first {
+      SharedClipRow(clip: clip, index: 1, count: 1)
+    } else {
+      // Several clips: a horizontal carousel instead of a tall stack.
+      ScrollView(.horizontal, showsIndicators: false) {
+        LazyHStack(alignment: .top, spacing: 10) {
+          ForEach(Array(clips.enumerated()), id: \.element.id) { i, clip in
+            SharedClipRow(clip: clip, index: i + 1, count: clips.count)
+              .frame(width: 272)
+          }
+        }
       }
+      .scrollClipDisabled()
     }
   }
 }
@@ -178,7 +187,7 @@ private struct SharedClipRow: View {
       }
       .frame(height: 220)
       .frame(maxWidth: .infinity)
-      .clipShape(RoundedRectangle(cornerRadius: 12))
+      .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
       HStack(spacing: 4) {
         Text(count > 1 ? "Clip \(index) of \(count)" : "Clip").font(.caption.weight(.semibold))
         if clip.durationMs > 0 {

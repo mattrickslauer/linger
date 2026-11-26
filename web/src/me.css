@@ -1,0 +1,317 @@
+/* Me: profile, counts as tiles, Moments as a two-column grid of proof photos with the status on top. */
+
+.me {
+  gap: 18px;
+  padding-top: 20px;
+}
+.me-head h1 {
+  font-size: clamp(1.5rem, 5vw, 2.2rem);
+}
+.avatar-ph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--gold);
+  color: #10242b;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+.me-out {
+  text-decoration: none;
+  min-height: 44px;
+}
+.me-tally {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+.me-tally div {
+  display: flex;
+  flex-direction: column-reverse;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.me-tally dd {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.me-tally dt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.me-tally dt .glyph {
+  width: 14px;
+  height: 14px;
+}
+.me-tally .tally-ok dd {
+  color: color-mix(in srgb, var(--gold) 70%, var(--ink));
+}
+.me-tally .tally-bad dd {
+  color: var(--bad);
+}
+.me-tally .tally-wait dd {
+  color: var(--lake);
+}
+.me .vault-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.me .vault-held {
+  background: color-mix(in srgb, var(--gold) 28%, var(--sheet));
+  color: var(--ink);
+}
+.me-sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+.me-sec-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.15rem;
+}
+
+.me-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(46%, 220px), 1fr));
+  gap: 16px 12px;
+}
+.me-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tile-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background:
+    repeating-radial-gradient(circle at 30% 40%, #1f6f7833 0 2px, transparent 2px 22px),
+    linear-gradient(160deg, #10343b, #071419);
+  color: #e8ece499;
+}
+.tile-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tile-bad .tile-media img {
+  filter: grayscale(0.65);
+}
+.tile-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(#07141999, #07141900 40%, #07141900 60%, #071419b3);
+}
+.tile-ph {
+  width: 32px;
+  height: 32px;
+}
+.tile-badge {
+  position: absolute;
+  z-index: 1;
+  left: 8px;
+  top: 8px;
+  right: 8px;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  padding: 3px 9px 3px 6px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.25;
+  background: #071419b3;
+  color: #e8ece4;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.tile-badge .glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.badge-ok {
+  background: var(--gold);
+  color: #10242b;
+}
+.badge-bad {
+  background: #071419cc;
+  color: #ff9a85;
+  box-shadow: inset 0 0 0 1.5px #ff9a85;
+}
+.tile-ring {
+  position: absolute;
+  z-index: 1;
+  right: 8px;
+  bottom: 8px;
+}
+.tile-ring .ring-track {
+  stroke: #e8ece433;
+}
+.me-tile h3 {
+  margin-top: 4px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.me-tile h3 a {
+  text-decoration: none;
+}
+.me-tile {
+  position: relative;
+}
+.me-tile h3 a::after {
+  /* the photo opens it too */
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  top: 0;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+}
+.me-tile h3 a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tile-meta {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.tile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tile-chips .gchip,
+.tile-chips .chip {
+  font-size: 0.72rem;
+}
+.tile-progress {
+  font-size: 0.76rem;
+  color: var(--ink-2);
+}
+.tile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.tile-actions .btn {
+  min-height: 40px;
+}
+.tile-del span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.tile-del {
+  width: 40px;
+  padding: 0;
+}
+
+/* Guest: one card, one action. */
+.guest-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.guest-card h1 {
+  font-size: clamp(1.4rem, 5vw, 2rem);
+}
+.guest-glyph {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+.guest-glyph .glyph {
+  width: 26px;
+  height: 26px;
+}
+.guest-props {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+.guest-props li {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border-radius: 14px;
+  background: var(--paper);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-align: center;
+}
+.guest-props .glyph {
+  width: 24px;
+  height: 24px;
+  color: var(--track);
+}
+.guest-props li:last-child .glyph {
+  color: color-mix(in srgb, var(--gold) 75%, var(--ink));
+}
+.me-skel {
+  height: 220px;
+}
+.me .empty {
+  padding: 32px 0;
+}

@@ -9,6 +9,7 @@ import { isDeclined, requireSignIn } from "../signin";
 import type { Chunk, FeedLadderStep, Intention, LadderResult, ModuleId } from "../types";
 import { offersV4, type OfferV4 } from "../ladder";
 import type { Claim, ClaimScore, Requirement, WitnessFact } from "../v4";
+import { Glyph, MODULE_GLYPH, Preview } from "../kit";
 
 type Step = Pick<LadderResult, "module" | "title" | "passed" | "before" | "after" | "reasons"> & Partial<LadderResult>;
 
@@ -18,10 +19,11 @@ function Rung({ r, claimText }: { r: Step; claimText?: (id: string) => string | 
   return (
     <li className={`rung ${r.passed ? "rung-pass" : "rung-fail"}`}>
       <span className="rung-mark" aria-hidden="true">
-        {r.passed ? "✓" : "✗"}
+        <Glyph name={r.passed ? "check" : "close"} />
       </span>
       <div className="rung-body">
         <p className="rung-title">
+          <Glyph name={MODULE_GLYPH[r.module] ?? "ladder"} />
           <strong>{r.title}</strong>
           <span className="rung-verdict">{r.passed ? "passed" : "failed"}</span>
           {r.confidence != null && <span className="muted small">confidence {Math.round(r.confidence * 100)}%</span>}
@@ -98,8 +100,11 @@ export default function Ladder(p: Props) {
   return (
     <section className="ladder" aria-labelledby="ladder-h">
       <div className="section-head">
-        <h2 id="ladder-h">Verification ladder</h2>
-        <p className="muted small">Extra checks run by Cloud Functions. Code moves the score; the AI only proposes.</p>
+        <span className="ladder-title">
+          <Glyph name="ladder" />
+          <h2 id="ladder-h">Verification ladder</h2>
+        </span>
+        <p className="muted small">Extra checks; code moves the score</p>
       </div>
       <p className="ladder-head">
         {p.baseline != null && steps.length > 0 && (
@@ -200,6 +205,7 @@ function Offers(p: Props & { score: number; bar: number }) {
       <div className="offers-head">
         <h3>Raise your score</h3>
         <span className="credits" aria-live="polite">
+          <Glyph name="credits" />
           {credits ? (
             <>
               <strong>{credits.balance}</strong> credit{credits.balance === 1 ? "" : "s"}
@@ -225,10 +231,16 @@ function Offers(p: Props & { score: number; bar: number }) {
           <li key={o.module.id} className={`offer offer-${o.state}`}>
             <div className="offer-main">
               <p className="offer-title">
+                <span className="offer-glyph" aria-hidden="true">
+                  <Glyph name={MODULE_GLYPH[o.module.id] ?? "ladder"} />
+                </span>
                 <strong>{o.module.title}</strong>
-                <span className="offer-cost">{o.module.cost} cr</span>
+                <span className="offer-cost">
+                  <Glyph name="credits" />
+                  {o.module.cost} cr
+                </span>
               </p>
-              <p className="muted small">{o.module.blurb}</p>
+              <p className="muted small offer-blurb">{o.module.blurb}</p>
               {"claims" in o && o.claims.length > 0 && (
                 <p className="small offer-claims">
                   Backs {o.claims.map((c) => `${c.text} ${fmtScore(c.p)} → ${fmtScore(c.pass)} / ${fmtScore(c.fail)}`).join(" · ")}
@@ -240,10 +252,7 @@ function Offers(p: Props & { score: number; bar: number }) {
               <span className="chip">coming soon</span>
             ) : (
               <div className="offer-side">
-                <p className="offer-preview small">
-                  <span className="up">pass → {fmtScore(o.pass)}</span>
-                  <span className="down">fail → {fmtScore(o.fail)}</span>
-                </p>
+                <Preview from={p.score} pass={o.pass} fail={o.fail} bar={p.bar} className="offer-preview" />
                 <button className="btn btn-small btn-primary" disabled={o.state !== "ready" || !!running || !credits} onClick={() => (setErr(null), setConfirm(o))}>
                   Run
                 </button>
@@ -266,7 +275,13 @@ function Offers(p: Props & { score: number; bar: number }) {
       >
         {confirm && confirm.state !== "done" && confirm.state !== "soon" && (
           <div className="sheet-box">
-            <h2 id="run-h">Run {confirm.module.title}?</h2>
+            <h2 id="run-h" className="run-h">
+              <span className="offer-glyph" aria-hidden="true">
+                <Glyph name={MODULE_GLYPH[confirm.module.id] ?? "ladder"} />
+              </span>
+              Run {confirm.module.title}?
+            </h2>
+            <Preview from={p.score} pass={confirm.pass} fail={confirm.fail} bar={p.bar} className="run-preview" />
             <p className="muted">{confirm.module.blurb}</p>
             {"claims" in confirm && (
               <ul className="run-claims small">

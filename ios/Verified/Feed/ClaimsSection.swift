@@ -1,9 +1,9 @@
 import SwiftUI
 import VerifiedCore
 
-/// v4.11 detail: the overall verdict on top ("Verified ✓" / "Not verified", "score 0.52 · bar 0.52",
-/// "2/2 claims backed"), a red banner when cheating was detected, then one row per claim with its requirements
-/// (`✓ met` / `○ not met`) and the modules that can still back it, with local previews (v4.5 math on that claim).
+/// v4.11 detail: a header (glyph + "n/m backed"), a red banner when cheating was detected, then one row per claim
+/// with its own score ring (bar tick on the ring), its requirements (`✓ met` / `○ not met`) and the modules that can
+/// still back it, with local previews (v4.5 math on that claim). The overall verdict sits in the card above.
 struct ClaimsSection: View {
   @Environment(AppModel.self) private var app
   let model: MomentDetailModel
@@ -11,61 +11,34 @@ struct ClaimsSection: View {
   var body: some View {
     let m = model.card
     VStack(alignment: .leading, spacing: 14) {
-      ClaimsVerdictHeader(card: m)
+      GlyphHeader(icon: Glyph.claims, title: m.claimsFromServer || m.claims.isEmpty ? "Claims" : "Draft claims") {
+        if !m.claimScores.isEmpty && m.claimsTotal > 0 {
+          ClaimsBackedChip(backed: m.claimsBacked ?? backedCount(m), total: m.claimsTotal)
+        } else if !m.claimsFromServer && !m.claims.isEmpty {
+          InfoButton(title: "Draft claims",
+                     text: m.local ? "Draft claims from the interview. The cloud sets the binding claims and plan after upload."
+                       : "Draft claims from the interview. The cloud sets the binding claims and plan at submit.")
+        }
+      }
       if m.cheating { CheatingBanner(signals: m.cheatingSignals) }
       ForEach(m.claims) { c in
         ClaimRow(model: model, claim: c)
         if c.id != m.claims.last?.id { Divider() }
       }
       if m.claims.isEmpty {
-        Text(m.status == "submitted" ? "The cloud is splitting the intention into claims…" : "No claims.")
+        Label(m.status == "submitted" ? "Splitting the intention into claims…" : "No claims.",
+              systemImage: m.status == "submitted" ? "hourglass" : "checklist")
           .font(.footnote).foregroundStyle(.secondary)
-      } else if !m.claimsFromServer {
-        Text(m.local ? "Draft claims from the interview. The cloud sets the binding claims and plan after upload."
-             : "Draft claims from the interview. The cloud sets the binding claims and plan at submit.")
-          .font(.caption2).foregroundStyle(.tertiary)
       }
     }
   }
 
-  static func visible(_ m: MomentCardData) -> Bool { !m.claims.isEmpty || m.isV4 }
-}
-
-/// "Verified ✓ · score 0.52 · bar 0.52 · 2/2 claims backed"
-struct ClaimsVerdictHeader: View {
-  let card: MomentCardData
-
-  var body: some View {
-    let scored = !card.claimScores.isEmpty
-    let sealedOrRejected = card.status == "sealed" || card.status == "rejected"
-    let backed = card.claimsBacked ?? backedCount
-    HStack(alignment: .center, spacing: 12) {
-      Image(systemName: card.isVerified ? "checkmark.seal.fill" : sealedOrRejected ? "xmark.seal.fill" : "hourglass")
-        .font(.system(size: 30, weight: .semibold))
-        .foregroundStyle(card.isVerified ? Theme.accent : sealedOrRejected ? Theme.bad : .secondary)
-        .symbolEffect(.bounce, value: card.isVerified)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(card.isVerified ? "Verified ✓" : sealedOrRejected ? "Not verified" : "Not sealed yet")
-          .font(.title3.bold())
-          .foregroundStyle(card.isVerified ? Theme.accent : sealedOrRejected ? Theme.bad : .primary)
-        if let score = card.finalScore, let bar = card.bar?.value, scored {
-          Text("score \(V4Words.p(score)) · bar \(V4Words.p(bar))").font(.subheadline.monospacedDigit())
-            .foregroundStyle(.secondary)
-        } else if let bar = card.bar?.value {
-          Text("bar \(V4Words.p(bar))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-        }
-      }
-      Spacer(minLength: 0)
-      if scored && card.claimsTotal > 0 {
-        ClaimsBackedChip(backed: backed, total: card.claimsTotal)
-      }
-    }
-  }
-
-  private var backedCount: Int {
+  private func backedCount(_ card: MomentCardData) -> Int {
     guard let bar = card.bar?.value else { return 0 }
     return card.claims.filter { (card.claimScores[$0.id]?.p ?? 0) >= bar }.count
   }
+
+  static func visible(_ m: MomentCardData) -> Bool { !m.claims.isEmpty || m.isV4 }
 }
 
 /// "2/2 claims backed" (detail header and feed card).
@@ -75,8 +48,9 @@ struct ClaimsBackedChip: View {
 
   var body: some View {
     let all = backed >= total && total > 0
-    Chip(text: "\(backed)/\(total) claims backed", systemImage: all ? "checkmark.circle.fill" : "circle.lefthalf.filled",
-         color: all ? Theme.accent : Theme.warn)
+    Chip(text: "\(backed)/\(total) backed", systemImage: all ? "checkmark.circle.fill" : "circle.lefthalf.filled",
+         color: all ? Theme.ok : Theme.warn)
+      .accessibilityLabel("\(backed) of \(total) claims backed")
   }
 }
 
@@ -114,27 +88,21 @@ struct ClaimRow: View {
     let bar = m.bar?.value
     let backed = score.map { s in bar.map { s.p >= $0 } ?? false } ?? false
     VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Image(systemName: claim.kind.icon).font(.footnote.weight(.semibold))
-          .foregroundStyle(backed ? Theme.accent : .secondary).frame(width: 18)
-        Text(claim.text).font(.headline)
-        if backed { Text("✓").font(.headline).foregroundStyle(Theme.accent) }
+      HStack(alignment: .center, spacing: 10) {
+        Image(systemName: claim.kind.icon).font(.subheadline.weight(.semibold))
+          .foregroundStyle(backed ? Theme.ok : .secondary).frame(width: 22)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(claim.text).font(.headline)
+          if let score, !score.backedBy.isEmpty {
+            Text(V4Words.backedBy(score.backedBy)).font(.caption).foregroundStyle(backed ? Theme.ok : .secondary)
+          }
+        }
         Spacer(minLength: 4)
-        if let score, let bar, !backed {
-          Text("\(V4Words.p(score.p)) / bar \(V4Words.p(bar))").font(.subheadline.monospacedDigit().weight(.semibold))
-            .foregroundStyle(Theme.bad)
-        } else if let score, backed {
-          Text(V4Words.p(score.p)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.accent)
+        if let score {
+          ScoreRing(p: score.p, bar: bar, size: 46, caption: nil)
         }
       }
-      if let score, backed, !score.backedBy.isEmpty {
-        Text(V4Words.backedBy(score.backedBy)).font(.footnote).foregroundStyle(Theme.accent)
-      } else if let score, !score.backedBy.isEmpty {
-        Text(V4Words.backedBy(score.backedBy)).font(.footnote).foregroundStyle(.secondary)
-      }
-      if let score, let bar {
-        BarGauge(score: score.p, bar: bar).frame(height: 6)
-      }
+      .accessibilityElement(children: .combine)
       if let v = m.videoReview?.claims[claim.id] {
         let verdict = v.verdict.verdict.replacingOccurrences(of: "_", with: " ")
         let conf = Int(((v.verdict.confidence ?? 0) * 100).rounded())
@@ -142,7 +110,7 @@ struct ClaimRow: View {
           Label("Video review: \(verdict) · \(conf)%" + (v.measured.map { " · counted \($0)" } ?? ""),
                 systemImage: "film")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(V4.backs(v.verdict) ? Theme.accent : .secondary)
+            .foregroundStyle(V4.backs(v.verdict) ? Theme.ok : .secondary)
           ForEach(v.reasons.prefix(2), id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
         }
       }

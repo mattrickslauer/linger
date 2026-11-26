@@ -7,18 +7,11 @@ import { FIXTURES } from "../firebase";
 import { fmtDistance, fmtDuration } from "../geo";
 import type { User } from "firebase/auth";
 import { navigate } from "../router";
-import type { FeedEntry, SealChecks } from "../types";
+import type { FeedEntry } from "../types";
 import { ago, jpegSrc, Link, TrackSketch } from "../ui";
 import "../feed.css";
-import { FeedVideo, SpeakerIcon, feedClip } from "../components/SharedVideo";
-
-export const CHECK_ORDER: { key: keyof SealChecks; name: string }[] = [
-  { key: "chain", name: "Chain" },
-  { key: "timing", name: "Timing" },
-  { key: "physics", name: "Physics" },
-  { key: "frames", name: "Frames" },
-  { key: "ai", name: "AI" },
-];
+import { FeedVideo, feedClip } from "../components/SharedVideo";
+import { CheckPips, Glyph, GlyphChip, Hybrid, ScoreRing, Stats } from "../kit";
 
 type Filter = "all" | "sealed" | "rejected";
 const FILTERS: [Filter, string][] = [
@@ -47,21 +40,6 @@ export const pct = (p: number | null | undefined) => (p == null ? null : Math.ro
 
 // ------------------------------------------------------------------ pieces
 
-/** The five deterministic checks as pips: filled when passed, struck when failed. */
-export function Pips({ checks }: { checks: SealChecks }) {
-  const passed = CHECK_ORDER.filter((c) => checks[c.key]).length;
-  return (
-    <div className="pips" role="img" aria-label={`${passed} of 5 seal checks passed`}>
-      {CHECK_ORDER.map((c) => (
-        <span key={c.key} className={`pip ${checks[c.key] ? "pip-ok" : "pip-bad"}`}>
-          <i aria-hidden="true" />
-          {c.name}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function Share({ e }: { e: FeedEntry }) {
   const [copied, setCopied] = useState(false);
   const url = `${location.origin}/m/${e.momentId}`;
@@ -84,11 +62,9 @@ function Share({ e }: { e: FeedEntry }) {
       aria-label="Share this Moment"
     >
       <span className="disc" aria-hidden="true">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 3v12M7 8l5-5 5 5M5 14v5h14v-5" />
-        </svg>
+        <Glyph name={copied ? "check" : "share"} />
       </span>
-      {copied ? "Copied" : "Share"}
+      <span aria-live="polite">{copied ? "Copied" : "Share"}</span>
     </button>
   );
 }
@@ -96,7 +72,6 @@ function Share({ e }: { e: FeedEntry }) {
 function Slide({ e, index, active }: { e: FeedEntry; index: number; active: boolean }) {
   const sealed = e.status === "sealed";
   const score = pct(e.verificationScore);
-  const bar = pct(e.bar);
   const reason = e.cheating ? (e.cheatingSignals?.[0] ?? e.sealReason) : sealed ? (e.scoreReasons?.[0] ?? e.judgeReasons?.[0]) : e.sealReason;
   const ladder = e.ladder?.length ?? 0;
   const clip = feedClip(e.video?.clips);
@@ -105,10 +80,26 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
     if (!active) setMuted(true);
   }, [active]);
   const extras = [
-    e.claimsTotal ? `${e.claimsBacked ?? 0}/${e.claimsTotal} claims backed` : null,
-    ladder ? `+${ladder} check${ladder > 1 ? "s" : ""}` : null,
-    e.witness && e.witness.asked > 0 ? `witness ${e.witness.answered}/${e.witness.asked}` : null,
-    e.video?.reviewed ? "video reviewed" : null,
+    e.claimsTotal ? (
+      <GlyphChip key="c" glyph="intent" tone={(e.claimsBacked ?? 0) >= e.claimsTotal ? "ok" : undefined} title="Claims backed by evidence">
+        {e.claimsBacked ?? 0}/{e.claimsTotal} claims
+      </GlyphChip>
+    ) : null,
+    ladder ? (
+      <GlyphChip key="l" glyph="ladder" title="Extra checks run">
+        +{ladder}
+      </GlyphChip>
+    ) : null,
+    e.witness && e.witness.asked > 0 ? (
+      <GlyphChip key="w" glyph="witness" title="Witness requests answered">
+        {e.witness.answered}/{e.witness.asked}
+      </GlyphChip>
+    ) : null,
+    e.video?.reviewed ? (
+      <GlyphChip key="v" glyph="video" title="Video reviewed in the cloud">
+        reviewed
+      </GlyphChip>
+    ) : null,
   ].filter(Boolean);
   const open = () => {
     save(LAST_KEY, e.momentId);
@@ -144,7 +135,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
           </li>
           <li className="wp wp-proof">
             <p className="wp-label">
-              Proof <span>captured live, {ago(e.sealedAtServer)}</span>
+              Proof <span>live, {ago(e.sealedAtServer)}</span>
             </p>
             <div className="proof-row">
               {e.track?.length > 1 && (
@@ -152,36 +143,32 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
                   <TrackSketch track={e.track} w={64} h={48} />
                 </span>
               )}
-              <dl className="proof-stats">
-                <div>
-                  <dt>time</dt>
-                  <dd>{fmtDuration(e.summary.durationMs)}</dd>
-                </div>
-                <div>
-                  <dt>moved</dt>
-                  <dd>{fmtDistance(e.summary.distanceM)}</dd>
-                </div>
-                <div>
-                  <dt>shots</dt>
-                  <dd>{e.summary.frameCount}</dd>
-                </div>
-              </dl>
+              <Stats
+                className="proof-stats"
+                items={[
+                  { glyph: "timing", value: fmtDuration(e.summary.durationMs), label: "time" },
+                  { glyph: "route", value: fmtDistance(e.summary.distanceM), label: "moved" },
+                  { glyph: "frames", value: e.summary.frameCount, label: "shots" },
+                ]}
+              />
             </div>
-            <Pips checks={e.checks} />
-            {extras.length > 0 && <p className="proof-extra">{extras.join(", ")}</p>}
+            <div className="proof-checks">
+              <CheckPips checks={e.checks} />
+              <Hybrid mode={e.onDeviceMode} />
+            </div>
+            {extras.length > 0 && <p className="proof-extra">{extras}</p>}
           </li>
           <li className="wp wp-result">
             <p className="wp-label">Result</p>
             <div className="result-row">
               <span className={`tok-seal ${sealed ? "tok-seal-ok" : "tok-seal-no"}`}>{sealed ? "Verified ✓" : "Not verified"}</span>
-              {score != null && (
-                <span className="result-score">
-                  <b>{score}%</b> likely true
-                  {bar != null && <span className="result-bar">, bar {bar}%</span>}
-                </span>
-              )}
+              {score != null && <ScoreRing value={e.verificationScore} bar={e.bar} sealed={sealed} size={62} className="result-ring" />}
             </div>
-            {e.cheating && <p className="result-cheat">Cheating detected</p>}
+            {e.cheating && (
+              <p className="result-cheat">
+                <Glyph name="cheating" /> Cheating detected
+              </p>
+            )}
             {reason && <p className="result-why">{reason}</p>}
           </li>
         </ol>
@@ -197,9 +184,9 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
               }}
             >
               <span className="disc" aria-hidden="true">
-                <SpeakerIcon muted={muted} />
+                <Glyph name={muted ? "mute" : "speaker"} />
               </span>
-              {muted ? "Sound off" : "Sound on"}
+              {muted ? "Muted" : "Sound"}
             </button>
           )}
           <button
@@ -210,10 +197,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
             }}
           >
             <span className="disc" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <circle cx="10.5" cy="10.5" r="6" />
-                <path d="M15 15l5 5" />
-              </svg>
+              <Glyph name="search" />
             </span>
             Evidence
           </button>
@@ -224,40 +208,57 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
   );
 }
 
+const TILES: { k: "intent" | "proof" | "result"; glyph: "intent" | "proof" | "seal"; name: string; line: string }[] = [
+  { k: "intent", glyph: "intent", name: "Intent", line: "Said before starting" },
+  { k: "proof", glyph: "proof", name: "Proof", line: "Captured live, hash-chained" },
+  { k: "result", glyph: "seal", name: "Result", line: "AI weighs it, code seals" },
+];
+
 function Intro({ count, sealed, user }: { count: number | null; sealed: number; user: User | null }) {
   return (
     <section className="slide slide-intro" aria-label="About Verified">
       <div className="slide-frame intro">
         <h1>Proof it happened.</h1>
-        <p className="lede">Every post here was recorded live, argued over by AI, and sealed by code. Each one reads the same way:</p>
-        <ol className="thread thread-static">
-          <li className="wp wp-intent">
-            <p className="wp-label">Intent</p>
-            <p>What they said they would do, before starting. A short voice interview turns it into claims with a place, a goal and numbers.</p>
-          </li>
-          <li className="wp wp-proof">
-            <p className="wp-label">Proof</p>
-            <p>GPS, motion, proof shots and video, hashed into a chain every 5 seconds. A witness asks for the evidence that matters; it can never verify.</p>
-          </li>
-          <li className="wp wp-result">
-            <p className="wp-label">Result</p>
-            <p>A judge, a skeptic and a scorer weigh it in the cloud against a bar the AI sets. Then a Cloud Function checks the chain and alone writes the seal.</p>
-          </li>
+        <p className="intro-sub">Every post was recorded live and sealed by code. Each reads the same way:</p>
+        <ol className="intro-tiles">
+          {TILES.map((t) => (
+            <li key={t.k} className={`itile itile-${t.k}`}>
+              <span className="itile-glyph">
+                <Glyph name={t.glyph} />
+              </span>
+              <strong>{t.name}</strong>
+              <span>{t.line}</span>
+            </li>
+          ))}
         </ol>
-        <p className="intro-count">
-          {count == null ? "Connecting…" : `${sealed} verified, ${count - sealed} not${FIXTURES ? " (sample data)" : ""}`}
+        <p className="intro-hybrid">
+          <Hybrid mode="on_device" label="on-device coach" />
+          <Hybrid mode="cloud" label="cloud judges" />
+          <GlyphChip glyph="seal">code seals</GlyphChip>
         </p>
-        <p className="intro-count">
-          {user ? `Recording as ${user.displayName?.split(" ")[0] ?? "you"}.` : "No account needed to record. It stays on this device until you upload it."}
-        </p>
+        {count == null ? (
+          <p className="intro-count">Connecting…</p>
+        ) : (
+          <dl className="intro-tally" aria-label={`${sealed} verified, ${count - sealed} not verified${FIXTURES ? ", sample data" : ""}`}>
+            <div className="tally-ok">
+              <dt>verified</dt>
+              <dd>{sealed}</dd>
+            </div>
+            <div className="tally-no">
+              <dt>not verified</dt>
+              <dd>{count - sealed}</dd>
+            </div>
+          </dl>
+        )}
         <div className="intro-actions">
           <Link to="/record" className="btn btn-primary">
-            Record a Moment
+            <Glyph name="record" /> Record a Moment
           </Link>
           <span className="swipe-hint" aria-hidden="true">
             Swipe up
           </span>
         </div>
+        <p className="intro-note">{user ? `Recording as ${user.displayName?.split(" ")[0] ?? "you"}` : "No account needed to record"}</p>
       </div>
     </section>
   );
@@ -338,6 +339,7 @@ export default function Feed({ user }: { user: User | null }) {
   return (
     <div className="tok">
       <div className="tok-tabs" role="group" aria-label="Show">
+        <span className="tok-seg">
         {FILTERS.map(([k, label]) => (
           <button
             key={k}
@@ -351,12 +353,18 @@ export default function Feed({ user }: { user: User | null }) {
             {label}
           </button>
         ))}
+        </span>
       </div>
       <div className="tok-scroll" ref={scroller} tabIndex={-1}>
         <Intro count={entries ? entries.length : null} sealed={sealedCount} user={user} />
         {error && (
           <section className="slide slide-msg">
-            <p className="notice notice-bad">Couldn't load the feed: {error}</p>
+            <div className="end">
+              <span className="end-glyph" aria-hidden="true">
+                <Glyph name="offline" />
+              </span>
+              <p className="notice notice-bad">Couldn't load the feed: {error}</p>
+            </div>
           </section>
         )}
         {!entries && !error && <section className="slide slide-msg slide-skeleton" aria-busy="true" />}
@@ -366,15 +374,18 @@ export default function Feed({ user }: { user: User | null }) {
         {entries && (
           <section className="slide slide-msg" data-id="end">
             <div className="end">
+              <span className="end-glyph" aria-hidden="true">
+                <Glyph name={shown.length ? "seal" : "record"} />
+              </span>
               <h2>{shown.length ? "That's every Moment." : "Nothing here yet."}</h2>
-              <p>{shown.length ? "Record one of your own and it shows up here once it's sealed." : "Record the first one and it shows up here once it's sealed."}</p>
+              <p>{shown.length ? "Yours appears here once it's sealed." : "Record the first one."}</p>
               <div className="intro-actions">
                 <Link to="/record" className="btn btn-primary">
-                  Record a Moment
+                  <Glyph name="record" /> Record a Moment
                 </Link>
                 {shown.length > 0 && (
                   <button className="btn" onClick={() => scroller.current?.scrollTo({ top: 0 })}>
-                    Back to the top
+                    <Glyph name="up" /> Back to the top
                   </button>
                 )}
               </div>
@@ -384,10 +395,10 @@ export default function Feed({ user }: { user: User | null }) {
       </div>
       <div className="tok-nav" aria-hidden="true">
         <button tabIndex={-1} onClick={() => go(-1)} title="Previous (k)">
-          ↑
+          <Glyph name="up" />
         </button>
         <button tabIndex={-1} onClick={() => go(1)} title="Next (j)">
-          ↓
+          <Glyph name="down" />
         </button>
       </div>
     </div>

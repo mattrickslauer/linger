@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { genesis, sha256hex, verifyChain, type ChainReport, type LinkStatus } from "../chain";
 import { getChunks } from "../data";
 import type { Chunk } from "../types";
+import { Glyph, More } from "../kit";
 
 interface Props {
   momentId: string;
@@ -64,16 +65,16 @@ export default function ChainViewer({ momentId, chunks, headHash, chunkCount, ac
   const bad = report?.links.filter((l) => l.status !== "ok") ?? [];
   return (
     <section className="chain" aria-labelledby="chain-h">
-      <div className="section-head">
-        <h2 id="chain-h">Hash chain</h2>
-        <button className="btn btn-primary" onClick={reverify} disabled={running || chunks.length === 0}>
-          {running ? "Re-verifying…" : "Re-verify chain in your browser"}
+      <div className="chain-head">
+        <span className="chain-title">
+          <Glyph name="chain" />
+          <h2 id="chain-h">Hash chain</h2>
+          <span className="chain-n">{chunks.length} links</span>
+        </span>
+        <button className="btn btn-small btn-primary" onClick={reverify} disabled={running || chunks.length === 0} title="Recompute every SHA-256 in your browser">
+          <Glyph name="hash" /> {running ? "Re-verifying…" : "Re-verify chain"}
         </button>
       </div>
-      <p className="muted">
-        {chunks.length} chunks, one every 5 seconds or per proof shot. Each hash covers the previous hash, so changing, inserting or removing
-        anything breaks every link after it.
-      </p>
       {report && (
         <p className={`notice ${report.ok ? "notice-ok" : "notice-bad"}`} role="status">
           {report.ok
@@ -97,6 +98,8 @@ export default function ChainViewer({ momentId, chunks, headHash, chunkCount, ac
           />
         ))}
       </div>
+      <More summary={sel ? `Link ${sel.seq}: hashes` : "How it works"} className="chain-more">
+      <p className="muted small">One link every 5 s or per proof shot. Each hash covers the previous one, so changing, inserting or removing anything breaks every link after it.</p>
       {sel && (
         <dl className="hashes">
           <div>
@@ -129,6 +132,7 @@ export default function ChainViewer({ momentId, chunks, headHash, chunkCount, ac
           </div>
         </dl>
       )}
+      </More>
     </section>
   );
 }

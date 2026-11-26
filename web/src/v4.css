@@ -26,15 +26,17 @@
 }
 .claim-kind {
   flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   background: var(--paper-2);
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.claim-kind .glyph {
+  width: 15px;
+  height: 15px;
 }
 .kind-count .claim-kind,
 .kind-measure .claim-kind {
@@ -48,8 +50,11 @@
 }
 .claim-chip button {
   flex: none;
-  width: 24px;
-  height: 24px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -87,9 +92,15 @@
   padding: 0;
   display: grid;
 }
+.plan-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
 .plan-row {
   display: grid;
-  grid-template-columns: 14px 22px minmax(0, 1fr) auto;
+  grid-template-columns: 16px 22px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   padding: 8px 2px;
@@ -99,9 +110,28 @@
   border-bottom: 0;
 }
 .plan-mark {
-  color: var(--ink-3);
-  line-height: 1.45;
-  font-size: 0.8rem;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-3);
+  color: var(--paper);
+}
+.plan-mark .glyph {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+.plan-captured .plan-mark,
+.plan-met .plan-mark {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.plan-unmet .plan-mark {
+  border-color: var(--bad);
+  color: var(--bad);
 }
 .plan-captured .plan-mark,
 .plan-met .plan-mark {
@@ -166,25 +196,40 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  padding: 14px 18px;
-  border-radius: var(--r);
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
   background: var(--sheet);
-  border-left: 5px solid var(--ink-3);
+  border: 1px solid var(--rule);
 }
-.cp-ok {
-  border-left-color: var(--ok);
+.cp-head > div {
+  flex: 1;
+  min-width: 160px;
 }
-.cp-bad {
-  border-left-color: var(--bad);
+.cp-glyph {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2.5px solid var(--ink-3);
+  color: var(--ink-3);
 }
-.cp-wait {
-  border-left-color: var(--gold);
+.cp-ok .cp-glyph {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.cp-bad .cp-glyph {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.cp-wait .cp-glyph {
+  border-color: var(--gold);
+  color: var(--ink-2);
 }
 .cp-verdict {
   margin: 0;
-  font-size: clamp(1.35rem, 3vw, 1.7rem);
+  font-size: 1.15rem;
   letter-spacing: -0.01em;
 }
 .cp-ok .cp-verdict {
@@ -209,8 +254,13 @@
   white-space: normal;
 }
 .cp-summary {
+  display: flex;
+  gap: 6px;
   margin: 0;
   color: var(--ink-2);
+}
+.cp-summary .glyph {
+  margin-top: 0.15em;
 }
 .cheat-banner {
   padding: 12px 16px;
@@ -220,6 +270,9 @@
   border: 1px solid var(--bad);
 }
 .cheat-banner strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 1.05rem;
 }
 .cheat-banner ul {
@@ -238,8 +291,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 16px;
-  border-radius: var(--r);
+  padding: 12px 14px;
+  border-radius: 16px;
   border: 1px solid var(--rule);
   background: var(--paper);
 }
@@ -270,8 +323,14 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--ok-soft);
-  font-size: 0.8rem;
+  background: var(--ok);
+  color: var(--sheet);
+  vertical-align: -0.3em;
+}
+.cr-mark .glyph {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
 }
 .cr-meter {
   position: relative;
@@ -314,21 +373,42 @@
   gap: 6px;
 }
 .claim-offer {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px 12px;
+  gap: 6px 14px;
   font-size: 0.9rem;
 }
-.claim-offer .up {
-  color: var(--ok);
+.co-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  min-width: 0;
 }
-.claim-offer .down {
-  color: var(--bad);
+.co-title .glyph {
+  color: var(--lake);
 }
 .claim-offer-why {
+  flex-basis: 100%;
+  font-size: 0.8rem;
   color: var(--ink-3);
+}
+.claim-offer .btn .glyph {
+  width: 15px;
+  height: 15px;
+}
+@media (max-width: 600px) {
+  .claim-offer {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .claim-offer .pv {
+    grid-row: 2;
+  }
+  .claim-offer .btn {
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
 }
 .offer-claims {
   margin: 4px 0 0;
@@ -358,19 +438,6 @@
   font-size: 0.85rem;
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
-}
-.chip-claims {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-.chip-claims.low {
-  border-color: var(--rule);
-  color: var(--ink-2);
-}
-.chip-cheat {
-  border-color: var(--bad);
-  color: var(--bad);
-  background: var(--bad-soft);
 }
 
 /* Record screen: Video / Photo mode and the live checklist under the timer */
@@ -413,14 +480,7 @@
   margin: 0 0 2px;
   font-weight: 600;
 }
-.btn-clip.btn-primary.on {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: #fff;
-}
-.btn-clip.btn-primary.on .rec-dot {
-  background: #fff;
-}
+
 .clip-need {
   opacity: 0.75;
   font-weight: 500;
@@ -430,4 +490,284 @@
 }
 .clip-need.ok::after {
   content: " ✓";
+}
+
+/* -------- verification ladder: rungs that ran, offers as cards with the pass / fail preview */
+.ladder {
+  margin-top: 32px;
+}
+.ladder-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ladder-title .glyph {
+  width: 22px;
+  height: 22px;
+  color: var(--track);
+}
+.ladder-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  color: var(--ink-2);
+  margin: 0 0 14px;
+}
+.ladder-head strong {
+  color: var(--ink);
+  font-size: 1.1rem;
+}
+.ladder-verdict {
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+.ladder-verdict.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.ladder-verdict.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.rungs {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0 0 0 14px;
+  border-left: 2px dashed var(--track);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rung {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.rung-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: var(--sheet);
+}
+.rung-mark .glyph {
+  width: 16px;
+  height: 16px;
+  stroke-width: 3;
+}
+.rung-fail .rung-mark {
+  background: var(--bad);
+}
+.rung-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rung-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+}
+.rung-title .glyph {
+  color: var(--lake);
+}
+.rung-verdict {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ok);
+}
+.rung-fail .rung-verdict {
+  color: var(--bad);
+}
+.rung-delta {
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.rung-delta.up strong,
+.run-math .up {
+  color: var(--ok);
+}
+.rung-delta.down strong,
+.run-math .down {
+  color: var(--bad);
+}
+.offers {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1.5px solid var(--gold);
+  background: color-mix(in srgb, var(--gold) 8%, var(--sheet));
+}
+.offers-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.offers-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.credits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--gold-ink);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.credits .muted {
+  color: var(--gold-ink);
+  opacity: 0.75;
+}
+.offer-list {
+  list-style: none;
+  margin: 10px 0 12px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.offer {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.offer-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.offer-main p {
+  margin: 0;
+}
+.offer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.offer-title strong {
+  flex: 1;
+  min-width: 0;
+}
+.offer-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--lake-soft);
+  color: var(--lake);
+}
+.offer-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 1px 8px 1px 5px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.offer-cost .glyph {
+  width: 13px;
+  height: 13px;
+}
+.offer-blurb {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.offer-why {
+  color: var(--bad);
+}
+.offer-blocked .offer-title,
+.offer-soon .offer-title {
+  opacity: 0.65;
+}
+.offer-side {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.offer-preview {
+  flex: 1;
+}
+.run-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.run-preview {
+  width: 100%;
+}
+.run-math {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+.run-math div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper-2);
+}
+.run-math dt {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.run-math dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .rung {
+    grid-template-columns: auto 1fr;
+  }
+  .rung-delta {
+    grid-column: 2;
+  }
+  .offer-list {
+    grid-template-columns: 1fr;
+  }
+  .run-math {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .run-math div {
+    padding: 8px;
+  }
 }
