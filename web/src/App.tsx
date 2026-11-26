@@ -5,6 +5,7 @@ import Feed from "./pages/Feed";
 import { useRoute } from "./router";
 import { requireSignIn, SignInSheet } from "./signin";
 import { Link } from "./ui";
+import { Glyph } from "./kit";
 
 const Detail = lazy(() => import("./pages/Detail"));
 const Record = lazy(() => import("./pages/Record"));
@@ -54,6 +55,13 @@ export default function App() {
   useEffect(() => {
     document.body.classList.toggle("immersive", immersive);
   }, [immersive]);
+  // Browser chrome (theme-color) follows the page: always dark on the feed, else the paper colour.
+  useEffect(() => {
+    const m = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!m) return;
+    const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    m.content = immersive ? "#071419" : dark ? "#0f2127" : "#e8ece4";
+  }, [immersive, theme]);
   useEffect(() => {
     document.title = route.name === "embed" ? "Embed Verified into your app" : "Verified";
   }, [route.name]);
@@ -72,16 +80,23 @@ export default function App() {
           <Mark />
           <span>Verified</span>
         </Link>
-        <nav aria-label="Main">
+        {(FIXTURES || USE_EMULATORS) && (
+          <span className="modepill" title={FIXTURES ? "Sample data mode: nothing here touches Firebase." : "Emulator mode: local Auth and Firestore."}>
+            {FIXTURES ? "Sample data" : "Emulators"}
+          </span>
+        )}
+        <nav aria-label="Main" className="tabs">
           <Link to="/" className={tab === "feed" ? "on" : ""} aria-current={tab === "feed" ? "page" : undefined}>
-            Feed
+            <Glyph name="feed" />
+            <span>Feed</span>
           </Link>
-          <Link to="/record" className={tab === "record" ? "on" : ""} aria-current={tab === "record" ? "page" : undefined}>
-            Record
+          <Link to="/record" className={`tab-record ${tab === "record" ? "on" : ""}`} aria-current={tab === "record" ? "page" : undefined}>
+            <Glyph name="record" />
+            <span>Record</span>
           </Link>
           <Link to="/me" className={tab === "me" ? "on" : ""} aria-current={tab === "me" ? "page" : undefined}>
-            {user?.photoURL ? <img className="nav-avatar" src={user.photoURL} alt="" referrerPolicy="no-referrer" /> : null}
-            Me
+            {user?.photoURL ? <img className="nav-avatar" src={user.photoURL} alt="" referrerPolicy="no-referrer" width={22} height={22} /> : <Glyph name="me" />}
+            <span>Me</span>
           </Link>
         </nav>
         {ready && !user && configured && (
@@ -96,7 +111,6 @@ export default function App() {
           </svg>
         </button>
       </header>
-      {!immersive && (FIXTURES || USE_EMULATORS) && <p className="modebar">{FIXTURES ? "Sample data mode: nothing here touches Firebase." : "Emulator mode: local Auth and Firestore."}</p>}
       <SignInSheet />
       {configured && (
         <Suspense fallback={null}>
@@ -112,7 +126,8 @@ export default function App() {
           {route.name === "embed" && <Embed />}
           {route.name === "missing" && (
             <div className="page empty">
-              <p>There's nothing at this address.</p>
+              <Glyph name="gps" className="empty-glyph" />
+              <p>Nothing at this address.</p>
               <Link to="/" className="btn">
                 Back to the feed
               </Link>
@@ -122,9 +137,10 @@ export default function App() {
       </main>
       <footer className="foot" hidden={immersive}>
         <p>
-          Built for the Firebase #BuildHybridAI hackathon. On-device and cloud AI through Firebase AI Logic; data in Firestore; seals by Cloud
-          Functions.{" "}
-          <Link to="/embed">Embed Verified into your app</Link> (coming soon).
+          <span>#BuildHybridAI · AI on device and in the cloud, sealed by Cloud Functions</span>
+          <Link to="/embed">
+            <Glyph name="code" /> Embed Verified (soon)
+          </Link>
         </p>
       </footer>
     </>

@@ -177,31 +177,39 @@ a {
 
 /* ---------------------------------------------------------------- chrome */
 
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --tabbar: 0px; /* height of the phone bottom bar; 0 on wide screens */
+}
 .top {
   position: sticky;
   top: 0;
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px var(--gutter);
+  gap: 10px;
+  padding: calc(8px + var(--safe-t)) max(var(--gutter), var(--safe-r)) 8px max(var(--gutter), var(--safe-l));
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--rule);
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
   font-weight: 800;
   font-size: 1.2rem;
   text-decoration: none;
   letter-spacing: -0.02em;
-  margin-right: auto;
 }
 .brand .mark {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
 }
 .mark circle {
   fill: var(--gold);
@@ -215,36 +223,58 @@ a {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.top nav {
+.modepill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--gold-ink);
+  white-space: nowrap;
+}
+.top .tabs {
   display: flex;
   gap: 2px;
+  margin-left: auto;
 }
-.top nav a {
+.top .tabs a {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 14px;
   border-radius: 999px;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--ink-2);
 }
-.top nav a:hover {
+.top .tabs a .glyph {
+  width: 19px;
+  height: 19px;
+}
+.top .tabs a:hover {
   color: var(--ink);
   background: var(--paper-2);
 }
-.top nav a.on {
+.top .tabs a.on {
   color: var(--paper);
   background: var(--ink);
 }
+.top .tabs .tab-record .glyph {
+  color: var(--track);
+}
+.top .tabs .tab-record.on .glyph {
+  color: var(--gold);
+}
 .nav-avatar {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
 }
 .theme {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
+  flex: none;
   display: grid;
   place-items: center;
   border: 1px solid var(--rule);
@@ -265,24 +295,128 @@ a {
 .theme .half {
   fill: currentColor;
 }
-.modebar {
-  text-align: center;
-  font-size: 0.82rem;
-  padding: 6px var(--gutter);
-  background: var(--gold);
-  color: var(--gold-ink);
-  font-weight: 600;
+
+/* Phone: the main tabs move to a bottom bar in the thumb zone, Record in the middle as the gold disc. */
+@media (max-width: 719px) {
+  :root {
+    --tabbar: calc(58px + var(--safe-b));
+  }
+  body {
+    padding-bottom: var(--tabbar);
+  }
+  body.immersive {
+    padding-bottom: 0;
+  }
+  .top .signin-top {
+    margin-left: auto;
+  }
+  .top .theme {
+    margin-left: auto;
+  }
+  .top .signin-top + .theme {
+    margin-left: 0;
+  }
+  .top .tabs {
+    position: fixed;
+    z-index: 30;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    height: var(--tabbar);
+    padding: 0 var(--safe-r) var(--safe-b) var(--safe-l);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    background: color-mix(in srgb, var(--sheet) 94%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--rule);
+  }
+  .top .tabs a {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.72rem;
+    font-weight: 650;
+    color: var(--ink-3);
+  }
+  .top .tabs a .glyph {
+    width: 24px;
+    height: 24px;
+  }
+  .top .tabs a:hover {
+    background: none;
+  }
+  .top .tabs a.on {
+    background: none;
+    color: var(--ink);
+  }
+  .top .tabs .tab-record .glyph {
+    width: 40px;
+    height: 40px;
+    margin-top: -14px;
+    padding: 7px;
+    border-radius: 50%;
+    background: var(--gold);
+    color: #10242b;
+    stroke-width: 2.2;
+    box-shadow: 0 0 0 3px var(--sheet), 0 4px 14px rgb(0 0 0 / 0.22);
+  }
+  .top .tabs .tab-record.on .glyph {
+    color: #10242b;
+  }
+  body.immersive .top .tabs {
+    background: #071419e6;
+    border-top-color: #e8ece41f;
+  }
+  body.immersive .top .tabs a {
+    color: #e8ece4a6;
+  }
+  body.immersive .top .tabs a.on {
+    color: #fff;
+    background: none;
+  }
+  body.immersive .top .tabs .tab-record .glyph {
+    box-shadow: 0 0 0 3px #071419, 0 4px 14px rgb(0 0 0 / 0.4);
+  }
+  body.rec-live .top .tabs {
+    display: none;
+  }
+  body.rec-live {
+    padding-bottom: 0;
+  }
 }
 .foot {
   border-top: 1px solid var(--rule);
-  padding: 24px 0 32px;
+  padding: 14px 0 18px;
   color: var(--ink-3);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 .foot p {
   max-width: var(--maxw);
   margin: 0 auto;
   padding: 0 var(--gutter);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  justify-content: space-between;
+  align-items: center;
+}
+.foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+.empty-glyph {
+  width: 44px;
+  height: 44px;
+  color: var(--ink-3);
 }
 .page {
   max-width: var(--maxw);
@@ -1489,9 +1623,6 @@ path.lf-cursor {
   }
   .brand span {
     display: none;
-  }
-  .top nav a {
-    padding: 7px 10px;
   }
   .how {
     grid-template-columns: 1fr;
