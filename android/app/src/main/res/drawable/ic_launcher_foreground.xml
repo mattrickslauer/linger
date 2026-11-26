@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The seal: a gold badge with an ink check, and the dashed orange GPS track running into it (safe zone 66dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- dashed track: intent ring → proof dot → seal -->
+    <path android:strokeColor="#FF8A4C" android:strokeWidth="2.6" android:strokeLineCap="round"
+        android:pathData="M39.5,68.5 L41.5,66.5 M44,64 L46,62" />
+    <path android:fillColor="#0F2127" android:strokeColor="#FF8A4C" android:strokeWidth="2.6"
+        android:pathData="M36,72m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0" />
+    <!-- seal badge -->
+    <path android:fillColor="#E7B425"
+        android:pathData="M58,32 L62.6,35.4 L68.3,35.1 L70.1,40.5 L74.8,43.7 L73.1,49.2 L74.8,54.6 L70.1,57.8 L68.3,63.2 L62.6,62.9 L58,66.3 L53.4,62.9 L47.7,63.2 L45.9,57.8 L41.2,54.6 L42.9,49.2 L41.2,43.7 L45.9,40.5 L47.7,35.1 L53.4,35.4 Z" />
+    <path android:strokeColor="#10242B" android:strokeWidth="4.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M50.5,49.5 L56,55 L66,44" />
+</vector>

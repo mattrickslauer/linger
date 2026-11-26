@@ -1,5 +1,13 @@
 package com.mattricks.verified.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,108 +59,115 @@ fun SettingsScreen() {
     val scanPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { Devices.startScan() }
     val micPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Prefs.setVideoAudio(it) }
     DisposableEffect(Unit) { onDispose { Devices.stopScan() } }
+    val scan = { if (Devices.hasPermissions()) Devices.startScan() else scanPerms.launch(Devices.permissions()) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+        Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         // ---------- Devices ----------
-        Heading("Devices")
-        Text(
-            "Connect a Bluetooth heart-rate strap, or a watch that broadcasts heart rate. While you record, readings are " +
-                "hash-chained into the Moment alongside GPS and motion.",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-        )
+        Heading("Heart-rate device")
         dev.savedName?.let { name ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (dev.link == Devices.Link.Connected) Icons.Filled.BluetoothConnected else Icons.Filled.Bluetooth, null)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(name, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                when (dev.link) {
-                                    Devices.Link.Connected -> "Connected" + (dev.battery?.let { " · battery $it%" } ?: "")
-                                    Devices.Link.Connecting -> "Connecting…"
-                                    Devices.Link.Off -> "Not connected · reconnects when you start a Moment"
-                                },
-                                style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                            )
-                        }
-                        dev.bpm?.let {
-                            Icon(Icons.Filled.Favorite, null, tint = Red, modifier = Modifier.size(18.dp))
+            ListItem(
+                headlineContent = { Text(name) },
+                supportingContent = {
+                    Text(
+                        when (dev.link) {
+                            Devices.Link.Connected -> "Connected" + (dev.battery?.let { " · battery $it%" } ?: "")
+                            Devices.Link.Connecting -> "Connecting…"
+                            Devices.Link.Off -> "Reconnects when you start a Moment"
+                        },
+                    )
+                },
+                leadingContent = { Icon(if (dev.link == Devices.Link.Connected) Icons.Filled.BluetoothConnected else Icons.Filled.Bluetooth, null, tint = Lake) },
+                trailingContent = dev.bpm?.let { bpm ->
+                    {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Favorite, null, tint = Bad, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("$it", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("$bpm", style = Tnum.merge(MaterialTheme.typography.titleLarge))
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (dev.link == Devices.Link.Off) Button(onClick = {
-                            if (Devices.hasPermissions()) Devices.reconnect() else scanPerms.launch(Devices.permissions())
-                        }) { Text("Connect") }
-                        else OutlinedButton(onClick = { Devices.disconnect() }) { Text("Disconnect") }
-                        TextButton(onClick = { Devices.disconnect(forget = true) }) { Text("Forget") }
-                    }
-                }
+                },
+            )
+            Row(Modifier.padding(start = 72.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (dev.link == Devices.Link.Off) FilledTonalButton(onClick = {
+                    if (Devices.hasPermissions()) Devices.reconnect() else scanPerms.launch(Devices.permissions())
+                }) { Text("Connect") }
+                else OutlinedButton(onClick = { Devices.disconnect() }) { Text("Disconnect") }
+                TextButton(onClick = { Devices.disconnect(forget = true) }) { Text("Forget") }
             }
         }
-        Button(
-            onClick = { if (Devices.hasPermissions()) Devices.startScan() else scanPerms.launch(Devices.permissions()) },
-            enabled = !dev.scanning, modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (dev.scanning) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White); Spacer(Modifier.width(8.dp)); Text("Scanning…") }
-            else Text(if (dev.savedName == null) "Scan for devices" else "Scan for another device")
+        ListItem(
+            headlineContent = { Text(if (dev.scanning) "Scanning…" else if (dev.savedName == null) "Scan for devices" else "Scan for another device") },
+            supportingContent = { Text("Straps and watches that broadcast heart rate") },
+            leadingContent = { if (dev.scanning) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) else Icon(Icons.Filled.BluetoothSearching, null, tint = Lake) },
+            modifier = Modifier.clickable(enabled = !dev.scanning, onClick = scan),
+        )
+        dev.error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 72.dp)) }
+        dev.found.forEach { f ->
+            val current = f.address == dev.savedAddress && dev.link != Devices.Link.Off
+            ListItem(
+                headlineContent = { Text(f.name) },
+                supportingContent = { Text((if (f.heartRate) "Heart rate · " else "") + "${f.rssi} dBm") },
+                leadingContent = { Icon(if (f.heartRate) Icons.Filled.Favorite else Icons.Filled.Bluetooth, null, tint = if (f.heartRate) Bad else Ink2) },
+                trailingContent = { if (current) Icon(Icons.Filled.CheckCircle, "Connected", tint = Ok) else Text("Connect", color = Lake, style = MaterialTheme.typography.labelLarge) },
+                modifier = Modifier.clickable(enabled = !current) { Devices.connect(f.address, f.name) },
+            )
         }
-        dev.error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
-        if (dev.found.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
-            dev.found.forEachIndexed { i, f ->
-                if (i > 0) HorizontalDivider()
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(f.name, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            (if (f.heartRate) "Heart rate · " else "") + "${f.rssi} dBm",
-                            style = MaterialTheme.typography.bodySmall, color = if (f.heartRate) Green else Color.Gray,
-                        )
-                    }
-                    val current = f.address == dev.savedAddress && dev.link != Devices.Link.Off
-                    TextButton(enabled = !current, onClick = { Devices.connect(f.address, f.name) }) { Text(if (current) "Connected" else "Connect") }
-                }
-            }
-        } else if (dev.scanning) Text("Looking for nearby Bluetooth devices…", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        InfoLine("Readings are hash-chained into the Moment alongside GPS and motion.")
 
         // ---------- Camera ----------
         Heading("Camera")
-        Text("Default capture mode", style = MaterialTheme.typography.bodyMedium)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            Prefs.CaptureMode.entries.forEachIndexed { i, m ->
-                SegmentedButton(
-                    selected = mode == m, onClick = { Prefs.setCaptureMode(m) },
-                    shape = SegmentedButtonDefaults.itemShape(i, Prefs.CaptureMode.entries.size),
-                ) { Text(if (m == Prefs.CaptureMode.Photo) "Proof photo" else "Video clip") }
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Record sound with video", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Clips are saved to Movies/Verified on this phone. Their SHA-256 and a poster frame go into the chain.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-            }
-            Switch(checked = audio, onCheckedChange = { on -> if (on) micPerm.launch(Manifest.permission.RECORD_AUDIO) else Prefs.setVideoAudio(false) })
-        }
+        ListItem(
+            headlineContent = { Text("Default capture") },
+            leadingContent = { Icon(Glyph.Proof, null, tint = Lake) },
+            supportingContent = {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Prefs.CaptureMode.entries.forEachIndexed { i, m ->
+                        SegmentedButton(
+                            selected = mode == m, onClick = { Prefs.setCaptureMode(m) },
+                            shape = SegmentedButtonDefaults.itemShape(i, Prefs.CaptureMode.entries.size),
+                            icon = { Icon(if (m == Prefs.CaptureMode.Photo) Glyph.Proof else Glyph.Video, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
+                        ) { Text(if (m == Prefs.CaptureMode.Photo) "Photo" else "Video") }
+                    }
+                }
+            },
+        )
+        ListItem(
+            headlineContent = { Text("Record sound with video") },
+            supportingContent = { Text("Clips stay in Movies/Verified; their hash goes in the chain") },
+            leadingContent = { Icon(Icons.Filled.Mic, null, tint = Lake) },
+            trailingContent = { Switch(checked = audio, onCheckedChange = null) },
+            modifier = Modifier.toggleable(audio, role = Role.Switch) { on -> if (on) micPerm.launch(Manifest.permission.RECORD_AUDIO) else Prefs.setVideoAudio(false) },
+        )
 
         // ---------- Map ----------
         Heading("Map")
-        Text(
-            if (mapboxEnabled) "Mapbox Outdoors · live track while recording."
-            else "No Mapbox token in this build, so tracks are drawn without map tiles. Set MAPBOX_ACCESS_TOKEN in android/local.properties and rebuild.",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+        ListItem(
+            headlineContent = { Text(if (mapboxEnabled) "Mapbox Outdoors" else "Offline track sketch") },
+            supportingContent = {
+                Text(if (mapboxEnabled) "Live track while recording" else "No Mapbox token in this build: set MAPBOX_ACCESS_TOKEN in android/local.properties and rebuild.")
+            },
+            leadingContent = { Icon(Icons.Filled.Map, null, tint = Lake) },
+        )
+
+        // ---------- About ----------
+        Heading("About")
+        ListItem(
+            headlineContent = { Text("Verified ${com.mattricks.verified.BuildConfig.VERSION_NAME}") },
+            supportingContent = { Text("Gemini Nano on device, Gemini in the cloud, sealed by a Cloud Function") },
+            leadingContent = { Icon(Glyph.Result, null, tint = MaterialTheme.colorScheme.tertiary) },
         )
     }
 }
 
 @Composable
 private fun Heading(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+    Text(
+        text, style = MaterialTheme.typography.titleSmall, color = Lake,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp).semantics { heading() },
+    )
 }
+
+@Composable
+private fun InfoLine(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = Ink2, modifier = Modifier.padding(start = 72.dp, end = 16.dp, bottom = 4.dp))

@@ -25,7 +25,10 @@ import com.mapbox.maps.dsl.cameraOptions
 import com.mattricks.verified.BuildConfig
 import com.mattricks.verified.data.LatLng
 
-val mapboxEnabled: Boolean get() = BuildConfig.MAPBOX_TOKEN.isNotBlank()
+val mapboxEnabled: Boolean get() = BuildConfig.MAPBOX_TOKEN.isNotBlank() && !offlineMapsOnly
+
+/** Screenshot tests (JVM, no GL): draw the offline [TrackCanvas] instead of Mapbox. */
+internal var offlineMapsOnly = false
 
 private val LiveBlue = Color(0xFF2E7DF6)
 
@@ -56,6 +59,7 @@ fun TrackMap(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolean =
             )
         }
     }
+    val trackC = TrackOrange
     Box(modifier.clip(RoundedCornerShape(12.dp))) {
         MapboxMap(
             Modifier.fillMaxSize(),
@@ -66,11 +70,11 @@ fun TrackMap(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolean =
             logo = { Logo() },
             attribution = { Attribution() },
         ) {
-            if (pts.size > 1) PolylineAnnotation(points = pts) { lineColor = Green; lineWidth = 5.0; lineOpacity = 0.95 }
-            pts.firstOrNull()?.let { CircleAnnotation(point = it) { circleRadius = 5.0; circleColor = GreenDark; circleStrokeColor = Color.White; circleStrokeWidth = 2.0 } }
+            if (pts.size > 1) PolylineAnnotation(points = pts) { lineColor = trackC; lineWidth = 5.0; lineOpacity = 0.95 }
+            pts.firstOrNull()?.let { CircleAnnotation(point = it) { circleRadius = 5.0; circleColor = trackC; circleStrokeColor = Color.White; circleStrokeWidth = 2.0 } }
             last?.let {
                 if (live) CircleAnnotation(point = it) { circleRadius = 14.0; circleColor = LiveBlue; circleOpacity = 0.2 }
-                CircleAnnotation(point = it) { circleRadius = 6.0; circleColor = if (live) LiveBlue else Red; circleStrokeColor = Color.White; circleStrokeWidth = 2.0 }
+                CircleAnnotation(point = it) { circleRadius = 6.0; circleColor = if (live) LiveBlue else SealGold; circleStrokeColor = Color.White; circleStrokeWidth = 2.0 }
             }
         }
     }

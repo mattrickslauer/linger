@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
+    // Screenshot tests of the UI (Robolectric, JVM): ./gradlew :app:recordRoborazziDebug
+    id("io.github.takahirom.roborazzi")
 }
 
 val useEmulator = (findProperty("verified.emulator") as String? ?: "false").toBoolean()
@@ -71,6 +73,7 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
@@ -132,4 +135,16 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation(composeBom)
+    // UI screenshots (Roborazzi on Robolectric); no device needed.
+    testImplementation("org.robolectric:robolectric:4.18.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.79.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.79.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Screenshot output dir for the Roborazzi tests (-Pshots.dir=/abs/path); default app/build/shots.
+tasks.withType<Test>().configureEach {
+    systemProperty("shots.dir", (findProperty("shots.dir") as String?) ?: layout.buildDirectory.dir("shots").get().asFile.absolutePath)
 }
