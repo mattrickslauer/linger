@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,7 +40,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -74,7 +74,6 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
-import com.mattricks.verified.data.CATEGORIES
 import com.mattricks.verified.data.Claim
 import com.mattricks.verified.data.Intention
 import com.mattricks.verified.data.Plan
@@ -113,37 +112,18 @@ fun SetupView(ui: RecUi, vm: RecordViewModel) {
 
 @Composable
 private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onPlan: () -> Unit, onVoice: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().safeTopAndSides().imePadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("What will you do?", style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(
             value = ui.intention, onValueChange = vm::setIntention, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Catch and release a largemouth bass at Lake Mission Viejo") }, minLines = 2, shape = RoundedCornerShape(18.dp),
         )
-        CategoryChips(ui.category, vm::setCategory)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlyphTile(Glyph.Chain, "Chained", "GPS, motion, shots", Modifier.weight(1f))
-            GlyphTile(Icons.Filled.CloudOff, "Offline OK", "Syncs later", Modifier.weight(1f))
-            GlyphTile(Glyph.Ladder, "Bar", "Set in the cloud", Modifier.weight(1f))
-        }
         StartButton(enabled = ui.intention.isNotBlank(), onClick = start)
         // v4.1: optional cloud structuring of the typed sentence → claims + "To get this verified" before Start.
         if (com.mattricks.verified.judge.Judging.online()) OutlinedButton(
             enabled = ui.intention.isNotBlank(), onClick = onPlan, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shape = RoundedCornerShape(26.dp),
         ) { Icon(Glyph.Ai, null); Spacer(Modifier.width(8.dp)); Text("Plan the evidence") }
         TextButton(onClick = onVoice, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Filled.Mic, null); Spacer(Modifier.width(6.dp)); Text("Use the voice interview") }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryChips(selected: String, onPick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        CATEGORIES.forEach { c ->
-            FilterChip(
-                selected = selected == c, onClick = { onPick(c) }, label = { Text(c) },
-                leadingIcon = { Icon(categoryGlyph(c), null, Modifier.size(FilterChipDefaults.IconSize)) },
-            )
-        }
     }
 }
 
@@ -186,79 +166,87 @@ internal fun InterviewContent(
     val scroll = rememberScrollState()
     LaunchedEffect(s.turns.size, s.phase) { scroll.animateScrollTo(scroll.maxValue) }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.weight(1f).verticalScroll(scroll).statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("What are you about to do?", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                InfoButton("The interview") {
-                    Text("Say it in a few words — \"going fishing\" is enough. The witness asks up to 3 quick questions, assumes the rest from where and when you are, and sets the bar.")
-                    Text("Questions run on the phone first (Gemini Nano); structuring and the bar run in the cloud.", color = Ink2, style = MaterialTheme.typography.bodySmall)
+    // Insets outside the scroll: the chat never scrolls under the status bar, and the type-it row rides on the keyboard.
+    BoxWithConstraints(Modifier.fillMaxSize().safeTopAndSides().imePadding()) {
+        // Short (keyboard up on a small phone, landscape): the big mic folds into the text row so the chat keeps room.
+        val compact = maxHeight < 480.dp
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("What are you about to do?", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                    InfoButton("The interview") {
+                        Text("Say it in a few words — \"going fishing\" is enough. The witness asks up to 3 quick questions, assumes the rest from where and when you are, and sets the bar.")
+                        Text("Questions run on the phone first (Gemini Nano); structuring and the bar run in the cloud.", color = Ink2, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (s.turns.isEmpty()) Text("A few words is enough.", style = MaterialTheme.typography.bodyLarge, color = Ink2)
+                s.turns.forEach { Bubble(it.me, it.text, it.mode) }
+                if (s.phase == InterviewUi.Phase.Listening && partial.isNotBlank()) Bubble(true, partial, null, live = true)
+                s.note?.let { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Glyph.Warning, null, Modifier.size(16.dp), tint = Warn); Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) } }
+                val i = s.intention
+                if (s.phase == InterviewUi.Phase.Ready && i != null) {
+                    IntentionCard(i, s.previewBusy, onEdit, onRemoveClaim, onPreview)
+                    StartButton(enabled = i.text.isNotBlank()) { onStart(i) }
+                    TextButton(onClick = onReset, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Start over") }
                 }
             }
-            if (s.turns.isEmpty()) Text("A few words is enough.", style = MaterialTheme.typography.bodyLarge, color = Ink2)
-            s.turns.forEach { Bubble(it.me, it.text, it.mode) }
-            if (s.phase == InterviewUi.Phase.Listening && partial.isNotBlank()) Bubble(true, partial, null, live = true)
-            s.note?.let { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Glyph.Warning, null, Modifier.size(16.dp), tint = Warn); Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) } }
-            val i = s.intention
-            if (s.phase == InterviewUi.Phase.Ready && i != null) {
-                IntentionCard(i, s.previewBusy, onEdit, onRemoveClaim, onPreview)
-                StartButton(enabled = i.text.isNotBlank()) { onStart(i) }
-                TextButton(onClick = onReset, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Start over") }
-            }
-        }
-        if (s.phase != InterviewUi.Phase.Ready) Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            MicButton(s.phase, level, onTalk)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (s.phase == InterviewUi.Phase.Thinking) { HybridBadge("on_device"); Spacer(Modifier.width(6.dp)) }
-                if (s.phase == InterviewUi.Phase.Structuring) { HybridBadge("cloud"); Spacer(Modifier.width(6.dp)) }
-                Text(
-                    when (s.phase) {
-                        InterviewUi.Phase.Idle -> if (s.turns.isEmpty()) "Tap to talk" else "Tap to answer"
-                        InterviewUi.Phase.Listening -> "Listening…"
-                        InterviewUi.Phase.Thinking -> "Thinking…"
-                        InterviewUi.Phase.Speaking -> "Speaking…"
-                        InterviewUi.Phase.Structuring -> "Structuring…"
-                        InterviewUi.Phase.Ready -> ""
-                    },
-                    style = MaterialTheme.typography.labelLarge, color = Ink2,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = typed, onValueChange = { typed = it.take(200) }, modifier = Modifier.weight(1f), singleLine = true,
-                    placeholder = { Text(if (s.turns.isEmpty()) "Or type: going fishing" else "Type your answer") },
-                    shape = RoundedCornerShape(28.dp),
-                )
-                IconButton(enabled = typed.isNotBlank(), onClick = { onTyped(typed); typed = "" }) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
-            }
-            Row {
-                if (s.turns.any { it.me }) TextButton(onClick = onFinishNow) { Icon(Icons.Filled.Check, null); Spacer(Modifier.width(4.dp)); Text("Set it up") }
-                TextButton(onClick = onSkipToTyped) { Icon(Icons.Filled.Keyboard, null); Spacer(Modifier.width(4.dp)); Text("Just type it") }
+            if (s.phase != InterviewUi.Phase.Ready) Column(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!compact) MicButton(s.phase, level, onTalk)
+                if (!compact || s.phase != InterviewUi.Phase.Idle) Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (s.phase == InterviewUi.Phase.Thinking) { HybridBadge("on_device"); Spacer(Modifier.width(6.dp)) }
+                    if (s.phase == InterviewUi.Phase.Structuring) { HybridBadge("cloud"); Spacer(Modifier.width(6.dp)) }
+                    Text(
+                        when (s.phase) {
+                            InterviewUi.Phase.Idle -> if (s.turns.isEmpty()) "Tap to talk" else "Tap to answer"
+                            InterviewUi.Phase.Listening -> "Listening…"
+                            InterviewUi.Phase.Thinking -> "Thinking…"
+                            InterviewUi.Phase.Speaking -> "Speaking…"
+                            InterviewUi.Phase.Structuring -> "Structuring…"
+                            InterviewUi.Phase.Ready -> ""
+                        },
+                        style = MaterialTheme.typography.labelLarge, color = Ink2,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (compact) { MicButton(s.phase, level, onTalk, small = true); Spacer(Modifier.width(8.dp)) }
+                    OutlinedTextField(
+                        value = typed, onValueChange = { typed = it.take(200) }, modifier = Modifier.weight(1f), singleLine = true,
+                        placeholder = { Text(if (s.turns.isEmpty()) "Or type: going fishing" else "Type your answer") },
+                        shape = RoundedCornerShape(28.dp),
+                    )
+                    IconButton(enabled = typed.isNotBlank(), onClick = { onTyped(typed); typed = "" }) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                }
+                Row {
+                    if (s.turns.any { it.me }) TextButton(onClick = onFinishNow) { Icon(Icons.Filled.Check, null); Spacer(Modifier.width(4.dp)); Text("Set it up") }
+                    TextButton(onClick = onSkipToTyped) { Icon(Icons.Filled.Keyboard, null); Spacer(Modifier.width(4.dp)); Text("Just type it") }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MicButton(phase: InterviewUi.Phase, level: Float, onClick: () -> Unit) {
+private fun MicButton(phase: InterviewUi.Phase, level: Float, onClick: () -> Unit, small: Boolean = false) {
     val busy = phase == InterviewUi.Phase.Thinking || phase == InterviewUi.Phase.Structuring
     val listening = phase == InterviewUi.Phase.Listening
     val pulse by animateFloatAsState(if (listening) 1f + level * 0.25f else 1f, label = "mic")
     val lake = MaterialTheme.colorScheme.primary
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(112.dp)) {
-        if (listening) Box(Modifier.size(104.dp).scale(pulse * 1.06f).clip(CircleShape).background(FillBad.copy(alpha = 0.18f)))
+    // small: the inline 56dp mic beside the text field (keyboard up, or a landscape phone).
+    val k = if (small) 0.5f else 1f
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(112.dp * k)) {
+        if (listening) Box(Modifier.size(104.dp * k).scale(pulse * 1.06f).clip(CircleShape).background(FillBad.copy(alpha = 0.18f)))
         Box(
-            Modifier.size(88.dp).scale(pulse).clip(CircleShape).background(if (listening) FillBad else lake)
+            Modifier.size(if (small) 52.dp else 88.dp).scale(pulse).clip(CircleShape).background(if (listening) FillBad else lake)
                 .clickable(enabled = !busy, role = Role.Button, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             when {
-                busy -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
-                listening || phase == InterviewUi.Phase.Speaking -> Icon(Icons.Filled.Stop, "Stop", tint = Color.White, modifier = Modifier.size(38.dp))
-                else -> Icon(Icons.Filled.Mic, "Talk", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(40.dp))
+                busy -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(32.dp * k), strokeWidth = 3.dp)
+                listening || phase == InterviewUi.Phase.Speaking -> Icon(Icons.Filled.Stop, "Stop", tint = Color.White, modifier = Modifier.size(38.dp * k))
+                else -> Icon(Icons.Filled.Mic, "Talk", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(40.dp * k))
             }
         }
     }
@@ -311,7 +299,6 @@ internal fun IntentionCard(
                 value = i.text, onValueChange = { t -> onEdit { it.copy(text = t.take(200)) } }, modifier = Modifier.fillMaxWidth(), minLines = 2,
                 shape = RoundedCornerShape(16.dp), textStyle = MaterialTheme.typography.titleMedium,
             )
-            CategoryChips(i.category) { c -> onEdit { it.copy(category = c) } }
             // Facts the witness filled in: one chip each, tap × to drop.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (i.goal.isNotBlank()) AssistChip(onClick = {}, label = { Text(i.goal, maxLines = 1, overflow = TextOverflow.Ellipsis) }, leadingIcon = { Icon(claimGlyph("outcome"), null, Modifier.size(16.dp)) })

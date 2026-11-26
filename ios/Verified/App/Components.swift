@@ -384,3 +384,18 @@ extension GlyphHeader where Trailing == EmptyView {
     self.init(icon: icon, title: title) { EmptyView() }
   }
 }
+
+// MARK: - Layout helpers
+
+extension View {
+  /// Keeps `visible` in step with the software keyboard, so a screen can drop chrome (the Start button, the shutter
+  /// row) that would otherwise ride up on top of the keyboard and squeeze the field being typed into.
+  func trackKeyboard(_ visible: Binding<Bool>) -> some View {
+    onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+      visible.wrappedValue = true
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+      visible.wrappedValue = false
+    }
+  }
+}

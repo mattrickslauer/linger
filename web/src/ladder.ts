@@ -112,7 +112,16 @@ export interface ClaimPreview {
 }
 export type OfferV4 =
   | { module: ModuleSpec; state: "done"; result: LadderResult }
-  | { module: ModuleSpec; state: "ready" | "blocked"; reason?: string; claims: ClaimPreview[]; pass: number; fail: number }
+  | {
+      module: ModuleSpec;
+      state: "ready" | "blocked";
+      reason?: string;
+      claims: ClaimPreview[];
+      pass: number;
+      fail: number;
+      /** Claims this module does NOT back that still cap the Moment score (the Moment is its weakest claim) if it passes. */
+      cappedBy: { id: string; text: string; p: number }[];
+    }
   | { module: ModuleSpec; state: "soon" };
 
 /**
@@ -137,7 +146,9 @@ export function offersV4(
       return { id, text: a.claims.find((c) => c.id === id)!.text, p, ...previews(p, m.strength) };
     });
     const overall = (pass: boolean) => Math.min(...a.claims.map((c) => (ids.includes(c.id) ? applyStep(pOf(c.id), m.strength, pass) : pOf(c.id))));
-    const base = { module: m, claims, pass: overall(true), fail: overall(false) };
+    const pass = overall(true);
+    const cappedBy = a.claims.filter((c) => !ids.includes(c.id) && pOf(c.id) <= pass).map((c) => ({ id: c.id, text: c.text, p: pOf(c.id) }));
+    const base = { module: m, claims, pass, fail: overall(false), cappedBy };
     if (!claims.length) return { ...base, state: "blocked", reason: "Backs none of this Moment's claims." };
     const need = unmetNeed(m, { ...ev, quantities: hasQuantities ? 1 : 0 });
     if (need) return { ...base, state: "blocked", reason: need === NEED_TEXT.quantities ? "Needs a count or measure claim." : need };

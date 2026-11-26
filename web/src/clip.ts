@@ -14,6 +14,9 @@ export const HARD_CLIP_MS = 300_000;
 export const clipCapMs = (plan: { requirements: { evidence: string; minSeconds?: number }[] } | null | undefined) =>
   Math.min(HARD_CLIP_MS, Math.max(MAX_CLIP_MS, ...(plan?.requirements ?? []).filter((r) => r.evidence === "video").map((r) => ((r.minSeconds ?? 0) + 15) * 1000)));
 
+const CLIP_MIMES_V = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+const CLIP_MIMES_AV = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4"];
+
 export const clipSupported = () => typeof MediaRecorder !== "undefined";
 
 export async function sha256Bytes(blob: Blob): Promise<string> {
@@ -45,8 +48,11 @@ export class ClipRecorder {
   ) {
     const stream = video.srcObject as MediaStream | null;
     if (!stream) throw new Error("Camera unavailable");
-    const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
-    this.mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 1_500_000 } : undefined);
+    // Sound matters: singing, counting aloud or speaking is only provable from the audio track, and the server's video
+    // reviewer (Gemini) hears it. A codec list without an audio codec makes some browsers drop the mic track.
+    const hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
+    const mime = (hasAudio ? CLIP_MIMES_AV : CLIP_MIMES_V).find((m) => MediaRecorder.isTypeSupported(m));
+    this.mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 1_500_000, ...(hasAudio ? { audioBitsPerSecond: 64_000 } : {}) } : undefined);
     this.mr.ondataavailable = (e) => e.data.size && this.parts.push(e.data);
     const take = () => {
       try {

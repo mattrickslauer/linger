@@ -4,7 +4,8 @@
 import { useEffect, useState } from "react";
 import { clipsOf, type StoredClip } from "../vault";
 
-export default function LocalClips({ momentId, chained }: { momentId: string; chained: string[] }) {
+/** `hide`: clips already shown from Cloud Storage above (the shared Video section); listing them twice reads as two clips. */
+export default function LocalClips({ momentId, chained, hide = [] }: { momentId: string; chained: string[]; hide?: string[] }) {
   const [clips, setClips] = useState<(StoredClip & { url: string })[]>([]);
   useEffect(() => {
     let live = true;
@@ -22,15 +23,16 @@ export default function LocalClips({ momentId, chained }: { momentId: string; ch
       made.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [momentId]);
-  if (!clips.length) return null;
+  const shown = clips.filter((c) => !hide.includes(c.sha256));
+  if (!shown.length) return null;
   return (
     <section className="clips" aria-labelledby="clips-h">
       <div className="section-head">
-        <h2 id="clips-h">Video clips</h2>
-        <p className="muted small">Kept on this device too. The chain holds each clip's fingerprint; the server re-hashes the upload against it.</p>
+        <h2 id="clips-h">On this device</h2>
+        <p className="muted small">Not uploaded yet. The chain holds each clip's fingerprint; the server re-hashes the upload against it.</p>
       </div>
       <div className="clip-grid">
-        {clips.map((c) => (
+        {shown.map((c) => (
           <figure key={c.sha256} className="clip">
             <video src={c.url} controls playsInline preload="metadata" />
             <figcaption className="small">

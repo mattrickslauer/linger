@@ -7,9 +7,9 @@ import { configured, db, loadCloudModel } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
-import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
+import type { Intention, Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
-import Interview, { RouteChip, Uses } from "../components/Interview";
+import Interview, { RouteChip } from "../components/Interview";
 import { Glyph, ScoreRing } from "../kit";
 import "../record.css";
 import { WitnessAgent } from "../witnessAgent";
@@ -19,16 +19,10 @@ import { uploadText, useClipUpload } from "../upload";
 import { PlanList } from "../components/Plan";
 import { listen, stopSpeaking, sttSupported } from "../voice";
 import { structureIntention } from "../ai";
-import { buildContext, withDraftClaims } from "../intention";
+import { buildContext, guessCategory, withDraftClaims } from "../intention";
 import type { WitnessRequest } from "../witness";
 
-const EXAMPLES: Record<Category, string> = {
-  fishing: "Catch and release a largemouth bass at Lake Mission Viejo",
-  fitness: "Run 5 km without stopping",
-  outdoors: "Hike to the top of Cowles Mountain",
-  making: "Bake a loaf of sourdough from my own starter",
-  other: "Plant three tomato seedlings in the garden",
-};
+const EXAMPLE = "Catch and release a largemouth bass at Lake Mission Viejo";
 
 function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return <svg className="spark" viewBox="0 0 120 32" aria-hidden="true" />;
@@ -43,8 +37,7 @@ function Spark({ values }: { values: number[] }) {
 }
 
 /** v1 typed form: the "Skip, just type it" path (a plain {text, category} intention stays valid). */
-function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; guest: boolean; onVoice: () => void }) {
-  const [cat, setCat] = useState<Category>("fishing");
+function Setup({ onStart, onVoice }: { onStart: (i: Intention) => void; onVoice: () => void }) {
   const [text, setText] = useState("");
   const [planning, setPlanning] = useState(false);
   return (
@@ -53,7 +46,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
       onSubmit={async (e) => {
         e.preventDefault();
         if (planning) return;
-        const typed: Intention = { text: text.trim() || EXAMPLES[cat], category: cat };
+        const t = text.trim() || EXAMPLE;
+        const typed: Intention = { text: t, category: guessCategory(t) };
         let i = typed;
         // v4.1: a typed sentence may get claims + an evidence plan from the cloud before Start (optional, 8 s).
         if (configured && navigator.onLine) {
@@ -73,16 +67,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
       <p className="lede">One sentence. Every proof shot is checked against it.</p>
       <label className="field field-intent">
         <span className="sr-only">Intention</span>
-        <textarea value={text} maxLength={200} rows={2} placeholder={EXAMPLES[cat]} onChange={(e) => setText(e.target.value)} />
+        <textarea value={text} maxLength={200} rows={2} placeholder={EXAMPLE} onChange={(e) => setText(e.target.value)} />
       </label>
-      <div className="cats" role="radiogroup" aria-label="Category">
-        {CATEGORIES.map((c) => (
-          <button type="button" key={c} role="radio" aria-checked={cat === c} className={`cat-chip ${cat === c ? "on" : ""}`} onClick={() => setCat(c)}>
-            {c}
-          </button>
-        ))}
-      </div>
-      <Uses guest={guest} />
       <div className="start-dock">
         <button type="button" className="btn btn-quiet" onClick={onVoice}>
           <Glyph name="mic" />
@@ -108,6 +94,8 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   const [track, setTrack] = useState<MediaStreamTrack | null>(null);
   const [torchOk, setTorchOk] = useState(false);
   const [torch, setTorch] = useState(false);
+  // Whether the camera stream carries a live microphone track (clips record sound; null until the camera opens).
+  const [mic, setMic] = useState<boolean | null>(null);
 
   useEffect(() => {
     session.onChange = setS;
@@ -134,14 +122,23 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamErr(null);
-    navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 } }, audio: false })
-      .then((st) => {
+    const videoC = { facingMode: facing, width: { ideal: 1280 } };
+    // Clips record sound (singing, counting aloud, speech are proven by ear). A denied or missing mic falls back to
+    // video only; the <video> preview stays muted, so there is no feedback.
+    const openCam = (): Promise<MediaStream> | undefined =>
+      clipSupported()
+        ? navigator.mediaDevices
+            ?.getUserMedia({ video: videoC, audio: { echoCancellation: true, noiseSuppression: false } })
+            .catch(() => navigator.mediaDevices.getUserMedia({ video: videoC, audio: false }))
+        : navigator.mediaDevices?.getUserMedia({ video: videoC, audio: false });
+    openCam()
+      ?.then((st) => {
         if (cancelled) return st.getTracks().forEach((t) => t.stop());
         stream = st;
         if (video.current) video.current.srcObject = st;
         const t = st.getVideoTracks()[0] ?? null;
         setTrack(t);
+        setMic(st.getAudioTracks().some((a) => a.readyState === "live"));
         setTorch(false);
         setTorchOk(!!(t?.getCapabilities?.() as { torch?: boolean } | undefined)?.torch);
         // Labels/count are only reliable once permission is granted.
@@ -227,6 +224,15 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
   useEffect(() => () => void clipRef.current?.stop(), []);
+  // Video mode records ONE continuous clip from the moment the camera is ready until Finish, so the video covers the
+  // session instead of only the seconds between two taps (a 9 s clip of a 29 s session can't show a whole song).
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!track || autoStarted.current || mode !== "video" || !clipSupported() || clipRef.current) return;
+    autoStarted.current = true;
+    void startClip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track]);
 
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
@@ -308,6 +314,11 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               <span className="hud-dot" aria-hidden="true" />
               {fmtDuration(s.elapsedMs)}
             </span>
+            {mode === "video" && mic === false && (
+              <span className="hud-pill hud-warn" title="The video records without sound. Allow the microphone to prove anything you say or sing.">
+                no mic
+              </span>
+            )}
             {short && (
               <span className="hud-pill hud-warn" title="Moments shorter than 20 seconds can't be sealed.">
                 min 0:20
@@ -394,7 +405,8 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
                 type="button"
                 className="cam-tool"
                 aria-label={facing === "user" ? "Switch to back camera" : "Switch to front camera"}
-                disabled={shooting}
+                disabled={shooting || clipAt != null}
+                title={clipAt != null ? "Stop the video to switch cameras" : undefined}
                 onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -832,9 +844,9 @@ export default function Record({ user, ready }: { user: User | null; ready: bool
     <>
       {err && <p className="notice notice-bad page">{err}</p>}
       {typed ? (
-        <Setup guest={!user} onStart={(i) => void begin(i)} onVoice={() => setTyped(false)} />
+        <Setup onStart={(i) => void begin(i)} onVoice={() => setTyped(false)} />
       ) : (
-        <Interview guest={!user} onStart={(i, t) => void begin(i, t)} onSkip={() => setTyped(true)} />
+        <Interview onStart={(i, t) => void begin(i, t)} onSkip={() => setTyped(true)} />
       )}
     </>
   );

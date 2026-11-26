@@ -471,31 +471,6 @@
   font-weight: 650;
 }
 
-/* Glyph chips row ("uses location · motion · camera") */
-.uses {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.uses li {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px 4px 8px;
-  border-radius: 999px;
-  background: var(--paper-2);
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-.uses .glyph {
-  width: 15px;
-  height: 15px;
-}
-
 /* Touch screens: every control is at least 44 × 44 px. */
 @media (pointer: coarse), (max-width: 719px) {
   .btn-small,

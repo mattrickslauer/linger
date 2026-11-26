@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useUser } from "./auth";
 import { configured, FIXTURES, USE_EMULATORS } from "./firebase";
 import Feed from "./pages/Feed";
@@ -52,6 +52,18 @@ export default function App() {
   const [theme, cycleTheme] = useTheme();
   const tab = route.name === "moment" ? "feed" : route.name;
   const immersive = route.name === "feed";
+  // --topbar: the measured height of the top bar (safe-area inset and font scaling included), so every
+  // sticky bar and full-height screen below it uses one number instead of a hardcoded 61px.
+  const topRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = topRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => document.documentElement.style.setProperty("--topbar", `${el.getBoundingClientRect().height}px`);
+    const ro = new ResizeObserver(set);
+    ro.observe(el, { box: "border-box" });
+    set();
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => {
     document.body.classList.toggle("immersive", immersive);
   }, [immersive]);
@@ -78,7 +90,7 @@ export default function App() {
       <a href="#main" className="skip">
         Skip to content
       </a>
-      <header className="top">
+      <header className="top" ref={topRef}>
         <Link to="/" className="brand">
           <Mark />
           <span>Verified</span>

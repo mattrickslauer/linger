@@ -4,6 +4,18 @@ import com.mattricks.verified.chain.Check
 
 val CATEGORIES = listOf("fishing", "fitness", "outdoors", "making", "other")
 
+/** Keyword guess for a typed intention (there is no category picker; the interview's model sets it otherwise). */
+fun guessCategory(text: String): String {
+    val t = text.lowercase()
+    return when {
+        Regex("fish|bass|trout|salmon|pike|carp|angl|catch").containsMatchIn(t) -> "fishing"
+        Regex("run|jog|km\\b|mile|rep|push.?up|squat|gym|swim|bike|cycl|workout|plank").containsMatchIn(t) -> "fitness"
+        Regex("hike|climb|summit|peak|trail|camp|ski|surf|kayak|mountain").containsMatchIn(t) -> "outdoors"
+        Regex("bake|build|make|cook|paint|knit|carve|turn|craft|sew|brew").containsMatchIn(t) -> "making"
+        else -> "other"
+    }
+}
+
 data class LatLng(val lat: Double, val lng: Double)
 
 data class Summary(

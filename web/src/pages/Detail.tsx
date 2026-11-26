@@ -22,7 +22,7 @@ import { ago, jpegSrc, Link, Stamp } from "../ui";
 import { CheckPips, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
 import "../room.css";
 import ClaimsPanel from "../components/Claims";
-import { claimViews, factsOf, videoStatusText } from "../v4";
+import { claimViews, factsOf, videoCoverage, videoStatusText } from "../v4";
 import { offersV4 } from "../ladder";
 import type { V4Ladder } from "../components/Ladder";
 import type { ModuleId } from "../types";
@@ -414,6 +414,10 @@ export default function Detail({ id }: { id: string }) {
   const claimsTotal = views.length || feed?.claimsTotal || 0;
   const claimsBacked = ver?.claimsBacked ?? feed?.claimsBacked ?? views.filter((v) => v.backed).length;
   const witness = moment?.witness ?? feed?.witness ?? null;
+  // Session time vs recorded video time: the chain's `video` events first, else the server's review list.
+  const chainClips = factsOf(chunks ?? []).clips;
+  const coverage = videoCoverage(summary?.durationMs ?? 0, chainClips.length ? chainClips : (moment?.videoReview?.clips ?? []));
+  const uploadedClips = (moment?.videoReview?.clips ?? []).filter((c) => c.uploaded).map((c) => c.sha256);
   const tone = pending ? undefined : sealed ? "ok" : "bad";
   const jump = (k: string) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -499,7 +503,8 @@ export default function Detail({ id }: { id: string }) {
                 overlay
                 className="hero-stats"
                 items={[
-                  { glyph: "timing", value: fmtDuration(summary.durationMs), label: "time" },
+                  { glyph: "timing", value: fmtDuration(summary.durationMs), label: "session" },
+                  ...(coverage.videoMs > 0 ? [{ glyph: "video" as const, value: fmtDuration(coverage.videoMs), label: "on video" }] : []),
                   { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
                   { glyph: "frames", value: summary.frameCount, label: "shots" },
                   ...(moment ? [{ glyph: "device" as const, value: moment.onDevice.retakes ? `${moment.onDevice.checks} · ${moment.onDevice.retakes}↻` : moment.onDevice.checks, label: "live checks" }] : []),
@@ -533,7 +538,7 @@ export default function Detail({ id }: { id: string }) {
                       </span>
                     ) : frame.ok ? (
                       <span className="coach">
-                        <Glyph name="check" /> keep going
+                        <Glyph name="check" /> passed live check
                       </span>
                     ) : null}
                     {frame.mode !== "none" && <Hybrid mode={frame.mode === "on_device" ? "on_device" : "cloud"} />}
@@ -620,9 +625,19 @@ export default function Detail({ id }: { id: string }) {
           </aside>
         </section>
 
+        {coverage.videoMs > 0 && coverage.sessionMs > 0 && coverage.ratio < 0.8 && (
+          <p className="notice small coverage-note" role="note">
+            <Glyph name="video" /> The video covers {fmtDuration(coverage.videoMs)} of this {fmtDuration(coverage.sessionMs)} session (
+            {Math.round(coverage.ratio * 100)}%). Only what is on video can back claims about something that happens over time, like a song, reps or a
+            duration.
+          </p>
+        )}
+
         <MomentVideos momentId={id} ownerUid={moment?.ownerUid} review={moment?.videoReview} />
 
-        {(local || (!!user && moment?.ownerUid === user.uid)) && <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} />}
+        {(local || (!!user && moment?.ownerUid === user.uid)) && (
+          <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} hide={uploadedClips} />
+        )}
 
         {chunks && chunks.length > 0 && (
           <ChainViewer
