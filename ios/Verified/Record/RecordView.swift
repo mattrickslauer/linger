@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Record tab: voice interview (or typed intention + category chips) -> Start Moment -> live screen -> Finish.
+/// Record tab: voice interview (or typed intention) -> Start Moment -> live screen -> Finish.
 struct RecordView: View {
   @Environment(AppModel.self) private var app
   @FocusState private var focused: Bool
@@ -52,7 +52,7 @@ struct RecordView: View {
                 && !rec.intention.trimmingCharacters(in: .whitespaces).isEmpty {
                 Button {
                   focused = false
-                  app.interview.structureTyped(rec.intention, category: rec.category)
+                  app.interview.structureTyped(rec.intention, category: InterviewModel.guessCategory(rec.intention))
                 } label: {
                   Label("Plan the evidence", systemImage: Glyph.claims).font(.subheadline.weight(.semibold))
                 }
@@ -63,29 +63,6 @@ struct RecordView: View {
               Text("\(rec.intention.count)/200").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
             }
           }
-
-          ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-              ForEach(Category.allCases) { c in
-                Button {
-                  rec.category = c
-                } label: {
-                  Label(c.label, systemImage: c.icon)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 44)
-                    .foregroundStyle(rec.category == c ? Theme.onFill : .primary)
-                    .background(rec.category == c ? Theme.lake : Theme.surface, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(rec.category == c ? .isSelected : [])
-              }
-            }
-          }
-          .scrollClipDisabled()
-          .accessibilityLabel("Category")
-
-          HowItWorks()
         }
         .padding(20)
       }
@@ -203,35 +180,5 @@ private struct SubmittedBanner: View {
       }
     }
     .surfaceCard(radius: 22)
-  }
-}
-
-/// How a Moment becomes proof, as four glyph tiles (sentences only for VoiceOver).
-private struct HowItWorks: View {
-  @Environment(\.dynamicTypeSize) private var typeSize
-
-  var body: some View {
-    let columns = typeSize.isAccessibilitySize
-      ? [GridItem(.flexible())]
-      : Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
-    LazyVGrid(columns: columns, spacing: 8) {
-      tile(Glyph.gps, "GPS + motion", "GPS, motion and app events are recorded as a time series.", Theme.track)
-      tile(Glyph.shots, "Proof shots", "Take proof shots or clips; the on-device coach says keep going or retake.", Theme.lake)
-      tile(Glyph.chain, "Chained", "Every 5 seconds the data is sealed into a SHA-256 chain, offline or not.", Theme.ok)
-      tile("checkmark.seal.fill", "Sealed", "Online again, a cloud judge, skeptic and scorer weigh in, then code seals it.", Theme.gold)
-    }
-  }
-
-  private func tile(_ icon: String, _ title: String, _ a11y: String, _ tint: Color) -> some View {
-    VStack(spacing: 6) {
-      Image(systemName: icon).font(.title3.weight(.semibold)).foregroundStyle(tint).frame(height: 26)
-      Text(title).font(.caption.weight(.semibold)).multilineTextAlignment(.center).lineLimit(2)
-        .minimumScaleFactor(0.8)
-    }
-    .frame(maxWidth: .infinity, minHeight: 76)
-    .padding(.horizontal, 4)
-    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(a11y)
   }
 }

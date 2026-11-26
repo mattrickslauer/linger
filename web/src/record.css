@@ -207,9 +207,6 @@
 .claim-facts dt .glyph {
   color: var(--lake);
 }
-.cat-chip {
-  min-height: 44px;
-}
 .plan-card {
   border-radius: 16px;
   background: var(--paper);

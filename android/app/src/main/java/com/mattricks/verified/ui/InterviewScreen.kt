@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -74,7 +73,6 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
-import com.mattricks.verified.data.CATEGORIES
 import com.mattricks.verified.data.Claim
 import com.mattricks.verified.data.Intention
 import com.mattricks.verified.data.Plan
@@ -119,31 +117,12 @@ private fun TypedForm(ui: RecUi, vm: RecordViewModel, start: () -> Unit, onPlan:
             value = ui.intention, onValueChange = vm::setIntention, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Catch and release a largemouth bass at Lake Mission Viejo") }, minLines = 2, shape = RoundedCornerShape(18.dp),
         )
-        CategoryChips(ui.category, vm::setCategory)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlyphTile(Glyph.Chain, "Chained", "GPS, motion, shots", Modifier.weight(1f))
-            GlyphTile(Icons.Filled.CloudOff, "Offline OK", "Syncs later", Modifier.weight(1f))
-            GlyphTile(Glyph.Ladder, "Bar", "Set in the cloud", Modifier.weight(1f))
-        }
         StartButton(enabled = ui.intention.isNotBlank(), onClick = start)
         // v4.1: optional cloud structuring of the typed sentence → claims + "To get this verified" before Start.
         if (com.mattricks.verified.judge.Judging.online()) OutlinedButton(
             enabled = ui.intention.isNotBlank(), onClick = onPlan, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shape = RoundedCornerShape(26.dp),
         ) { Icon(Glyph.Ai, null); Spacer(Modifier.width(8.dp)); Text("Plan the evidence") }
         TextButton(onClick = onVoice, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Filled.Mic, null); Spacer(Modifier.width(6.dp)); Text("Use the voice interview") }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryChips(selected: String, onPick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        CATEGORIES.forEach { c ->
-            FilterChip(
-                selected = selected == c, onClick = { onPick(c) }, label = { Text(c) },
-                leadingIcon = { Icon(categoryGlyph(c), null, Modifier.size(FilterChipDefaults.IconSize)) },
-            )
-        }
     }
 }
 
@@ -311,7 +290,6 @@ internal fun IntentionCard(
                 value = i.text, onValueChange = { t -> onEdit { it.copy(text = t.take(200)) } }, modifier = Modifier.fillMaxWidth(), minLines = 2,
                 shape = RoundedCornerShape(16.dp), textStyle = MaterialTheme.typography.titleMedium,
             )
-            CategoryChips(i.category) { c -> onEdit { it.copy(category = c) } }
             // Facts the witness filled in: one chip each, tap × to drop.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (i.goal.isNotBlank()) AssistChip(onClick = {}, label = { Text(i.goal, maxLines = 1, overflow = TextOverflow.Ellipsis) }, leadingIcon = { Icon(claimGlyph("outcome"), null, Modifier.size(16.dp)) })

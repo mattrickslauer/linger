@@ -15,11 +15,11 @@ import {
   type InterviewContext,
   type Turn,
 } from "../intention";
-import { CATEGORIES, type Intention, type Quantity } from "../types";
+import type { Intention, Quantity } from "../types";
 import { listen, speak, stopSpeaking, sttSupported, ttsSupported, type Listening } from "../voice";
 import { withoutClaim } from "../v4";
 import { PlanCard } from "./Plan";
-import { Glyph, Hybrid, ScoreRing, type GlyphName } from "../kit";
+import { Glyph, Hybrid, ScoreRing } from "../kit";
 
 const OPENER = "What are you about to do?";
 
@@ -63,7 +63,7 @@ interface Preview {
   mode: Route;
 }
 
-export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Intention, transcript: string[]) => void; onSkip: () => void; guest: boolean }) {
+export default function Interview({ onStart, onSkip }: { onStart: (i: Intention, transcript: string[]) => void; onSkip: () => void }) {
   // State for rendering, refs for the async loop (a hands-free turn starts from a stale closure otherwise).
   const [turns, setTurnsState] = useState<Turn[]>([{ who: "ai", text: OPENER }]);
   const turnsRef = useRef(turns);
@@ -202,7 +202,6 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
       <ClaimCard
         intention={intention}
         preview={preview}
-        guest={guest}
         onChange={setIntention}
         onBack={() => {
           setPhase("talk");
@@ -345,14 +344,12 @@ const qText = (q: Quantity) => `${q.metric} ${q.value}${q.unit ? " " + q.unit : 
 function ClaimCard({
   intention: i,
   preview,
-  guest,
   onChange,
   onBack,
   onStart,
 }: {
   intention: Intention;
   preview: Preview | null;
-  guest: boolean;
   onChange: (i: Intention) => void;
   onBack: () => void;
   onStart: () => void;
@@ -437,13 +434,6 @@ function ClaimCard({
             </div>
           )}
         </dl>
-        <div className="cats" role="radiogroup" aria-label="Category">
-          {CATEGORIES.map((c) => (
-            <button type="button" key={c} role="radio" aria-checked={i.category === c} className={`cat-chip ${i.category === c ? "on" : ""}`} onClick={() => onChange({ ...i, category: c })}>
-              {c}
-            </button>
-          ))}
-        </div>
         <PlanCard
           claims={i.claims ?? []}
           plan={i.plan}
@@ -458,7 +448,6 @@ function ClaimCard({
           {i.interview?.mode === "on_device" || i.interview?.mode === "cloud" ? <Hybrid mode={i.interview.mode} /> : i.interview?.mode ? <span>{i.interview.mode}</span> : null}
         </p>
       </div>
-      <Uses guest={guest} />
       <div className="start-dock">
         <button type="button" className="btn btn-quiet" onClick={onBack}>
           <Glyph name="back" />
@@ -469,27 +458,6 @@ function ClaimCard({
         </button>
       </div>
     </form>
-  );
-}
-
-/** What recording uses, as glyphs: location, motion, camera; works offline; stays on the device for a guest. */
-export function Uses({ guest }: { guest: boolean }) {
-  const items: [GlyphName, string][] = [
-    ["gps", "location"],
-    ["motion", "motion"],
-    ["camera", "camera"],
-    ["offline", "works offline"],
-    guest ? ["device", "stays on this device until you upload"] : ["upload", "syncs when online"],
-  ];
-  return (
-    <ul className="uses" aria-label="While recording">
-      {items.map(([g, t]) => (
-        <li key={t}>
-          <Glyph name={g} />
-          {t}
-        </li>
-      ))}
-    </ul>
   );
 }
 
