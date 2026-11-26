@@ -40,6 +40,13 @@ export const pct = (p: number | null | undefined) => (p == null ? null : Math.ro
 
 // ------------------------------------------------------------------ pieces
 
+/** Share sheet text; mirrors the server's link-preview title (functions/src/share.ts verdictLine). */
+export function shareText(e: Pick<FeedEntry, "status" | "cheating" | "verificationScore" | "intention">): string {
+  const score = pct(e.verificationScore);
+  const verdict = e.status === "sealed" && !e.cheating ? "✓ Verified" : "✗ Not verified";
+  return `${score == null ? verdict : `${verdict} · ${score}% verification score`} — ${e.intention.text}`;
+}
+
 function Share({ e }: { e: FeedEntry }) {
   const [copied, setCopied] = useState(false);
   const url = `${location.origin}/m/${e.momentId}`;
@@ -49,7 +56,7 @@ function Share({ e }: { e: FeedEntry }) {
       onClick={async (ev) => {
         ev.stopPropagation();
         try {
-          if (navigator.share) await navigator.share({ title: e.intention.text, url });
+          if (navigator.share) await navigator.share({ title: e.intention.text, text: shareText(e), url });
           else {
             await navigator.clipboard.writeText(url);
             setCopied(true);

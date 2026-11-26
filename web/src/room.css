@@ -16,7 +16,7 @@
 
 .room .detail-bar {
   position: sticky;
-  top: calc(61px + var(--safe-t));
+  top: var(--topbar);
   z-index: 5;
   display: flex;
   align-items: center;
@@ -89,7 +89,7 @@
 
 .room-wp {
   position: relative;
-  scroll-margin-top: calc(124px + var(--safe-t));
+  scroll-margin-top: calc(var(--topbar) + 63px); /* top bar + the sticky detail bar */
   padding-bottom: 36px;
 }
 .room-hero {
@@ -99,6 +99,7 @@
   flex-direction: column;
   justify-content: space-between;
   min-height: min(68vh, 540px);
+  min-height: min(68svh, 540px);
   margin: 0;
   padding: 14px;
   border-radius: 20px;
@@ -239,7 +240,7 @@
   gap: 10px;
 }
 .room .viewer-side {
-  top: calc(124px + var(--safe-t));
+  top: calc(var(--topbar) + 63px);
 }
 .room .frame-stage {
   border-radius: 16px;
@@ -584,7 +585,6 @@
 }
 @media (max-width: 600px) {
   .room .detail-bar {
-    top: calc(61px + var(--safe-t));
     gap: 4px;
   }
   .room .back span {
@@ -604,7 +604,9 @@
   }
   .room-hero {
     margin: 0 calc(var(--gutter) * -1 + 6px);
-    min-height: min(80vh, 600px);
+    /* fill the screen between the detail bar and the tab bar */
+    min-height: min(calc(100vh - var(--topbar) - 63px - var(--tabbar) - 12px), 600px);
+    min-height: max(360px, min(calc(100svh - var(--topbar) - 63px - var(--tabbar) - 12px), 600px));
     border-radius: 18px;
   }
   .room-verdict {

@@ -20,10 +20,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -226,9 +224,10 @@ internal fun DetailBody(d: MomentDetail, onBack: () -> Unit, onDelete: (() -> Un
         }
     }
     val jump: (Int) -> Unit = { i -> scope.launch { list.animateScrollToItem(starts[i], -chromePx) } }
-    val nav = WindowInsets.navigationBars.asPaddingValues()
+    val nav = WindowInsets.safeBars.asPaddingValues()
 
-    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 32.dp + nav.calculateBottomPadding())) {
+    // Sides clear of a landscape cutout / side nav bar; the bottom scrolls under the gesture bar but ends above it.
+    LazyColumn(Modifier.fillMaxSize().safeSides(), state = list, contentPadding = PaddingValues(bottom = 32.dp + nav.calculateBottomPadding())) {
         item(key = "hero") { Hero(d, ok, selected) }
         item(key = "film") { if (d.frames.size > 1) Filmstrip(d, selected) { selected = it } }
         item(key = "jump") { JumpBar(current, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), jump) }
@@ -250,7 +249,7 @@ internal fun DetailBody(d: MomentDetail, onBack: () -> Unit, onDelete: (() -> Un
 private fun RoomChrome(collapsed: Boolean, current: Int, onJump: ((Int) -> Unit)?, onBack: () -> Unit, onDelete: (() -> Unit)?) {
     Row(
         Modifier.fillMaxWidth().then(if (collapsed) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)
-            .statusBarsPadding().padding(4.dp),
+            .safeTopAndSides().padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val btn = if (collapsed) IconButtonDefaults.iconButtonColors()
@@ -284,7 +283,9 @@ private fun Hero(d: MomentDetail, ok: Boolean, selected: Int) {
     val b64 = frame?.jpegB64?.takeIf { it.isNotEmpty() } ?: d.card.heroJpegB64
     val p = d.verification?.score ?: d.score?.probability ?: d.card.score
     val bar = barOf(d) ?: d.intention?.preview?.bar
-    Box(Modifier.fillMaxWidth().heightIn(min = 440.dp).background(MediaBg)) {
+    // 440dp on a phone held upright; at most 80% of the screen in landscape, so the title and score show without scrolling.
+    val heroMin = minOf(440, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.8f).toInt()).dp
+    Box(Modifier.fillMaxWidth().heightIn(min = heroMin).background(MediaBg)) {
         val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
         if (bmp != null) FitImage(
             bmp, "Proof shot", Modifier.matchParentSize(),
@@ -299,7 +300,7 @@ private fun Hero(d: MomentDetail, ok: Boolean, selected: Int) {
         )
         // The selected frame's own on-device coach result, as chips on the photo.
         Column(
-            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 60.dp, end = 12.dp),
+            Modifier.align(Alignment.TopEnd).safeTopAndSides().padding(top = 60.dp, end = 12.dp),
             horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             frame?.check?.let { c ->

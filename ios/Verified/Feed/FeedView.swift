@@ -89,12 +89,18 @@ private struct FeedPager: View {
   @Binding var current: String?
   let paused: Bool
   let open: (MomentCardData) -> Void
+  /// Measured height of the filter / avatar bar (it grows with Dynamic Type).
+  @State private var topBarHeight: CGFloat = 46
 
   var body: some View {
     let feed = app.feed
     let shown = feed.items.filter { filter.matches($0) }
     GeometryReader { geo in
-      let insets = geo.safeAreaInsets
+      // The pager is full-bleed (ignores the safe area), so every page pads its content by these: the status bar /
+      // Dynamic Island plus the measured top bar above, the tab bar + home indicator below.
+      let safe = geo.safeAreaInsets
+      let insets = EdgeInsets(top: safe.top + topBarHeight + 12, leading: safe.leading,
+                              bottom: safe.bottom, trailing: safe.trailing)
       ScrollView(.vertical) {
         LazyVStack(spacing: 0) {
           FeedIntroPage(insets: insets) { go(to: shown.first?.id ?? FeedPage.end) }
@@ -120,7 +126,9 @@ private struct FeedPager: View {
       .ignoresSafeArea()
     }
     .background(FeedInk.ink)
-    .overlay(alignment: .top) { topBar }
+    .overlay(alignment: .top) {
+      topBar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }
+    }
     .onChange(of: filter) {
       // A new filter starts at its first Moment (or the end card when it has none).
       current = feed.items.first(where: filter.matches)?.id ?? FeedPage.end
@@ -139,6 +147,7 @@ private struct FeedPager: View {
             Text(f.title)
               .font(.subheadline.weight(.semibold))
               .lineLimit(1)
+              .minimumScaleFactor(0.7)
               .padding(.horizontal, 12)
               .frame(minHeight: 36)
               .foregroundStyle(filter == f ? FeedInk.ink : .white)
@@ -173,6 +182,8 @@ private struct FeedPager: View {
       }
     }
     .padding(.horizontal, 12).padding(.top, 2)
+    // Three segments + the avatar must share an SE's 375 pt: past AX1 the labels only truncate.
+    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
   }
 }
 
@@ -347,16 +358,14 @@ private struct FeedSlide: View {
     let shown = revealed || reduceMotion
     ZStack(alignment: .bottomTrailing) {
       SlideBackdrop(b64: item.heroJpegB64, desaturate: !ok, clip: clip)
-      VStack(alignment: .leading, spacing: 0) {
-        intent.arrive(shown, delay: 0.1, reduceMotion)
-        Spacer(minLength: 18)
-        proof.arrive(shown, delay: 0.35, reduceMotion).padding(.bottom, 20)
-        result(shown)
+      // Short screens / large text: drop the extras and the one-line reason, then shorten the intent, rather than
+      // push the result under the tab bar.
+      ViewThatFits(in: .vertical) {
+        column(shown, compact: false)
+        column(shown, compact: true)
       }
-      .waypointTrack(ok ? FeedInk.orange : FeedInk.muted, progress: shown ? 1 : 0,
-                     animation: reduceMotion ? nil : .easeOut(duration: 0.9).delay(0.05))
       .padding(.leading, 18).padding(.trailing, 86)
-      .padding(.top, insets.top + 58).padding(.bottom, insets.bottom + 18)
+      .padding(.top, insets.top).padding(.bottom, insets.bottom + 18)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       rail
         .padding(.trailing, 12)
@@ -386,15 +395,26 @@ private struct FeedSlide: View {
     .onDisappear { clip?.pause() }
   }
 
+  private func column(_ shown: Bool, compact: Bool) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      intent(compact: compact).arrive(shown, delay: 0.1, reduceMotion)
+      Spacer(minLength: compact ? 12 : 18)
+      proof(compact: compact).arrive(shown, delay: 0.35, reduceMotion).padding(.bottom, compact ? 12 : 20)
+      result(shown, compact: compact)
+    }
+    .waypointTrack(item.isVerified ? FeedInk.orange : FeedInk.muted, progress: shown ? 1 : 0,
+                   animation: reduceMotion ? nil : .easeOut(duration: 0.9).delay(0.05))
+  }
+
   // 1. Intent
-  private var intent: some View {
+  private func intent(compact: Bool) -> some View {
     HStack(alignment: .top, spacing: 12) {
       WaypointDot(kind: .intent, muted: !item.isVerified)
       VStack(alignment: .leading, spacing: 6) {
         WaypointLabel(title: "Intent", detail: "\(item.ownerName) set out to")
         Text("\(Text("“").foregroundStyle(FeedInk.orange))\(item.intention)\(Text("”").foregroundStyle(FeedInk.orange))")
           .font(.title.weight(.heavy))
-          .lineLimit(5)
+          .lineLimit(compact ? 3 : 5)
           .minimumScaleFactor(0.6)
           .frame(maxWidth: 290, alignment: .leading)
           .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
@@ -403,7 +423,7 @@ private struct FeedSlide: View {
   }
 
   // 2. Proof: track sketch + glyph stats, check pips, extras as glyph chips.
-  private var proof: some View {
+  private func proof(compact: Bool) -> some View {
     HStack(alignment: .top, spacing: 12) {
       WaypointDot(kind: .proof, muted: !item.isVerified)
       VStack(alignment: .leading, spacing: 10) {
@@ -417,7 +437,7 @@ private struct FeedSlide: View {
           VStack(alignment: .leading, spacing: 6) { statViews }
         }
         CheckPips(checks: item.checks, size: 26)
-        extrasRow
+        if !compact { extrasRow }
       }
     }
   }
@@ -433,7 +453,7 @@ private struct FeedSlide: View {
   }
 
   // 3. Result: the stamp and the score ring (bar tick on the ring), one line of why.
-  private func result(_ shown: Bool) -> some View {
+  private func result(_ shown: Bool, compact: Bool) -> some View {
     let ok = item.isVerified
     return HStack(alignment: .top, spacing: 12) {
       WaypointDot(kind: .result, muted: !ok)
@@ -449,7 +469,7 @@ private struct FeedSlide: View {
             ScoreRing(p: item.displayScore, bar: item.bar?.value, size: 62)
           }
         }
-        if let reason, !reason.isEmpty {
+        if !compact, let reason, !reason.isEmpty {
           Text(reason).font(.footnote).lineLimit(2).opacity(0.85)
             .frame(maxWidth: 300, alignment: .leading)
         }
@@ -615,17 +635,31 @@ private struct FeedIntroPage: View {
   let next: () -> Void
 
   var body: some View {
-    let feed = app.feed
-    let sealed = feed.items.filter(\.isVerified).count
     ZStack {
       FeedInk.lake.ignoresSafeArea()
-      VStack(alignment: .leading, spacing: 20) {
-        Spacer(minLength: 0)
-        Text("Proof it happened.")
-          .font(.largeTitle.weight(.heavy))
-          .minimumScaleFactor(0.7)
-        Text("Recorded live. Argued by AI. Sealed by code.")
-          .font(.headline).opacity(0.8)
+      // An SE or large text can't fit the three tiles too: drop them before anything slides under the bars.
+      ViewThatFits(in: .vertical) {
+        content(tiles: true)
+        content(tiles: false)
+      }
+      .foregroundStyle(.white)
+      .padding(.horizontal, 20)
+      .padding(.top, insets.top).padding(.bottom, insets.bottom + 16)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+  }
+
+  private func content(tiles showTiles: Bool) -> some View {
+    let feed = app.feed
+    let sealed = feed.items.filter(\.isVerified).count
+    return VStack(alignment: .leading, spacing: 20) {
+      Spacer(minLength: 0)
+      Text("Proof it happened.")
+        .font(.largeTitle.weight(.heavy))
+        .minimumScaleFactor(0.7)
+      Text("Recorded live. Argued by AI. Sealed by code.")
+        .font(.headline).opacity(0.8)
+      if showTiles {
         let tiles = typeSize.isAccessibilitySize
           ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
           : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
@@ -635,42 +669,38 @@ private struct FeedIntroPage: View {
           tile(.result, "Sealed", badge: false)
         }
         .fixedSize(horizontal: false, vertical: true)
-        Group {
-          if let error = feed.error {
-            Label("Feed unavailable: \(error)", systemImage: "wifi.exclamationmark").foregroundStyle(FeedInk.bad)
-              .lineLimit(2)
-          } else if !feed.loaded {
-            HStack(spacing: 8) { ProgressView().tint(.white); Text("Connecting…") }
-          } else {
-            HStack(spacing: 14) {
-              Label("\(sealed)", systemImage: "checkmark.seal.fill").foregroundStyle(FeedInk.gold)
-                .accessibilityLabel("\(sealed) verified")
-              Label("\(feed.items.count - sealed)", systemImage: "xmark.seal").foregroundStyle(FeedInk.bad)
-                .accessibilityLabel("\(feed.items.count - sealed) not verified")
-            }
-          }
-        }
-        .font(.headline.monospacedDigit())
-        HStack(spacing: 14) {
-          RecordButton()
-          Button(action: next) {
-            Label("Swipe up", systemImage: "chevron.up").font(.subheadline.weight(.semibold))
-              .symbolEffect(.bounce.up, options: .repeating.speed(0.4))
-              .frame(minHeight: 44)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain).opacity(0.85)
-        }
-        if app.isGuest {
-          Label("No account needed", systemImage: "person.crop.circle.badge.questionmark")
-            .font(.footnote.weight(.semibold)).opacity(0.7)
-        }
-        Spacer(minLength: 0)
       }
-      .foregroundStyle(.white)
-      .padding(.horizontal, 20)
-      .padding(.top, insets.top + 56).padding(.bottom, insets.bottom + 16)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      Group {
+        if let error = feed.error {
+          Label("Feed unavailable: \(error)", systemImage: "wifi.exclamationmark").foregroundStyle(FeedInk.bad)
+            .lineLimit(2)
+        } else if !feed.loaded {
+          HStack(spacing: 8) { ProgressView().tint(.white); Text("Connecting…") }
+        } else {
+          HStack(spacing: 14) {
+            Label("\(sealed)", systemImage: "checkmark.seal.fill").foregroundStyle(FeedInk.gold)
+              .accessibilityLabel("\(sealed) verified")
+            Label("\(feed.items.count - sealed)", systemImage: "xmark.seal").foregroundStyle(FeedInk.bad)
+              .accessibilityLabel("\(feed.items.count - sealed) not verified")
+          }
+        }
+      }
+      .font(.headline.monospacedDigit())
+      HStack(spacing: 14) {
+        RecordButton()
+        Button(action: next) {
+          Label("Swipe up", systemImage: "chevron.up").font(.subheadline.weight(.semibold))
+            .symbolEffect(.bounce.up, options: .repeating.speed(0.4))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).opacity(0.85)
+      }
+      if app.isGuest {
+        Label("No account needed", systemImage: "person.crop.circle.badge.questionmark")
+          .font(.footnote.weight(.semibold)).opacity(0.7)
+      }
+      Spacer(minLength: 0)
     }
   }
 
@@ -723,7 +753,7 @@ private struct FeedEndPage: View {
       }
       .foregroundStyle(.white)
       .padding(.horizontal, 22)
-      .padding(.top, insets.top + 56).padding(.bottom, insets.bottom + 16)
+      .padding(.top, insets.top).padding(.bottom, insets.bottom + 16)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
   }

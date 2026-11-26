@@ -73,6 +73,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -230,11 +233,18 @@ internal fun LiveHud(
     media: @Composable BoxScope.(mini: Modifier, full: Modifier) -> Unit,
 ) = MediaTheme {
     val recording = recordingSince != null
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // Everything under the HUD is placed from its measured height, so it never overlaps at large font scales.
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        // Landscape / split screen: one row of controls (mode toggle beside the shutter), the mini window beside the
+        // HUD instead of under it, the witness card on the start side.
+        val short = maxHeight < 480.dp
+        // Everything under the HUD is placed from its measured height (below the status bar inset, which is applied
+        // live on its own), so it never overlaps at large font scales or when the insets change.
         var hudPx by remember { mutableIntStateOf(0) }
         val hudH = with(LocalDensity.current) { hudPx.toDp() }
-        val miniPos = Modifier.align(Alignment.TopEnd).padding(top = hudH + 8.dp, end = 12.dp).size(width = 104.dp, height = 136.dp)
+        var thumbPx by remember { mutableIntStateOf(0) }
+        val thumbH = with(LocalDensity.current) { thumbPx.toDp() }
+        val miniPos = Modifier.align(Alignment.TopEnd).then(if (short) Modifier.safeTopAndSides().padding(top = 64.dp, end = 12.dp) else Modifier.safeTopAndSides().padding(top = hudH + 8.dp, end = 12.dp))
+            .size(width = 104.dp, height = 136.dp)
         val mini = miniPos.zIndex(2f).clip(RoundedCornerShape(16.dp)).border(2.dp, TokInk, RoundedCornerShape(16.dp))
         val full = Modifier.fillMaxSize().zIndex(1f)
         media(mini, full)
@@ -246,7 +256,7 @@ internal fun LiveHud(
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(260.dp).zIndex(4f).background(Brush.verticalGradient(listOf(Color.Transparent, MediaBg.copy(alpha = 0.85f)))))
 
         // ── top HUD
-        Column(Modifier.zIndex(5f).fillMaxWidth().onSizeChanged { hudPx = it.height }.statusBarsPadding().padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.zIndex(5f).fillMaxWidth().safeTopAndSides().onSizeChanged { hudPx = it.height }.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RecDot()
                 Spacer(Modifier.width(8.dp))
@@ -286,7 +296,7 @@ internal fun LiveHud(
 
         // ── coach toast + video REC pill, under the HUD
         Column(
-            Modifier.zIndex(6f).align(Alignment.TopStart).padding(start = 14.dp, end = 128.dp, top = hudH + 8.dp),
+            Modifier.zIndex(6f).align(Alignment.TopStart).safeTopAndSides().padding(start = 14.dp, end = 128.dp, top = hudH + 8.dp),
             horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             recordingSince?.let { since ->
@@ -299,25 +309,38 @@ internal fun LiveHud(
         ui.witness?.let { w ->
             WitnessCard(
                 w, ui, witness,
-                Modifier.zIndex(7f).align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 190.dp),
+                // Right above the measured controls (or the keyboard, for a typed answer); never over the timer row: on
+                // a short screen the card scrolls inside instead.
+                Modifier.zIndex(7f).align(if (short) Alignment.BottomStart else Alignment.BottomCenter).safeTopAndSides().imePadding()
+                    .padding(start = 12.dp, end = if (short) 136.dp else 12.dp, top = 64.dp, bottom = if (WindowInsets.isImeVisible) 8.dp else thumbH + 8.dp)
+                    .then(if (short) Modifier.widthIn(max = 520.dp) else Modifier),
+                compact = short,
             )
         }
 
         // ── camera buttons on the right edge, thumb height
-        if (!mapBig) Box(Modifier.zIndex(5f).align(Alignment.CenterEnd).padding(end = 12.dp)) { cameraButtons() }
+        // (short: beside the mini window, which takes the edge)
+        if (!mapBig) Box(
+            Modifier.zIndex(5f).then(
+                if (short) Modifier.align(Alignment.TopEnd).safeTopAndSides().padding(top = 64.dp, end = 128.dp)
+                else Modifier.align(Alignment.CenterEnd).safeSides().padding(end = 12.dp),
+            ),
+        ) { cameraButtons() }
 
         // ── thumb zone
         Column(
-            Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 18.dp),
+            Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().safeSides().onSizeChanged { thumbPx = it.height }.padding(bottom = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, onChange = onMode)
+            val modeToggle = @Composable { ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, onChange = onMode) }
+            if (!short) modeToggle()
             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     FinishButton(ui.elapsedMs, enabled = !ui.checking && !recording && !shooting, onFinish)
                 }
                 Shutter(mode = mode, recording = recording, busy = shooting || ui.checking, onClick = onShutter)
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                    if (short) modeToggle()
                     HudButton(if (mapBig) Glyph.Proof else Glyph.Place, if (mapBig) "Show the camera" else "Show the map", onClick = onSwap)
                 }
             }
@@ -408,12 +431,12 @@ private fun EvidencePips(plan: com.mattricks.verified.data.Plan, captured: Map<S
 
 /** The witness's open request (v3.4): spoken + this floating card. Show → next proof shot answers it; Answer → voice/typed; Done; Skip. */
 @Composable
-private fun WitnessCard(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, act: WitnessActions, modifier: Modifier) {
+private fun WitnessCard(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, act: WitnessActions, modifier: Modifier, compact: Boolean = false) {
     var typing by remember(w.wid) { mutableStateOf(false) }
     var text by remember(w.wid) { mutableStateOf("") }
     var why by remember(w.wid) { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth(), color = Color(0xF20F2127), shape = RoundedCornerShape(22.dp), shadowElevation = 8.dp, contentColor = TokInk) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(32.dp).clip(CircleShape).background(SealGold), contentAlignment = Alignment.Center) {
                     Icon(Glyph.Witness, null, Modifier.size(18.dp), tint = SealInk)
@@ -425,7 +448,8 @@ private fun WitnessCard(w: com.mattricks.verified.record.WitnessAsk, ui: RecUi, 
             }
             Text(w.ask, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
             if (why) Text(w.why, color = TokInk2, fontSize = 13.sp)
-            ui.plan?.requirements?.firstOrNull { it.id == w.rid }?.let { r ->
+            // compact (landscape): the ask and the buttons only; the requirement line is in the pips above.
+            if (!compact) ui.plan?.requirements?.firstOrNull { it.id == w.rid }?.let { r ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp), tint = TokInk2); Spacer(Modifier.width(5.dp))
                     Text(r.ask, color = TokInk2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -852,7 +876,7 @@ internal fun FinishedContent(
     onVerify: () -> Unit, onOpen: () -> Unit, onNew: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp),
+        Modifier.fillMaxSize().safeTopAndSides().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(72.dp).clip(CircleShape).background(if (ui.guest) FillInk else FillLake), contentAlignment = Alignment.Center) {

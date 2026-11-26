@@ -11,9 +11,23 @@ import {
   normalizePlan,
   scoreV4,
   unmetRequirements,
+  videoCoverage,
   withoutClaim,
   type ScoreInput,
 } from "./v4";
+
+describe("videoCoverage: session time vs recorded video time", () => {
+  it("a 9.4 s clip in a 29 s session covers about a third", () => {
+    const c = videoCoverage(29_000, [{ durationMs: 9_400 }]);
+    expect(c.videoMs).toBe(9_400);
+    expect(c.ratio).toBeCloseTo(0.324, 3);
+  });
+  it("sums clips, caps at 1, handles no clips and no session", () => {
+    expect(videoCoverage(20_000, [{ durationMs: 12_000 }, { durationMs: 10_000 }]).ratio).toBe(1);
+    expect(videoCoverage(20_000, []).ratio).toBe(0);
+    expect(videoCoverage(0, [{ durationMs: 5_000 }]).ratio).toBe(1);
+  });
+});
 
 describe("scoreV4 reproduces shared/test-vectors-v4.json", () => {
   for (const c of v4.scoring) {
