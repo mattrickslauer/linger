@@ -78,6 +78,15 @@
 .ring-wait .ring-arc {
   stroke: var(--ring-wait);
 }
+.ring-tick-bg {
+  stroke: var(--ring-tick-bg, var(--sheet));
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+.on-media .ring-tick-bg,
+.tok .ring-tick-bg {
+  stroke: #071419;
+}
 .ring-tick {
   stroke: currentColor;
   stroke-width: 4;

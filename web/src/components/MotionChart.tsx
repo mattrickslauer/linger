@@ -1,3 +1,4 @@
+import { Glyph } from "../kit";
 // Acceleration magnitude over time, with proof shots marked and a cursor shared with the scrubber.
 import { useMemo, useRef } from "react";
 import { accelMagnitude } from "../geo";
@@ -61,7 +62,9 @@ export default function MotionChart({ motion, start, duration, frames, t, onSeek
         ))}
         <line x1={x} x2={x} y1={0} y2={H} className="motion-cursor" vectorEffect="non-scaling-stroke" />
       </svg>
-      <figcaption>Motion intensity (deviation from gravity, m/s²). Lines mark proof shots.</figcaption>
+      <figcaption>
+        <Glyph name="motion" /> motion, m/s² · dashes mark proof shots
+      </figcaption>
     </figure>
   );
 }

@@ -211,6 +211,9 @@ export function ScoreRing({
           <circle className="ring-arc" cx="50" cy="50" r={r} strokeDasharray={`${(v * c).toFixed(2)} ${c.toFixed(2)}`} transform="rotate(-90 50 50)" />
         )}
         {a != null && (
+          <line className="ring-tick-bg" x1={50 + Math.cos(a) * 31} y1={50 + Math.sin(a) * 31} x2={50 + Math.cos(a) * 50} y2={50 + Math.sin(a) * 50} />
+        )}
+        {a != null && (
           <line
             className="ring-tick"
             x1={50 + Math.cos(a) * 31}
