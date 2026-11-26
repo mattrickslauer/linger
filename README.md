@@ -84,8 +84,9 @@ breaks if you touch any of it, is hard.
     (count & measure backs counts and measurements, place & time backs places and times) and is offered only when it
     backs one of this Moment's claims, with a preview per claim: "Count & measure · if it passes → 0.58 · if it fails
     → 0.28". Pass: `p' = p + s(1 − p)`; fail: `p' = p(1 − s)`, so the limit is exactly 1 and each step is harder.
-    Checks run only in Cloud Functions, spend free demo credits (10 on first use, no payments) whether they pass or
-    fail, and the server recomputes the score; clients never write it. Paying buys scrutiny, never a score.
+    Checks run only in Cloud Functions, spend credits (10 free on first use; more can be bought through
+    [pay](https://pay.mattrickslauer.com)) whether they pass or fail, and the server recomputes the score; clients
+    never write it. Paying buys scrutiny, never a score.
 12. **Public feed.** Anyone can open a sealed Moment: map track, frame timeline, motion chart, the AI reasons, and
     every seal check that passed or failed, plus the bar, the final score, one row per claim (what backs it, which
     requirements were met) and every ladder result.
@@ -140,7 +141,8 @@ All prompts and JSON schemas live in one file shared by all three platforms and 
   Moments; [`functions/src/seal4.ts`](functions/src/seal4.ts) and [`functions/src/score4.ts`](functions/src/score4.ts),
   per claim, for v4), the AI-set bar and claims, the free video review (`onClipUploaded` Storage trigger,
   `expireVideoWaits` schedule), the `getCredits` and `runLadderModule` callables ([`functions/src/ladder.ts`](functions/src/ladder.ts),
-  [`functions/src/credits.ts`](functions/src/credits.ts)) and owner delete cleanup
+  [`functions/src/credits.ts`](functions/src/credits.ts)), buying credit packs through pay (`buyCredits`,
+  `confirmCreditPurchase`, the signed `payWebhook`; [`functions/src/purchases.ts`](functions/src/purchases.ts)) and owner delete cleanup
   ([`functions/src/index.ts`](functions/src/index.ts)).
 - **Cloud Storage**: every recorded video clip, uploaded by the owner before submit, create-only, re-hashed by the
   function against the hash in the chain and read by Gemini for the free video review ([`storage.rules`](storage.rules)).
@@ -231,6 +233,21 @@ npm test              # seal/bar/ladder/v4 scoring unit tests + rules tests + e2
 npm run emulators     # local Auth, Firestore, Functions, Storage, Hosting
 npm run deploy        # rules, indexes, storage rules, functions, hosting (Blaze plan; Vertex AI API enabled)
 ```
+
+**Buying credits** goes through [pay](https://pay.mattrickslauer.com) (card, ACH, crypto). Packs and prices live in
+[`shared/ladder.json`](shared/ladder.json) (`creditPacks`); the function charges the catalog price, never a client's.
+Before the first deploy that includes them, set two secrets from the pay dashboard:
+
+```bash
+firebase functions:secrets:set PAY_API_KEY          # Developers → API keys (pay_live_… or pay_test_…)
+firebase functions:secrets:set PAY_WEBHOOK_SECRET   # Developers → Webhooks → add endpoint
+                                                    #   https://us-central1-<project>.cloudfunctions.net/payWebhook
+```
+
+Optional env (`functions/.env`): `PAY_BASE_URL` (default `https://pay.mattrickslauer.com`) and `PAY_RETURN_ORIGINS`
+(extra comma-separated origins pay may send buyers back to; the project's `web.app`/`firebaseapp.com` and localhost
+are always allowed). A purchase is credited once, by whichever comes first: the webhook's `checkout.completed`, or
+`confirmCreditPurchase` when pay redirects the buyer back with `?purchase=<id>`. `checkout.refunded` takes the pack back.
 
 ### Web
 

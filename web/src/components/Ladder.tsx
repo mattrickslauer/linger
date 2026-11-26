@@ -3,7 +3,8 @@
 // cost and both previews, run through the runLadderModule Cloud Function. Credits are spent either way.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getCredits, LADDER_DEMO, LadderError, newRequestId, runLadderModule, type Credits, type RunResult } from "../credits";
+import { getCredits, LADDER_DEMO, LadderError, newRequestId, onCreditsChanged, runLadderModule, type Credits, type RunResult } from "../credits";
+import { BuyCredits } from "./BuyCredits";
 import { evidenceOf, fmtScore, offers, reasonText, type Offer } from "../ladder";
 import { isDeclined, requireSignIn } from "../signin";
 import type { Chunk, FeedLadderStep, Intention, LadderResult, ModuleId } from "../types";
@@ -139,8 +140,14 @@ function Offers(p: Props & { score: number; bar: number }) {
       (c) => live && setCredits(c),
       (e) => live && setCreditErr(e instanceof LadderError ? reasonText(e.reason) : String(e)),
     );
+    // A purchase settled (pay redirect or demo): show the new balance and clear a stale "not enough credits".
+    const off = onCreditsChanged((balance) => {
+      setCredits((c) => (c ? { ...c, balance, justGranted: false } : c));
+      setErr(null);
+    });
     return () => {
       live = false;
+      off();
     };
   }, []);
 
@@ -204,6 +211,7 @@ function Offers(p: Props & { score: number; bar: number }) {
     <div className="offers">
       <div className="offers-head">
         <h3>Raise your score</h3>
+        <div className="offers-wallet">
         <span className="credits" aria-live="polite">
           <Glyph name="credits" />
           {credits ? (
@@ -217,6 +225,8 @@ function Offers(p: Props & { score: number; bar: number }) {
             <span className="muted small">loading credits…</span>
           )}
         </span>
+        {credits && <BuyCredits label="Buy" primary={list.some((o) => o.state === "blocked" && o.module.cost > credits.balance) || credits.balance === 0} />}
+        </div>
       </div>
       {LADDER_DEMO && <p className="notice small">Sample data: runs are simulated in this browser with the real ladder math. No credits are spent.</p>}
       {result && (

@@ -5,6 +5,8 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { getChunks, getMomentBundle, subscribeFeed, subscribeMyMoments } from "../data";
 import { canDeleteMoment } from "../canDelete";
 import DeleteMoment from "../components/DeleteMoment";
+import { BuyCredits } from "../components/BuyCredits";
+import { getCredits, onCreditsChanged } from "../credits";
 import { configured, FIXTURES } from "../firebase";
 import { decodeChunks, fmtDistance, fmtDuration } from "../geo";
 import { recordingMomentId, runCloudReview } from "../recorder";
@@ -286,6 +288,36 @@ function LocalList({ user }: { user: User | null }) {
   );
 }
 
+/** Balance + "Buy credits" (pay). getCredits grants the free demo credits on first call, as the ladder sheet does. */
+function MeCredits() {
+  const [balance, setBalance] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    getCredits().then(
+      (c) => live && setBalance(c.balance),
+      () => {},
+    );
+    const off = onCreditsChanged((b) => live && setBalance(b));
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+  return (
+    <section className="me-credits" aria-label="Credits">
+      <span className="credits">
+        <Glyph name="credits" />
+        {balance == null ? <span className="muted small">loading credits…</span> : (
+          <>
+            <strong>{balance}</strong> credit{balance === 1 ? "" : "s"}
+          </>
+        )}
+      </span>
+      <BuyCredits primary={balance === 0} />
+    </section>
+  );
+}
+
 export default function Me({ user: realUser, ready }: { user: User | null; ready: boolean }) {
   const user = ME_DEMO ? DEMO_USER : realUser;
   const [moments, setMoments] = useState<Moment[] | null>(null);
@@ -364,6 +396,7 @@ export default function Me({ user: realUser, ready }: { user: User | null; ready
           <Glyph name="logout" /> Sign out
         </button>
       </header>
+      {configured && !ME_DEMO && <MeCredits />}
       {moments && moments.length > 0 && (
         <dl className="me-tally">
           <div className="tally-ok">

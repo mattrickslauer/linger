@@ -41,6 +41,12 @@ service cloud.firestore {
         allow read: if signedIn() && request.auth.uid == uid;
         allow write: if false;
       }
+
+      // Credit packs bought through pay: opened by buyCredits, settled by payWebhook / confirmCreditPurchase.
+      match /purchases/{purchaseId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
     }
 
     // ── user profiles

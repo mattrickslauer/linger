@@ -7,12 +7,14 @@ import { initializeApp } from "firebase-admin/app";
 import { DocumentReference, FieldValue, Timestamp, getFirestore, Transaction } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
+import { defineSecret } from "firebase-functions/params";
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { CallableRequest, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onObjectFinalized } from "firebase-functions/v2/storage";
 import { ModuleAnswer, ModuleContext, computeBarAndClaims, runModule } from "./agents";
 import { CreditsDoc, creditsRef, debit, entry, ledgerRef, withGrant, writeCredits } from "./credits";
+import { DEFAULT_PAY_BASE, PayCheckout, PayError, PurchaseDoc, checkReturnUrl, createPayCheckout, getPayCheckout, packOf, purchaseRef, settlePurchase, verifyPaySignature } from "./purchases";
 import {
   ChainFacts,
   LadderResult,
@@ -517,6 +519,106 @@ export const getCredits = onCall(async (req) => {
     if (justGranted) writeCredits(tx, db, uid, credits, true);
     return { ...credits, justGranted };
   });
+});
+
+// ───────────────────────────────── buying credits through pay (purchases.ts)
+
+// The pay App API key (pay_live_… / pay_test_…, dashboard → Developers) and the webhook endpoint's signing secret
+// (Developers → Webhooks, endpoint https://us-central1-<project>.cloudfunctions.net/payWebhook).
+const PAY_API_KEY = defineSecret("PAY_API_KEY");
+const PAY_WEBHOOK_SECRET = defineSecret("PAY_WEBHOOK_SECRET");
+const PURCHASE_ID = /^[A-Za-z0-9]{1,40}$/;
+const payBase = () => process.env.PAY_BASE_URL || DEFAULT_PAY_BASE;
+const payKey = () => {
+  const k = PAY_API_KEY.value();
+  if (!k) throw fail("failed-precondition", "payments_unconfigured", "Buying credits isn't set up on this deployment yet.");
+  return k;
+};
+
+export const buyCredits = onCall({ secrets: [PAY_API_KEY], timeoutSeconds: 30 }, async (req) => {
+  const uid = requireUid(req);
+  if (req.auth?.token?.firebase?.sign_in_provider === "anonymous") throw fail("unauthenticated", "sign_in", "Sign in to buy credits.");
+  const d = (req.data ?? {}) as { pack?: unknown; returnUrl?: unknown };
+  const pack = packOf(d.pack);
+  if (!pack) throw fail("invalid-argument", "bad_pack", "Unknown credit pack.");
+  const back = checkReturnUrl(d.returnUrl, process.env.GCLOUD_PROJECT, process.env.PAY_RETURN_ORIGINS ?? "");
+  if (!back) throw fail("invalid-argument", "bad_return_url", "returnUrl must be a page of this app.");
+  const key = payKey();
+  const pRef = creditsRef(db, uid).collection("purchases").doc();
+  const purchase: PurchaseDoc = { pack: pack.id, credits: pack.credits, amountCents: pack.priceCents, checkoutId: null, checkoutUrl: null, status: "open" };
+  await pRef.set({ ...purchase, createdAtServer: FieldValue.serverTimestamp() });
+  const success = new URL(back);
+  success.searchParams.set("purchase", pRef.id);
+  let co: Awaited<ReturnType<typeof createPayCheckout>>;
+  try {
+    co = await createPayCheckout(payBase(), key, {
+      amount_cents: pack.priceCents,
+      description: `Verified: ${pack.label}`,
+      success_url: success.toString(),
+      cancel_url: back.toString(),
+      metadata: { app: "verified", uid, purchase_id: pRef.id, pack: pack.id, credits: String(pack.credits) },
+    });
+  } catch (e) {
+    await pRef.delete().catch(() => {});
+    logger.error("pay checkout failed", { uid, pack: pack.id, error: String(e), code: e instanceof PayError ? e.code : null });
+    throw fail("unavailable", "pay_unavailable", "The payment page couldn't be opened. Try again in a moment.");
+  }
+  await pRef.update({ checkoutId: co.id, checkoutUrl: co.url, updatedAtServer: FieldValue.serverTimestamp() });
+  logger.info("credit checkout opened", { uid, purchaseId: pRef.id, checkoutId: co.id, pack: pack.id });
+  return { purchaseId: pRef.id, checkoutId: co.id, url: co.url };
+});
+
+/** After pay's success redirect: look the checkout up on pay and settle it now (the webhook may still be on its way). */
+export const confirmCreditPurchase = onCall({ secrets: [PAY_API_KEY], timeoutSeconds: 30 }, async (req) => {
+  const uid = requireUid(req);
+  const purchaseId = (req.data as { purchaseId?: unknown } | null)?.purchaseId;
+  if (typeof purchaseId !== "string" || !PURCHASE_ID.test(purchaseId)) throw fail("invalid-argument", "bad_request", "purchaseId is required.");
+  const ps = await purchaseRef(db, uid, purchaseId).get();
+  if (!ps.exists) throw fail("not-found", "unknown_purchase", "That purchase isn't on this account.");
+  const p = ps.data() as PurchaseDoc;
+  if (p.status !== "open" || !p.checkoutId) {
+    const balance = Number((await creditsRef(db, uid).get()).data()?.balance ?? 0);
+    return { status: p.status, credited: false, credits: p.credits, balance, reason: "settled" };
+  }
+  let co: PayCheckout;
+  try {
+    co = await getPayCheckout(payBase(), payKey(), p.checkoutId);
+  } catch (e) {
+    logger.warn("pay lookup failed", { uid, purchaseId, error: String(e) });
+    throw fail("unavailable", "pay_unavailable", "Couldn't reach the payment service. Your credits arrive as soon as it confirms.");
+  }
+  const r = await settlePurchase(db, uid, purchaseId, co);
+  return { ...r, credits: p.credits };
+});
+
+/** pay's signed webhook. 2xx for anything verified (pay retries non-2xx for about a day); 400 for a bad signature. */
+export const payWebhook = onRequest({ secrets: [PAY_WEBHOOK_SECRET], invoker: "public", timeoutSeconds: 30, memory: "256MiB" }, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).send("POST only");
+    return;
+  }
+  if (!verifyPaySignature(req.rawBody ?? "", req.get("x-pay-signature"), PAY_WEBHOOK_SECRET.value())) {
+    logger.warn("pay webhook: bad signature", { delivery: req.get("x-pay-delivery") });
+    res.status(400).send("bad signature");
+    return;
+  }
+  let event: { type?: string; data?: { checkout?: PayCheckout } };
+  try {
+    event = JSON.parse(req.rawBody.toString("utf8"));
+  } catch {
+    res.status(400).send("bad json");
+    return;
+  }
+  const co = event.data?.checkout;
+  const md = co?.metadata ?? {};
+  const relevant = event.type === "checkout.completed" || event.type === "checkout.refunded";
+  if (!co || !relevant || md.app !== "verified" || !md.uid || !md.purchase_id || !PURCHASE_ID.test(md.purchase_id)) {
+    res.status(200).json({ ignored: true });
+    return;
+  }
+  const r = await settlePurchase(db, md.uid, md.purchase_id, co);
+  logger.info("pay webhook settled", { type: event.type, checkoutId: co.id, uid: md.uid, purchaseId: md.purchase_id, ...r });
+  res.status(200).json({ ok: true, status: r.status, credited: r.credited });
 });
 
 type RunResponse = {
