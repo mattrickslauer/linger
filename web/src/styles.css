@@ -593,20 +593,7 @@ a {
   gap: 10px;
   align-items: center;
 }
-.contours path {
-  fill: none;
-  stroke: var(--contour);
-  stroke-width: 1.2;
-}
-.hero-track {
-  fill: none;
-  stroke: var(--track);
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: draw 2.4s cubic-bezier(0.5, 0, 0.2, 1) 0.2s forwards;
-}
+
 @keyframes draw {
   to {
     stroke-dashoffset: 0;
@@ -614,58 +601,6 @@ a {
 }
 
 /* How it works: a real sequence, joined by a dashed track. */
-.how-wrap {
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: 8px var(--gutter) 72px;
-}
-.how-wrap h2 {
-  margin-bottom: 8px;
-}
-.how {
-  list-style: none;
-  margin: 24px 0 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
-  position: relative;
-}
-.how::before {
-  content: "";
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  top: 17px;
-  border-top: 2px dashed var(--rule);
-}
-.how li {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.how-n {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--paper);
-  border: 2px solid var(--ink);
-  font-weight: 750;
-  margin-bottom: 6px;
-}
-.how li:last-child .how-n {
-  background: var(--gold);
-  border-color: var(--gold-ink);
-  color: var(--gold-ink);
-}
-.how p {
-  color: var(--ink-2);
-  font-size: 0.95rem;
-  max-width: 28em;
-}
 
 /* ---------------------------------------------------------------- feed */
 
@@ -675,16 +610,7 @@ a {
   padding: 40px var(--gutter) 64px;
   scroll-margin-top: 64px;
 }
-.feed-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px 24px;
-  padding-bottom: 16px;
-  margin-bottom: 24px;
-  border-bottom: 2px solid var(--ink);
-}
+
 .live {
   display: flex;
   align-items: center;
@@ -692,128 +618,23 @@ a {
   color: var(--ink-2);
   font-size: 0.92rem;
 }
-.live-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
-  animation: pulse 2s infinite;
-}
+
 @keyframes pulse {
   70% {
     box-shadow: 0 0 0 8px transparent;
   }
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 28px 24px;
-}
-.card {
-  display: flex;
-  flex-direction: column;
-  text-decoration: none;
-  color: inherit;
-  min-width: 0;
-}
-.card-media {
-  position: relative;
-  aspect-ratio: 4 / 3;
-  border-radius: var(--r);
-  overflow: hidden;
-  background: var(--paper-2);
-}
-.card-media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.4s ease;
-}
-.card:hover .card-media img {
-  transform: scale(1.03);
-}
-.card-noimg {
-  width: 100%;
-  height: 100%;
-}
-.card-media .stamp {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-}
-.card-track {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  display: grid;
-  place-items: center;
-  padding: 4px;
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--paper) 88%, transparent);
-  color: var(--ink);
-  backdrop-filter: blur(4px);
-}
-.card-track svg {
-  width: 84px;
-  height: 63px;
-}
+
 .sketch-end {
   fill: var(--track);
   stroke: var(--paper);
   stroke-width: 1.5;
 }
-.card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 2px 0;
-}
-.card-body h3 {
-  font-size: 1.15rem;
-}
-.card:hover h3 {
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
-.card-meta {
-  color: var(--ink-3);
-  font-size: 0.9rem;
-}
-.card-rejected .card-media img {
-  filter: grayscale(0.85) contrast(0.95);
-}
-.card-skeleton {
-  aspect-ratio: 4 / 3.9;
-  border-radius: var(--r);
-  background: linear-gradient(100deg, var(--paper-2) 40%, var(--sheet) 50%, var(--paper-2) 60%) 0 0 / 300% 100%;
-  animation: shimmer 1.4s linear infinite;
-}
+
 @keyframes shimmer {
   to {
     background-position: -150% 0;
   }
-}
-.stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
-  margin: 0;
-}
-.stats div {
-  display: flex;
-  flex-direction: column-reverse;
-}
-.stats dt {
-  font-size: 0.76rem;
-  color: var(--ink-3);
-}
-.stats dd {
-  margin: 0;
-  font-weight: 700;
-  font-size: 1.05rem;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------- detail */
@@ -862,16 +683,7 @@ a {
   font-weight: 700;
   text-transform: capitalize;
 }
-.stats-wide {
-  gap: 12px 40px;
-  padding: 16px 0;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-}
-.stats-wide dd {
-  font-size: 1.5rem;
-  font-weight: 750;
-}
+
 .detail-skeleton {
   min-height: 70vh;
 }
@@ -983,17 +795,7 @@ a {
   accent-color: var(--track);
   margin: 0;
 }
-.scrub-scale {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.8rem;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-.scrub-scale span:nth-child(2) {
-  color: var(--ink);
-  font-weight: 700;
-}
+
 .motion {
   margin: 0;
 }
@@ -1337,11 +1139,7 @@ path.lf-cursor {
   font-weight: 700;
   font-size: 1.2rem;
 }
-.live-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 20px;
-}
+
 .cam {
   position: relative;
   border-radius: var(--r);
@@ -1429,51 +1227,7 @@ path.lf-cursor {
   opacity: 0.75;
   font-weight: 500;
 }
-.gauges {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  align-content: start;
-}
-.gauge {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 12px 14px;
-  border-radius: var(--r-sm);
-  background: var(--sheet);
-}
-.gauge-time {
-  grid-column: 1 / -1;
-}
-.g-label {
-  font-size: 0.8rem;
-  color: var(--ink-3);
-}
-.g-val {
-  font-size: 1.6rem;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-}
-.gauge-time .g-val {
-  font-size: 3rem;
-  line-height: 1;
-}
-.g-small {
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.gps-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--ink-3);
-}
-.gps-dot.on {
-  background: var(--ok);
-}
+
 .spark {
   width: 100%;
   height: 32px;
@@ -1574,41 +1328,12 @@ path.lf-cursor {
   height: 56px;
   border-radius: 50%;
 }
-.me-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  border-top: 2px solid var(--ink);
-}
-.me-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--rule);
-}
-.me-row h3 a {
-  text-underline-offset: 3px;
-}
-.me-state {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  max-width: 50%;
-}
 
 /* ---------------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
-  .how {
-    grid-template-columns: 1fr 1fr;
-  }
-  .how::before {
-    display: none;
-  }
+  
+  
   .viewer,
   .live-grid {
     grid-template-columns: 1fr;
@@ -1630,19 +1355,9 @@ path.lf-cursor {
   .brand span {
     display: none;
   }
-  .how {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  .how li {
-    display: grid;
-    grid-template-columns: 36px 1fr;
-    column-gap: 14px;
-  }
-  .how-n {
-    grid-row: span 2;
-    margin: 0;
-  }
+  
+  
+  
   .opinions {
     grid-template-columns: 1fr;
   }
@@ -1653,12 +1368,8 @@ path.lf-cursor {
   .detail-head .stamp {
     margin-top: 0;
   }
-  .stats-wide {
-    gap: 10px 24px;
-  }
-  .stats-wide dd {
-    font-size: 1.2rem;
-  }
+  
+  
   .checklist li {
     grid-template-columns: 32px 1fr;
   }
@@ -1669,16 +1380,9 @@ path.lf-cursor {
     grid-template-columns: 1fr;
     gap: 0;
   }
-  .me-row {
-    flex-direction: column;
-  }
-  .me-state {
-    justify-content: flex-start;
-    max-width: none;
-  }
-  .gauge-time .g-val {
-    font-size: 2.4rem;
-  }
+  
+  
+  
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1754,83 +1458,8 @@ path.lf-cursor {
 
 /* ---------------------------------------------------------------- v3: landing pitch, record CTA, sheets */
 
-.pitch {
-  position: relative;
-  overflow: hidden;
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
-}
-.pitch-art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.9;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 45%, #000 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 45%, #000 100%);
-}
-.pitch-art .hero-track {
-  stroke-width: 3;
-  opacity: 0.85;
-}
-.pitch-in {
-  position: relative;
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: clamp(24px, 4.5vw, 52px) var(--gutter) clamp(24px, 4vw, 44px);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px 48px;
-}
-.pitch-copy {
-  flex: 1 1 520px;
-}
-.pitch h1 {
-  font-size: clamp(2.3rem, 5.4vw, 4.4rem);
-  line-height: 0.95;
-  letter-spacing: -0.045em;
-  font-weight: 800;
-  font-variation-settings: "opsz" 96;
-  max-width: 12ch;
-}
-.pitch-sub {
-  margin-top: 14px;
-  font-size: clamp(1.1rem, 2vw, 1.35rem);
-  color: var(--ink-2);
-  font-weight: 500;
-}
-.pitch-cta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: 320px;
-}
-.pitch-note {
-  font-size: 0.88rem;
-  color: var(--ink-2);
-}
 /* The way in: a big record button with a live-record dot, on the gold of the seal it leads to. */
-.btn-record {
-  min-height: 64px;
-  padding: 16px 30px 16px 24px;
-  font-size: 1.22rem;
-  font-weight: 750;
-  background: var(--gold);
-  color: var(--gold-ink);
-  border: 2px solid var(--gold-ink);
-  box-shadow: 0 4px 0 var(--gold-ink);
-}
-.btn-record:hover {
-  background: color-mix(in srgb, var(--gold) 88%, #fff);
-}
-.btn-record:active {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--gold-ink);
-}
+
 .rec-dot {
   width: 14px;
   height: 14px;
@@ -1839,101 +1468,7 @@ path.lf-cursor {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--track) 25%, transparent);
   flex: none;
 }
-.fab {
-  display: none;
-}
-@media (max-width: 700px) {
-  .fab {
-    position: fixed;
-    z-index: 20;
-    right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 56px;
-    padding: 0 22px 0 18px;
-    border-radius: 999px;
-    background: var(--gold);
-    color: var(--gold-ink);
-    border: 2px solid var(--gold-ink);
-    font-weight: 750;
-    text-decoration: none;
-    box-shadow: 0 4px 0 var(--gold-ink), 0 10px 28px rgb(0 0 0 / 0.18);
-  }
-  .pitch-in {
-    align-items: flex-start;
-    gap: 18px;
-  }
-  .pitch-art {
-    opacity: 0.45;
-  }
-  .btn-record {
-    min-height: 56px;
-    font-size: 1.1rem;
-  }
-  .pitch-cta {
-    max-width: none;
-  }
-}
-.feed-head .filters .cat-chip {
-  text-transform: none;
-}
-.feed-head .filters {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  flex-basis: 100%;
-}
-@media (min-width: 760px) {
-  .card-lead {
-    grid-column: span 2;
-  }
-  .card-lead .card-media {
-    aspect-ratio: 16 / 9;
-  }
-  .card-lead .card-body h3 {
-    font-size: 1.5rem;
-  }
-}
-.scoreline {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.86rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-2);
-}
-.scoreline-meter {
-  position: relative;
-  flex: 0 0 96px;
-  height: 8px;
-  border-radius: 4px;
-  background: var(--paper-2);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-.scoreline-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 4px;
-  background: var(--ok);
-}
-.scoreline-low .scoreline-fill {
-  background: var(--bad);
-}
-.scoreline-bar {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--ink);
-}
-.chip-ladder {
-  background: var(--gold);
-  color: var(--gold-ink);
-  border-color: var(--gold-ink);
-}
+
 .signin-top {
   white-space: nowrap;
 }
@@ -2310,72 +1845,9 @@ path.lf-cursor {
   font-size: 1.25rem;
   font-variant-numeric: tabular-nums;
 }
-.barbox-meter {
-  position: relative;
-  height: 10px;
-  border-radius: 5px;
-  background: linear-gradient(90deg, var(--paper-2) 50%, color-mix(in srgb, var(--gold) 35%, var(--paper-2)) 100%);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-.barbox-meter span {
-  position: absolute;
-  top: -5px;
-  bottom: -5px;
-  width: 6px;
-  margin-left: -3px;
-  border-radius: 2px;
-  background: var(--gold);
-  box-shadow: 0 0 0 1.5px var(--gold-ink);
-}
 
 /* ---------------------------------------------------------------- v3: score vs bar */
-.scorebar {
-  grid-column: span 1;
-}
-.sb-meter {
-  position: relative;
-  height: 14px;
-  margin: 18px 0 6px;
-  border-radius: 7px;
-  background: var(--paper-2);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-.sb-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 7px;
-  background: var(--ok);
-}
-.opinion-bad .sb-fill {
-  background: var(--bad);
-}
-.sb-base {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  width: 2px;
-  margin-left: -1px;
-  background: color-mix(in srgb, var(--ink) 55%, transparent);
-}
-.sb-bar {
-  position: absolute;
-  top: -7px;
-  bottom: -7px;
-  width: 6px;
-  margin-left: -3px;
-  border-radius: 2px;
-  background: var(--gold);
-  box-shadow: 0 0 0 1.5px var(--gold-ink);
-}
-.sb-bar span {
-  position: absolute;
-  bottom: calc(100% + 2px);
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink-2);
-}
+
 .tag-static {
   padding: 3px 12px;
 }
@@ -2467,32 +1939,10 @@ path.lf-cursor {
 
 /* Verification ladder (v3.6): public rungs, owner offers, run sheet */
 /* Video clip toggle on the record screen */
-.btn-clip {
-  gap: 10px;
-}
-.btn-clip .rec-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--bad);
-  flex-shrink: 0;
-}
-.btn-clip.on {
-  border-color: var(--bad);
-  color: var(--bad);
-  font-variant-numeric: tabular-nums;
-}
-.btn-clip.on .rec-dot {
-  animation: rec-pulse 1s ease-in-out infinite;
-}
+
 @keyframes rec-pulse {
   50% {
     opacity: 0.25;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .btn-clip.on .rec-dot {
-    animation: none;
   }
 }
 

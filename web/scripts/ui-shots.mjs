@@ -12,6 +12,8 @@ const SCHEMES = process.env.SCHEMES ? process.env.SCHEMES.split(",") : ["light",
 const SIZES = [
   { name: "phone", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   { name: "laptop", viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 },
+  { name: "small", viewport: { width: 320, height: 640 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  { name: "wide", viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
 ].filter((s) => !process.env.SIZES || process.env.SIZES.split(",").includes(s.name));
 
 const FIXTURE = "7c1e4f0a-2b9d-4c3e-8f61-5a0d9b7e2c14";

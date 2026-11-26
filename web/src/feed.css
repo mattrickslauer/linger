@@ -741,9 +741,7 @@ body.immersive .theme {
   margin: 8px 0 0;
   text-shadow: none;
 }
-.result-bar {
-  margin-left: 2px;
-}
+
 .result-cheat {
   display: flex;
   align-items: center;
@@ -751,4 +749,50 @@ body.immersive .theme {
   margin: 10px 0 0;
   font-weight: 750;
   color: var(--t-bad);
+}
+
+/* Small phones (320–360 wide, or short): everything stays on one screen above the tab bar. */
+@media (max-width: 360px), (max-height: 700px) {
+  .thread {
+    right: 68px;
+  }
+  .intent-text {
+    font-size: 1.3rem;
+  }
+  .wp {
+    padding-bottom: 12px;
+  }
+  .wp-label span {
+    display: none;
+  }
+  .proof-track {
+    display: none;
+  }
+  .tok-seal {
+    font-size: 1.15rem;
+    padding: 8px 12px;
+  }
+  .result-ring {
+    width: 50px !important;
+    height: 50px !important;
+    --ring-size: 50px !important;
+  }
+  .result-row {
+    flex-wrap: nowrap;
+    gap: 12px;
+  }
+  .rail {
+    gap: 12px;
+    bottom: calc(150px + var(--tabbar));
+  }
+  .rail-btn .disc {
+    width: 44px;
+    height: 44px;
+  }
+  .intro {
+    gap: 12px;
+  }
+  .intro-tally dd {
+    font-size: 1.5rem;
+  }
 }

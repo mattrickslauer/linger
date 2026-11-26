@@ -616,3 +616,8 @@
     margin: 0 calc(var(--gutter) * -1 + 6px);
   }
 }
+.room-hero > .hero-top {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}

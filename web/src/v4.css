@@ -439,19 +439,6 @@
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
-.chip-claims {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-.chip-claims.low {
-  border-color: var(--rule);
-  color: var(--ink-2);
-}
-.chip-cheat {
-  border-color: var(--bad);
-  color: var(--bad);
-  background: var(--bad-soft);
-}
 
 /* Record screen: Video / Photo mode and the live checklist under the timer */
 .mode-switch {
@@ -493,14 +480,7 @@
   margin: 0 0 2px;
   font-weight: 600;
 }
-.btn-clip.btn-primary.on {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: #fff;
-}
-.btn-clip.btn-primary.on .rec-dot {
-  background: #fff;
-}
+
 .clip-need {
   opacity: 0.75;
   font-weight: 500;
