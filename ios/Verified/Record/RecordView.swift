@@ -15,72 +15,82 @@ struct RecordView: View {
       }
     }
     .animation(.snappy, value: rec.phase)
+    // Haptics: a firm tap when the Moment starts recording, a heavier one when it stops.
+    .sensoryFeedback(trigger: rec.phase) { old, new in
+      if old == .idle && new == .recording { return .start }
+      if old == .recording && new != .recording { return .stop }
+      return nil
+    }
   }
 
   private func form(_ rec: RecorderModel) -> some View {
     @Bindable var rec = rec
     return NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 20) {
           if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
-          if let err = rec.error { Text(err).font(.footnote).foregroundStyle(Theme.bad) }
+          if let err = rec.error {
+            Label(err, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Theme.bad)
+          }
 
           InterviewCard(typeInstead: { focused = true })
 
           VStack(alignment: .leading, spacing: 8) {
-            Text(rec.structured == nil ? "Or just type it" : "In one sentence").font(.headline)
+            Label(rec.structured == nil ? "Or type it" : "In one sentence", systemImage: "character.cursor.ibeam")
+              .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             TextField("Catch and release a largemouth bass at Lake Mission Viejo",
                       text: $rec.intention, axis: .vertical)
               .lineLimit(2...4)
               .focused($focused)
               .padding(14)
-              .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+              .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
               .onChange(of: rec.intention) { _, v in
                 if v.count > 200 { rec.intention = String(v.prefix(200)) }
               }
-            HStack {
+            HStack(spacing: 8) {
               if rec.structured == nil && !app.interview.active && app.network.isOnline
                 && !rec.intention.trimmingCharacters(in: .whitespaces).isEmpty {
                 Button {
                   focused = false
                   app.interview.structureTyped(rec.intention, category: rec.category)
                 } label: {
-                  Label("Plan the evidence", systemImage: "checklist").font(.subheadline.weight(.semibold))
+                  Label("Plan the evidence", systemImage: Glyph.claims).font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.bordered).controlSize(.small)
-                Chip(text: "cloud", systemImage: "cloud", color: .blue)
+                .buttonStyle(.bordered).tint(Theme.lake)
+                HybridBadge(onDevice: false)
               }
               Spacer()
-              Text("\(rec.intention.count)/200").font(.caption2).foregroundStyle(.tertiary)
+              Text("\(rec.intention.count)/200").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
             }
           }
 
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Category").font(.headline)
-            ScrollView(.horizontal, showsIndicators: false) {
-              HStack(spacing: 8) {
-                ForEach(Category.allCases) { c in
-                  Button {
-                    rec.category = c
-                  } label: {
-                    Label(c.label, systemImage: c.icon)
-                      .font(.subheadline.weight(.semibold))
-                      .padding(.horizontal, 14).padding(.vertical, 9)
-                      .foregroundStyle(rec.category == c ? .white : .primary)
-                      .background(rec.category == c ? Theme.accent : Theme.card, in: Capsule())
-                  }
-                  .buttonStyle(.plain)
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+              ForEach(Category.allCases) { c in
+                Button {
+                  rec.category = c
+                } label: {
+                  Label(c.label, systemImage: c.icon)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .foregroundStyle(rec.category == c ? Theme.onFill : .primary)
+                    .background(rec.category == c ? Theme.lake : Theme.surface, in: Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(rec.category == c ? .isSelected : [])
               }
             }
           }
+          .scrollClipDisabled()
+          .accessibilityLabel("Category")
 
           HowItWorks()
         }
         .padding(20)
       }
       .scrollDismissesKeyboard(.interactively)
-      .background(Color(.systemGroupedBackground))
+      .background(Theme.paper)
       .navigationTitle("Record")
       .onChange(of: app.interview.phase) { _, phase in
         if phase == .done, let r = app.interview.result { rec.use(r) }
@@ -101,17 +111,26 @@ struct RecordView: View {
             recorder.start(owner: user)
           }
         } label: {
-          VStack(spacing: 2) {
-            Label("Start Moment", systemImage: "record.circle.fill").font(.title3.bold())
-            if app.isGuest {
-              Text("as a guest · kept on this phone").font(.caption2.weight(.medium)).opacity(0.85)
+          HStack(spacing: 12) {
+            ZStack {
+              Circle().fill(.white).frame(width: 30, height: 30)
+              Circle().fill(Theme.track).frame(width: 18, height: 18)
+            }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 0) {
+              Text("Start Moment").font(.title3.bold())
+              if app.isGuest {
+                Label("guest · stays on this phone", systemImage: Glyph.onDevice)
+                  .font(.caption2.weight(.semibold)).opacity(0.85)
+              }
             }
           }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 8)
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity, minHeight: 60)
+          .background(Color(hex: 0xD9480F), in: Capsule())
+          .opacity(rec.canStart ? 1 : 0.45)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .disabled(!rec.canStart)
         .padding(.horizontal, 20).padding(.bottom, 8)
       }
@@ -119,6 +138,7 @@ struct RecordView: View {
   }
 }
 
+/// The Moment just finished, as one card: track sketch + stats, its status, and the video upload ring.
 private struct SubmittedBanner: View {
   @Environment(AppModel.self) private var app
   let done: RecorderModel.Submitted
@@ -126,56 +146,92 @@ private struct SubmittedBanner: View {
   var body: some View {
     let judging = app.judge.running.contains(done.id)
     let stillLocal = done.guest && app.vault.guestMoments.contains { $0.id == done.id }
-    HStack(alignment: .top, spacing: 12) {
-      Image(systemName: stillLocal ? "iphone.circle.fill" : "paperplane.circle.fill").font(.title2)
-        .foregroundStyle(stillLocal ? .indigo : Theme.accent)
-      VStack(alignment: .leading, spacing: 4) {
-        Text(stillLocal ? "Saved on this phone" : "Moment submitted").font(.subheadline.bold())
-        Text(done.intention).font(.subheadline).lineLimit(2)
-        if stillLocal {
-          Text("Recorded as a guest: chained and kept on this device. Sign in to upload it and get it verified.")
-            .font(.caption).foregroundStyle(.secondary)
-          Button {
-            if let m = app.vault.guestMoments.first(where: { $0.id == done.id }) { app.upload(m) }
-          } label: {
-            Label("Sign in & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
-          }
-          .buttonStyle(.borderedProminent)
-          .controlSize(.small)
-          .padding(.top, 4)
+    let card = app.mine.items.first { $0.id == done.id } ?? app.vault.guestMoments.first { $0.id == done.id }
+    let upload = ClipUploader.shared.states[done.id]
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 12) {
+        if let card, card.track.count > 1 {
+          TrackSketch(track: card.track, width: 72, height: 72)
         } else {
-        VideoStatusLine(momentId: done.id)
-        Text(judging ? "Cloud judge, skeptic and scorer are reviewing it…"
-             : app.network.isOnline ? "It seals once the cloud judge, skeptic and scorer have run. Track it in Me."
-             : "Offline: it will sync and be judged when you're back online.")
-          .font(.caption).foregroundStyle(.secondary)
+          Image(systemName: stillLocal ? Glyph.onDevice : "paperplane.fill")
+            .font(.title2).foregroundStyle(Theme.lake)
+            .frame(width: 72, height: 72)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        VStack(alignment: .leading, spacing: 6) {
+          HStack(spacing: 6) {
+            StatusBadge(status: stillLocal ? "local" : card?.status ?? "submitted")
+            if judging { HybridBadge(onDevice: false, text: "judging") }
+            if !app.network.isOnline { Chip(text: "offline", systemImage: "wifi.slash", color: Theme.warn) }
+          }
+          Text(done.intention).font(.subheadline.weight(.semibold)).lineLimit(2)
+          if let s = card?.summary {
+            HStack(spacing: 12) {
+              StatChip(icon: Glyph.timing, value: formatDuration(ms: s.durationMs))
+              StatChip(icon: Glyph.gps, value: formatDistance(s.distanceM))
+              StatChip(icon: Glyph.shots, value: "\(s.frameCount)")
+            }
+          }
+        }
+        Spacer(minLength: 0)
+        if let f = upload?.fraction {
+          Gauge(value: f) { Image(systemName: Glyph.video) }
+            .gaugeStyle(.accessoryCircularCapacity)
+            .tint(Theme.lake)
+            .accessibilityLabel("Video upload \(Int(f * 100)) percent")
         }
       }
-      Spacer(minLength: 0)
+      if stillLocal {
+        Button {
+          if let m = app.vault.guestMoments.first(where: { $0.id == done.id }) { app.upload(m) }
+        } label: {
+          Label("Sign in & verify", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent).tint(Theme.lake)
+      } else {
+        VideoStatusLine(momentId: done.id)
+        if let card {
+          NavigationLink {
+            MomentDetailView(initial: card, fromMyMoments: true)
+          } label: {
+            Label("Open evidence", systemImage: "magnifyingglass").font(.subheadline.weight(.semibold))
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.bordered).tint(Theme.lake)
+        }
+      }
     }
-    .padding(14)
-    .background((stillLocal ? Color.indigo : Theme.accent).opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+    .surfaceCard(radius: 22)
   }
 }
 
+/// How a Moment becomes proof, as four glyph tiles (sentences only for VoiceOver).
 private struct HowItWorks: View {
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      row("location.fill", "GPS, motion and app events are recorded as a time series.")
-      row("camera.fill", "Take proof shots or video clips. The on-device coach says “keep going” or “retake”.")
-      row("link", "Every 5 s the data is sealed into a SHA-256 chain, offline or not.")
-      row("checkmark.seal.fill", "Online again: a cloud judge, skeptic and scorer weigh in, then code seals it.")
+    let columns = typeSize.isAccessibilitySize
+      ? [GridItem(.flexible())]
+      : Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    LazyVGrid(columns: columns, spacing: 8) {
+      tile(Glyph.gps, "GPS + motion", "GPS, motion and app events are recorded as a time series.", Theme.track)
+      tile(Glyph.shots, "Proof shots", "Take proof shots or clips; the on-device coach says keep going or retake.", Theme.lake)
+      tile(Glyph.chain, "Chained", "Every 5 seconds the data is sealed into a SHA-256 chain, offline or not.", Theme.ok)
+      tile("checkmark.seal.fill", "Sealed", "Online again, a cloud judge, skeptic and scorer weigh in, then code seals it.", Theme.gold)
     }
-    .font(.footnote)
-    .foregroundStyle(.secondary)
-    .padding(14)
-    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
   }
 
-  private func row(_ icon: String, _ text: String) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
-      Image(systemName: icon).frame(width: 18).foregroundStyle(Theme.accent)
-      Text(text)
+  private func tile(_ icon: String, _ title: String, _ a11y: String, _ tint: Color) -> some View {
+    VStack(spacing: 6) {
+      Image(systemName: icon).font(.title3.weight(.semibold)).foregroundStyle(tint).frame(height: 26)
+      Text(title).font(.caption.weight(.semibold)).multilineTextAlignment(.center).lineLimit(2)
+        .minimumScaleFactor(0.8)
     }
+    .frame(maxWidth: .infinity, minHeight: 76)
+    .padding(.horizontal, 4)
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(a11y)
   }
 }

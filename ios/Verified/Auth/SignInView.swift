@@ -11,66 +11,63 @@ struct SignInSheet: View {
   @State private var emulatorName = "Test Angler"
 
   var body: some View {
-    VStack(spacing: 22) {
-      Capsule().fill(.quaternary).frame(width: 40, height: 5).padding(.top, 8)
-      Image(systemName: "checkmark.seal.fill")
-        .font(.system(size: 54))
-        .foregroundStyle(Theme.accent)
+    ScrollView {
+      VStack(spacing: 20) {
+        ZStack {
+          Circle().fill(Theme.gold).frame(width: 84, height: 84)
+          Circle().strokeBorder(Color(hex: 0x10242B), lineWidth: 2.5).frame(width: 68, height: 68)
+          Image(systemName: "checkmark").font(.system(size: 32, weight: .heavy)).foregroundStyle(Color(hex: 0x10242B))
+        }
         .symbolEffect(.bounce, value: app.auth.busy)
-      VStack(spacing: 8) {
+        .accessibilityHidden(true)
+        .padding(.top, 12)
         Text(action.map { "Sign in to \($0)" } ?? "Sign in to Verified")
           .font(.title2.bold()).multilineTextAlignment(.center)
-        Text("Browsing and recording work without an account. Signing in lets the cloud check your Moments, seal them and put them on the public feed.")
-          .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-      }
-      VStack(alignment: .leading, spacing: 8) {
-        bullet("iphone", "Moments you recorded as a guest stay on this phone until you upload them.")
-        bullet("link", "Their SHA-256 chain only binds the Moment id, so nothing is re-recorded.")
-      }
-      .font(.footnote).foregroundStyle(.secondary)
-      .padding(14)
-      .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+        AdaptiveStack(spacing: 8) {
+          GlyphTile(icon: Glyph.cloud, title: "Cloud checks", detail: "Judge, skeptic, scorer")
+          GlyphTile(icon: "checkmark.seal.fill", title: "Sealed", detail: "On the public feed", tint: Theme.gold)
+          GlyphTile(icon: Glyph.onDevice, title: "Guest kept", detail: "Same chain, no re-record", tint: Theme.ok)
+        }
+        .fixedSize(horizontal: false, vertical: true)
 
-      Spacer(minLength: 0)
-      Button {
-        Task { await app.auth.signIn() }
-      } label: {
-        Label("Sign in", systemImage: "person.badge.key.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
-      }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-      .disabled(app.auth.busy)
+        Button {
+          Task { await app.auth.signIn() }
+        } label: {
+          Label("Sign in", systemImage: "person.badge.key.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Theme.lake)
+        .controlSize(.large)
+        .disabled(app.auth.busy)
 
-      if AppConfig.useEmulator {
-        VStack(spacing: 8) {
-          Text("Emulator mode · \(AppConfig.emulatorHost)").font(.caption).foregroundStyle(.secondary)
-          HStack {
-            TextField("Name", text: $emulatorName).textFieldStyle(.roundedBorder)
-            Button("Emulator sign-in") { Task { await app.auth.signInWithEmulator(name: emulatorName) } }
-              .buttonStyle(.bordered)
+        if AppConfig.useEmulator {
+          VStack(spacing: 8) {
+            Text("Emulator mode · \(AppConfig.emulatorHost)").font(.caption).foregroundStyle(.secondary)
+            HStack {
+              TextField("Name", text: $emulatorName).textFieldStyle(.roundedBorder)
+              Button("Emulator sign-in") { Task { await app.auth.signInWithEmulator(name: emulatorName) } }
+                .buttonStyle(.bordered)
+            }
           }
         }
+        if let error = app.auth.error {
+          Label(error, systemImage: "exclamationmark.triangle.fill")
+            .font(.footnote).foregroundStyle(Theme.bad).multilineTextAlignment(.center)
+        }
+        if app.auth.busy { ProgressView() }
+        Button("Not now") {
+          app.signInRequest = nil
+          dismiss()
+        }
+        .font(.subheadline)
+        .frame(minHeight: 44)
+        .disabled(app.auth.busy)
       }
-      if let error = app.auth.error {
-        Text(error).font(.footnote).foregroundStyle(Theme.bad).multilineTextAlignment(.center)
-      }
-      if app.auth.busy { ProgressView() }
-      Button("Not now") {
-        app.signInRequest = nil
-        dismiss()
-      }
-      .font(.subheadline)
-      .disabled(app.auth.busy)
+      .padding(.horizontal, 24).padding(.bottom, 16)
     }
-    .padding(.horizontal, 24).padding(.bottom, 16)
+    .background(Theme.paper)
+    .presentationDragIndicator(.visible)
     .onChange(of: app.auth.user?.uid) { _, uid in if uid != nil { dismiss() } }
-  }
-
-  private func bullet(_ icon: String, _ text: String) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
-      Image(systemName: icon).frame(width: 18).foregroundStyle(Theme.accent)
-      Text(text)
-    }
   }
 }
 
@@ -90,8 +87,8 @@ struct ClaimSheet: View {
             HStack(spacing: 12) {
               Image(systemName: (Category(rawValue: m.category) ?? .other).icon)
                 .frame(width: 34, height: 34)
-                .foregroundStyle(Theme.accent)
-                .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                .foregroundStyle(Theme.lake)
+                .background(Theme.lake.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
               VStack(alignment: .leading, spacing: 2) {
                 Text(m.intention).font(.subheadline.weight(.semibold)).lineLimit(2)
                 if let s = m.summary {
@@ -111,10 +108,10 @@ struct ClaimSheet: View {
             }
           }
         } header: {
-          Text("You recorded \(items.count) \(items.count == 1 ? "Moment" : "Moments") as a guest. Upload \(items.count == 1 ? "it" : "them") to your account to get \(items.count == 1 ? "it" : "them") verified?")
-            .textCase(nil).font(.subheadline)
+          Label("\(items.count) guest \(items.count == 1 ? "Moment" : "Moments") to verify", systemImage: Glyph.onDevice)
+            .textCase(nil).font(.subheadline.weight(.semibold))
         } footer: {
-          Text("Swipe a row to keep it on this device or delete it. The hash chain is unchanged: your account is bound at upload.")
+          Text("Swipe a row to keep it here or delete it. The chain is unchanged; your account is bound at upload.")
         }
       }
       .navigationTitle("Guest Moments")
@@ -130,9 +127,10 @@ struct ClaimSheet: View {
               .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
           }
           .buttonStyle(.borderedProminent)
+          .tint(Theme.lake)
           .controlSize(.large)
           .disabled(upload.isEmpty)
-          Button("Not now") { dismiss() }.font(.subheadline)
+          Button("Not now") { dismiss() }.font(.subheadline).frame(minHeight: 44)
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
         .background(.bar)

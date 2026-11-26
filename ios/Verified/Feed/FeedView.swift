@@ -52,17 +52,17 @@ enum FeedPage {
   static let end = "feed.end"
 }
 
-/// The feed palette (always dark): GPS orange track, gold seal, lake ink.
+/// The feed palette (always dark): the shared tokens' dark values. GPS orange track, gold seal, lake ink.
 enum FeedInk {
-  static let ink = Color(red: 0x07 / 255, green: 0x14 / 255, blue: 0x19 / 255)
-  static let ink2 = Color(red: 0x10 / 255, green: 0x24 / 255, blue: 0x2B / 255)
-  static let orange = Color(red: 1, green: 0x8A / 255, blue: 0x4C / 255)
-  static let gold = Color(red: 0xE7 / 255, green: 0xB4 / 255, blue: 0x25 / 255)
-  static let ok = Color(red: 0x4A / 255, green: 0xDE / 255, blue: 0x9B / 255)
-  static let bad = Color(red: 1, green: 0x6B / 255, blue: 0x5B / 255)
-  static let muted = Color(white: 0.55)
+  static let ink = Color(hex: 0x071419)
+  static let ink2 = Color(hex: 0x10242B)
+  static let orange = Color(hex: 0xFF8A4C)
+  static let gold = Theme.gold
+  static let ok = Color(hex: 0x7FD19B)
+  static let bad = Color(hex: 0xF08A78)
+  static let muted = Color(hex: 0x8FA3A0)
   static let lake = LinearGradient(
-    colors: [Color(red: 0.05, green: 0.16, blue: 0.20), ink, Color(red: 0.02, green: 0.07, blue: 0.09)],
+    colors: [Color(hex: 0x123540), ink, Color(hex: 0x040D10)],
     startPoint: .top, endPoint: .bottom)
 }
 
@@ -132,30 +132,47 @@ private struct FeedPager: View {
   }
 
   private var topBar: some View {
-    HStack(spacing: 6) {
-      ForEach(FeedFilter.allCases) { f in
-        Button { filter = f } label: {
-          Text(f.title)
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .foregroundStyle(filter == f ? FeedInk.ink : .white)
-            .background(filter == f ? AnyShapeStyle(Color.white) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+    HStack(spacing: 8) {
+      HStack(spacing: 2) {
+        ForEach(FeedFilter.allCases) { f in
+          Button { filter = f } label: {
+            Text(f.title)
+              .font(.subheadline.weight(.semibold))
+              .lineLimit(1)
+              .padding(.horizontal, 12)
+              .frame(minHeight: 36)
+              .foregroundStyle(filter == f ? FeedInk.ink : .white)
+              .background(filter == f ? Color.white : Color.clear, in: Capsule())
+              .contentShape(Capsule())
+          }
+          .buttonStyle(.plain)
+          .accessibilityAddTraits(filter == f ? .isSelected : [])
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(filter == f ? .isSelected : [])
       }
+      .padding(4)
+      .background(.ultraThinMaterial, in: Capsule())
+      .animation(.snappy, value: filter)
       Spacer(minLength: 4)
       if let user = app.auth.user {
-        Button { app.tab = .me } label: { Avatar(url: user.photoURL, name: user.name, size: 32) }
-          .accessibilityLabel("Me")
+        Button { app.tab = .me } label: {
+          Avatar(url: user.photoURL, name: user.name, size: 36)
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .accessibilityLabel("Me")
       } else {
-        Button("Sign in") { app.signIn() }
-          .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-          .padding(.horizontal, 12).padding(.vertical, 7)
-          .background(.ultraThinMaterial, in: Capsule())
+        Button { app.signIn() } label: {
+          Image(systemName: "person.crop.circle")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sign in")
       }
     }
-    .padding(.horizontal, 16).padding(.top, 6)
+    .padding(.horizontal, 12).padding(.top, 2)
   }
 }
 
@@ -177,7 +194,7 @@ struct WaypointDot: View {
   var fill: Color = FeedInk.ink
 
   var body: some View {
-    let line = muted ? FeedInk.muted : FeedInk.orange
+    let line = muted ? FeedInk.muted : Theme.track
     let c = pending ? FeedInk.muted : muted ? FeedInk.bad : FeedInk.gold
     ZStack {
       switch kind {
@@ -263,35 +280,6 @@ struct SealStamp: View {
       }
       .rotationEffect(.degrees(-4))
       .accessibilityLabel(text)
-  }
-}
-
-/// The five deterministic checks as pips: green dot when passed, red outline when failed.
-struct CheckPips: View {
-  let checks: [String: Bool]
-
-  var body: some View {
-    let passed = feedCheckOrder.filter { checks[$0.key] == true }.count
-    FlowLayout(spacing: 5) {
-      ForEach(feedCheckOrder, id: \.key) { c in
-        let ok = checks[c.key] == true
-        HStack(spacing: 5) {
-          if ok {
-            Circle().fill(FeedInk.ok).frame(width: 7, height: 7)
-          } else {
-            Circle().strokeBorder(FeedInk.bad, lineWidth: 1.5).frame(width: 8, height: 8)
-          }
-          Text(c.name)
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(ok ? .white : FeedInk.bad)
-        .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 3)
-        .background(Color.black.opacity(0.35), in: Capsule())
-        .overlay(Capsule().strokeBorder(ok ? Color.white.opacity(0.18) : FeedInk.bad.opacity(0.5), lineWidth: 1))
-      }
-    }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(passed) of 5 seal checks passed")
   }
 }
 
@@ -405,7 +393,7 @@ private struct FeedSlide: View {
       VStack(alignment: .leading, spacing: 6) {
         WaypointLabel(title: "Intent", detail: "\(item.ownerName) set out to")
         Text("\(Text("“").foregroundStyle(FeedInk.orange))\(item.intention)\(Text("”").foregroundStyle(FeedInk.orange))")
-          .font(.system(size: 30, weight: .heavy))
+          .font(.title.weight(.heavy))
           .lineLimit(5)
           .minimumScaleFactor(0.6)
           .frame(maxWidth: 290, alignment: .leading)
@@ -414,47 +402,51 @@ private struct FeedSlide: View {
     }
   }
 
-  // 2. Proof
+  // 2. Proof: track sketch + glyph stats, check pips, extras as glyph chips.
   private var proof: some View {
     HStack(alignment: .top, spacing: 12) {
       WaypointDot(kind: .proof, muted: !item.isVerified)
       VStack(alignment: .leading, spacing: 10) {
-        WaypointLabel(title: "Proof", detail: "captured live" + (agoText.map { ", \($0)" } ?? ""))
-        HStack(alignment: .center, spacing: 14) {
-          if item.track.count > 1 { TrackSketch(track: item.track) }
-          HStack(spacing: 14) {
-            stat(item.summary.map { formatDuration(ms: $0.durationMs) } ?? "–", "time")
-            stat(item.summary.map { formatDistance($0.distanceM) } ?? "–", "moved")
-            stat(item.summary.map { "\($0.frameCount)" } ?? "–", "shots")
+        WaypointLabel(title: "Proof", detail: agoText)
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .center, spacing: 14) {
+            if item.track.count > 1 { TrackSketch(track: item.track) }
+            stats
           }
+          stats
+          VStack(alignment: .leading, spacing: 6) { statViews }
         }
-        CheckPips(checks: item.checks)
-        if let extras { Text(extras).font(.caption.weight(.semibold)).opacity(0.85) }
+        CheckPips(checks: item.checks, size: 26)
+        extrasRow
       }
     }
   }
 
-  // 3. Result
+  private var stats: some View {
+    HStack(spacing: 14) { statViews }
+  }
+
+  @ViewBuilder private var statViews: some View {
+    stat(Glyph.timing, item.summary.map { formatDuration(ms: $0.durationMs) } ?? "–", "time")
+    stat(Glyph.gps, item.summary.map { formatDistance($0.distanceM) } ?? "–", "moved")
+    stat(Glyph.shots, item.summary.map { "\($0.frameCount)" } ?? "–", "shots")
+  }
+
+  // 3. Result: the stamp and the score ring (bar tick on the ring), one line of why.
   private func result(_ shown: Bool) -> some View {
     let ok = item.isVerified
     return HStack(alignment: .top, spacing: 12) {
       WaypointDot(kind: .result, muted: !ok)
       VStack(alignment: .leading, spacing: 10) {
         WaypointLabel(title: "Result")
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: 18) {
           SealStamp(verified: ok)
             .scaleEffect(shown ? 1 : 1.9)
             .rotationEffect(.degrees(shown ? 0 : -8))
             .opacity(shown ? 1 : 0)
             .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.55).delay(0.8), value: shown)
-          VStack(alignment: .leading, spacing: 2) {
-            if let p = percent(item.displayScore) {
-              Text("\(Text("\(p)%").font(.title3.weight(.heavy).monospacedDigit())) likely true")
-                .font(.subheadline)
-            }
-            if let bar = percent(item.bar?.value) {
-              Text("bar \(bar)%").font(.caption.weight(.semibold).monospacedDigit()).opacity(0.75)
-            }
+          if item.displayScore != nil || item.bar != nil {
+            ScoreRing(p: item.displayScore, bar: item.bar?.value, size: 62)
           }
         }
         if let reason, !reason.isEmpty {
@@ -478,9 +470,9 @@ private struct FeedSlide: View {
         // v4.12: sound for this slide's clip (default muted).
         Button { clip.toggleMute() } label: {
           Image(systemName: clip.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 16, weight: .bold))
             .foregroundStyle(.white)
-            .frame(width: 38, height: 38)
+            .frame(width: 44, height: 44)
             .background(.ultraThinMaterial, in: Circle())
             .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
         }
@@ -490,11 +482,13 @@ private struct FeedSlide: View {
     .buttonStyle(.plain)
   }
 
-  private func stat(_ value: String, _ label: String) -> some View {
-    VStack(alignment: .leading, spacing: 1) {
+  private func stat(_ icon: String, _ value: String, _ label: String) -> some View {
+    HStack(spacing: 4) {
+      Image(systemName: icon).font(.caption.weight(.bold)).foregroundStyle(FeedInk.orange)
       Text(value).font(.headline.monospacedDigit()).lineLimit(1).fixedSize()
-      Text(label).font(.caption2).opacity(0.7).lineLimit(1).fixedSize()
     }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(value) \(label)")
   }
 
   private var agoText: String? {
@@ -502,13 +496,42 @@ private struct FeedSlide: View {
     return date?.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
   }
 
-  /// v4 extras: "2/2 claims backed · +2 checks · witness 1/2".
-  private var extras: String? {
-    var parts: [String] = []
-    if item.claimsTotal > 0, let backed = item.claimsBacked { parts.append("\(backed)/\(item.claimsTotal) claims backed") }
-    if !item.ladder.isEmpty { parts.append("+\(item.ladder.count) \(item.ladder.count == 1 ? "check" : "checks")") }
-    if item.witnessAsked > 0 { parts.append("witness \(item.witnessAnswered)/\(item.witnessAsked)") }
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  /// v4 extras as glyph chips: claims backed, ladder checks, witness answers, where the live coach ran.
+  @ViewBuilder private var extrasRow: some View {
+    let hasClaims = item.claimsTotal > 0 && item.claimsBacked != nil
+    let coach = item.onDeviceMode == "on_device" || item.onDeviceMode == "cloud"
+    if hasClaims || !item.ladder.isEmpty || item.witnessAsked > 0 || coach {
+      HStack(spacing: 6) {
+        if hasClaims, let backed = item.claimsBacked {
+          extra(Glyph.claims, "\(backed)/\(item.claimsTotal)", "\(backed) of \(item.claimsTotal) claims backed",
+                tint: backed >= item.claimsTotal ? FeedInk.ok : FeedInk.gold)
+        }
+        if !item.ladder.isEmpty {
+          extra(Glyph.ladder, "+\(item.ladder.count)", "\(item.ladder.count) extra ladder checks")
+        }
+        if item.witnessAsked > 0 {
+          extra(Glyph.witness, "\(item.witnessAnswered)/\(item.witnessAsked)",
+                "\(item.witnessAnswered) of \(item.witnessAsked) witness requests answered")
+        }
+        if coach {
+          let onDevice = item.onDeviceMode == "on_device"
+          extra(onDevice ? Glyph.onDevice : Glyph.cloud, onDevice ? "on device" : "cloud",
+                onDevice ? "Live coach ran on device" : "Live coach ran in the cloud")
+        }
+      }
+    }
+  }
+
+  private func extra(_ icon: String, _ text: String, _ a11y: String, tint: Color = .white) -> some View {
+    HStack(spacing: 4) {
+      Image(systemName: icon).font(.caption2.weight(.bold)).foregroundStyle(tint)
+      Text(text).font(.caption.weight(.bold).monospacedDigit())
+    }
+    .padding(.horizontal, 8).padding(.vertical, 4)
+    .background(Color.black.opacity(0.35), in: Capsule())
+    .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(a11y)
   }
 
   /// One reason: cheating → the first signal; sealed → the scorer's (or judge's) first reason; else the seal reason.
@@ -588,6 +611,7 @@ private struct SlideBackdrop: View {
 
 private struct FeedIntroPage: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.dynamicTypeSize) private var typeSize
   let insets: EdgeInsets
   let next: () -> Void
 
@@ -596,55 +620,81 @@ private struct FeedIntroPage: View {
     let sealed = feed.items.filter(\.isVerified).count
     ZStack {
       FeedInk.lake.ignoresSafeArea()
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 20) {
+        Spacer(minLength: 0)
         Text("Proof it happened.")
-          .font(.system(size: 38, weight: .heavy))
-        Text("Every post here was recorded live, argued over by AI, and sealed by code. Each one reads the same way:")
-          .font(.body).opacity(0.85)
-        VStack(alignment: .leading, spacing: 16) {
-          step(.intent, "What the person said they would do, before they started.")
-          step(.proof, "GPS, motion and proof shots, hashed into a chain as it happened. Gemini Nano coaches on the phone; it can never verify.")
-          step(.result, "A judge, a skeptic and a scorer weigh it in the cloud. Then a Cloud Function checks the chain and alone writes the seal.")
+          .font(.largeTitle.weight(.heavy))
+          .minimumScaleFactor(0.7)
+        Text("Recorded live. Argued by AI. Sealed by code.")
+          .font(.headline).opacity(0.8)
+        let tiles = typeSize.isAccessibilitySize
+          ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+          : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+        tiles {
+          tile(.intent, "Said first", badge: nil)
+          tile(.proof, "Captured live", badge: true)
+          tile(.result, "Sealed", badge: false)
         }
-        .waypointTrack(FeedInk.orange)
+        .fixedSize(horizontal: false, vertical: true)
         Group {
           if let error = feed.error {
-            Label("Couldn't load the feed: \(error)", systemImage: "exclamationmark.triangle").foregroundStyle(FeedInk.bad)
+            Label("Feed unavailable: \(error)", systemImage: "wifi.exclamationmark").foregroundStyle(FeedInk.bad)
+              .lineLimit(2)
           } else if !feed.loaded {
             HStack(spacing: 8) { ProgressView().tint(.white); Text("Connecting…") }
           } else {
-            Text("\(sealed) verified, \(feed.items.count - sealed) not")
+            HStack(spacing: 14) {
+              Label("\(sealed)", systemImage: "checkmark.seal.fill").foregroundStyle(FeedInk.gold)
+                .accessibilityLabel("\(sealed) verified")
+              Label("\(feed.items.count - sealed)", systemImage: "xmark.seal").foregroundStyle(FeedInk.bad)
+                .accessibilityLabel("\(feed.items.count - sealed) not verified")
+            }
           }
         }
-        .font(.subheadline.weight(.semibold).monospacedDigit())
+        .font(.headline.monospacedDigit())
         HStack(spacing: 14) {
           RecordButton()
           Button(action: next) {
             Label("Swipe up", systemImage: "chevron.up").font(.subheadline.weight(.semibold))
               .symbolEffect(.bounce.up, options: .repeating.speed(0.4))
+              .frame(minHeight: 44)
+              .contentShape(Rectangle())
           }
           .buttonStyle(.plain).opacity(0.85)
         }
         if app.isGuest {
-          Text("No account needed. Moments stay on this phone until you sign in to verify them.")
-            .font(.footnote).opacity(0.7)
+          Label("No account needed", systemImage: "person.crop.circle.badge.questionmark")
+            .font(.footnote.weight(.semibold)).opacity(0.7)
         }
+        Spacer(minLength: 0)
       }
       .foregroundStyle(.white)
-      .padding(.horizontal, 22)
+      .padding(.horizontal, 20)
       .padding(.top, insets.top + 56).padding(.bottom, insets.bottom + 16)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
   }
 
-  private func step(_ w: Waypoint, _ text: String) -> some View {
-    HStack(alignment: .top, spacing: 12) {
-      WaypointDot(kind: w, fill: FeedInk.ink)
-      VStack(alignment: .leading, spacing: 3) {
-        WaypointLabel(title: w.title)
-        Text(text).font(.subheadline).opacity(0.85).fixedSize(horizontal: false, vertical: true)
+  /// One waypoint as a big tile: its dot, its word, and where the AI runs (true = on device, false = cloud).
+  private func tile(_ w: Waypoint, _ text: String, badge onDevice: Bool?) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      WaypointDot(kind: w, fill: Color(hex: 0x10242B))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(w.title).font(.headline)
+        Text(text).font(.caption).opacity(0.75)
+      }
+      if let onDevice {
+        Label(onDevice ? "on device" : "cloud", systemImage: onDevice ? Glyph.onDevice : Glyph.cloud)
+          .font(.caption2.weight(.bold))
+          .foregroundStyle(onDevice ? FeedInk.ok : Color(hex: 0x6CC3C6))
       }
     }
+    .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+    .padding(12)
+    .background(Color(hex: 0x10242B).opacity(0.85), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.1)))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(w.title): \(text)" + (onDevice.map { $0 ? ", AI on device" : ", AI in the cloud" } ?? ""))
   }
 }
 
@@ -658,9 +708,8 @@ private struct FeedEndPage: View {
       FeedInk.lake.ignoresSafeArea()
       VStack(alignment: .leading, spacing: 14) {
         Text(empty ? "Nothing here yet." : "That's every Moment.").font(.system(size: 30, weight: .heavy))
-        Text(empty ? "Record the first one and it shows up here once it's sealed."
-             : "Record one of your own and it shows up here once it's sealed.")
-          .opacity(0.85)
+        Label(empty ? "Record the first one" : "Yours lands here once sealed", systemImage: "checkmark.seal")
+          .font(.headline).opacity(0.85)
         HStack(spacing: 12) {
           RecordButton()
           if !empty {
@@ -706,30 +755,19 @@ struct HeroImage: View {
       Image(decorative: cg, scale: 1).resizable().scaledToFill()
     } else {
       ZStack {
-        LinearGradient(colors: [Theme.accent.opacity(0.35), Theme.accent.opacity(0.1)], startPoint: .top, endPoint: .bottom)
+        LinearGradient(colors: [Color(hex: 0x123540), Theme.media], startPoint: .top, endPoint: .bottom)
         Image(systemName: (Category(rawValue: category) ?? .other).icon)
-          .font(.system(size: 54)).foregroundStyle(Theme.accent.opacity(0.7))
+          .font(.system(size: 44, weight: .semibold)).foregroundStyle(Color(hex: 0x6CC3C6).opacity(0.75))
       }
     }
   }
 }
 
+/// The Moment's status (kept name; draws the shared `StatusBadge`).
 struct VerdictBadge: View {
   let status: String
-  var body: some View {
-    let (text, color): (String, Color) = switch status {
-    case "sealed": ("Verified ✓", Theme.accent)
-    case "rejected": ("Not verified", Theme.bad)
-    case "local": ("On this device", .indigo)
-    case "submitted": ("Judging…", .blue)
-    default: ("Recording", Theme.warn)
-    }
-    Text(text)
-      .font(.caption.weight(.bold))
-      .padding(.horizontal, 10).padding(.vertical, 6)
-      .foregroundStyle(.white)
-      .background(color, in: Capsule())
-  }
+  var compact = false
+  var body: some View { StatusBadge(status: status, compact: compact) }
 }
 
 struct Avatar: View {
@@ -741,12 +779,13 @@ struct Avatar: View {
       img.resizable().scaledToFill()
     } placeholder: {
       ZStack {
-        Circle().fill(Theme.accent.opacity(0.2))
-        Text(String(name.prefix(1))).font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(Theme.accent)
+        Circle().fill(Theme.lake.opacity(0.25))
+        Text(String(name.prefix(1))).font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(Theme.lake)
       }
     }
     .frame(width: size, height: size)
     .clipShape(Circle())
+    .accessibilityHidden(true)
   }
 }
 

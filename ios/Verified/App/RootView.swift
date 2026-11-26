@@ -14,7 +14,7 @@ struct RootView: View {
       Tab("Me", systemImage: app.isGuest ? "person.crop.circle.badge.questionmark" : "person.crop.circle",
           value: AppModel.AppTab.me) { MeView() }
     }
-    .tint(Theme.accent)
+    .tint(Theme.lake)
     .sheet(item: $app.signInRequest) { req in
       SignInSheet(action: req.action.isEmpty ? nil : req.action)
         .presentationDetents([.medium, .large])

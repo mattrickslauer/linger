@@ -17,20 +17,23 @@ struct WitnessCard: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
         Image(systemName: "eye.fill")
-        Text("YOUR WITNESS").font(.caption2.weight(.heavy)).kerning(1.2)
-        Text(request.by == "on_device" ? "on-device" : "cloud")
-          .font(.caption2.weight(.semibold))
+        Text("Witness").font(.footnote.weight(.bold))
+        Label(request.by == "on_device" ? "on device" : "cloud",
+              systemImage: request.by == "on_device" ? Glyph.onDevice : Glyph.cloud)
+          .font(.caption2.weight(.bold))
           .padding(.horizontal, 6).padding(.vertical, 2)
-          .background(.white.opacity(0.18), in: Capsule())
+          .background(.white.opacity(0.16), in: Capsule())
         Spacer(minLength: 0)
         Button {
           voice.muted.toggle()
         } label: {
           Image(systemName: voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill").font(.footnote)
+            .frame(width: 44, height: 36).contentShape(Rectangle())
         }
         .accessibilityLabel(voice.muted ? "Unmute the witness" : "Mute the witness")
       }
       .foregroundStyle(.white.opacity(0.85))
+      .padding(.vertical, -6)
 
       Text(request.ask).font(.title3.weight(.bold)).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
       if let rid = request.rid, let r = rec.plan?.requirements.first(where: { $0.id == rid }), !armed {
@@ -39,7 +42,7 @@ struct WitnessCard: View {
           .font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.8)).lineLimit(2)
       }
       if !request.why.isEmpty && !armed {
-        Text(request.why).font(.footnote).foregroundStyle(.white.opacity(0.75))
+        Text(request.why).font(.footnote).foregroundStyle(.white.opacity(0.75)).lineLimit(2)
       }
 
       if armed {
@@ -48,6 +51,7 @@ struct WitnessCard: View {
           Text("Frame it and tap the shutter").font(.subheadline.weight(.semibold))
           Spacer(minLength: 0)
           Button("Cancel") { rec.witness.disarm() }.font(.subheadline).foregroundStyle(.white.opacity(0.8))
+            .frame(minHeight: 44)
         }
         .foregroundStyle(.white)
       } else if voice.listening {
@@ -55,7 +59,7 @@ struct WitnessCard: View {
           Image(systemName: "waveform").symbolEffect(.variableColor.iterative, options: .repeating)
           Text(voice.heard.isEmpty ? "Listening…" : voice.heard).font(.subheadline).lineLimit(2)
           Spacer(minLength: 0)
-          Button("Done") { voice.stopListening() }.font(.subheadline.weight(.semibold))
+          Button("Done") { voice.stopListening() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }
         .foregroundStyle(.white)
       } else if typing {
@@ -65,7 +69,8 @@ struct WitnessCard: View {
             .focused($focused)
             .submitLabel(.send)
             .onSubmit(sendTyped)
-          Button(action: sendTyped) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+          Button(action: sendTyped) { Image(systemName: "arrow.up.circle.fill").font(.title2).frame(width: 44, height: 44) }
+            .accessibilityLabel("Send answer")
             .tint(.white)
             .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
         }
@@ -75,10 +80,10 @@ struct WitnessCard: View {
     }
     .padding(14)
     .background(
-      LinearGradient(colors: [Color.black.opacity(0.86), Theme.accent.opacity(0.78)],
+      LinearGradient(colors: [Color(hex: 0x071419).opacity(0.92), Color(hex: 0x1F6F78).opacity(0.9)],
                      startPoint: .topLeading, endPoint: .bottomTrailing),
-      in: RoundedRectangle(cornerRadius: 18))
-    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.25), lineWidth: 1))
+      in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.22), lineWidth: 1))
     .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
     .transition(.move(edge: .bottom).combined(with: .opacity))
     .accessibilityElement(children: .contain)
@@ -115,7 +120,8 @@ struct WitnessCard: View {
     Button(action: action) {
       Label(title, systemImage: icon)
         .font(.subheadline.weight(.semibold))
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 44)
         .foregroundStyle(primary ? Color.black : Color.white)
         .background(primary ? Color.white : Color.white.opacity(0.16), in: Capsule())
     }
@@ -145,7 +151,7 @@ struct WitnessToggle: View {
         .foregroundStyle(w.enabled ? .white : .white.opacity(0.5))
         .symbolEffect(.pulse, options: .repeating, isActive: w.thinking)
         .frame(width: 44, height: 44)
-        .background(w.thinking ? Theme.accent.opacity(0.8) : .black.opacity(0.55), in: Circle())
+        .background(w.thinking ? AnyShapeStyle(Color(hex: 0x1F6F78)) : AnyShapeStyle(.ultraThinMaterial), in: Circle())
     }
     .accessibilityLabel(w.enabled ? "Witness on" : "Witness off")
     .accessibilityHint("Your witness asks for evidence while you record")
