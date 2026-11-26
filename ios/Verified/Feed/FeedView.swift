@@ -266,35 +266,6 @@ struct SealStamp: View {
   }
 }
 
-/// The five deterministic checks as pips: green dot when passed, red outline when failed.
-struct CheckPips: View {
-  let checks: [String: Bool]
-
-  var body: some View {
-    let passed = feedCheckOrder.filter { checks[$0.key] == true }.count
-    FlowLayout(spacing: 5) {
-      ForEach(feedCheckOrder, id: \.key) { c in
-        let ok = checks[c.key] == true
-        HStack(spacing: 5) {
-          if ok {
-            Circle().fill(FeedInk.ok).frame(width: 7, height: 7)
-          } else {
-            Circle().strokeBorder(FeedInk.bad, lineWidth: 1.5).frame(width: 8, height: 8)
-          }
-          Text(c.name)
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(ok ? .white : FeedInk.bad)
-        .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 3)
-        .background(Color.black.opacity(0.35), in: Capsule())
-        .overlay(Capsule().strokeBorder(ok ? Color.white.opacity(0.18) : FeedInk.bad.opacity(0.5), lineWidth: 1))
-      }
-    }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(passed) of 5 seal checks passed")
-  }
-}
-
 /// A small sketch of the GPS track: dark box, orange line, gold end dot.
 struct TrackSketch: View {
   let track: [LatLng]
