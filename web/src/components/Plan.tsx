@@ -125,7 +125,10 @@ export function PlanCard({ claims, plan, onRemoveClaim }: { claims: Claim[]; pla
       {plan?.note && <p className="small plan-note">{plan.note}</p>}
       {plan && (
         <p className="plan-mode small">
-          <Glyph name={plan.recordMode === "video" ? "video" : "camera"} /> Records in <strong>{plan.recordMode === "video" ? "Video" : "Photo"}</strong> · free if nothing looks faked
+          <Glyph name={plan.recordMode === "video" ? "video" : "camera"} />
+          <span>
+            Records in <strong>{plan.recordMode === "video" ? "Video" : "Photo"}</strong> · free if nothing looks faked
+          </span>
         </p>
       )}
     </section>

@@ -19,6 +19,7 @@ import { CATEGORIES, type Intention, type Quantity } from "../types";
 import { listen, speak, stopSpeaking, sttSupported, ttsSupported, type Listening } from "../voice";
 import { withoutClaim } from "../v4";
 import { PlanCard } from "./Plan";
+import { Glyph, Hybrid, ScoreRing, type GlyphName } from "../kit";
 
 const OPENER = "What are you about to do?";
 
@@ -47,16 +48,11 @@ const MAX_QUESTIONS = 3;
 
 export function RouteChip({ mode }: { mode: Route | "none" | undefined }) {
   if (!mode || mode === "none") return null;
-  return <span className={`chip chip-route ${mode === "on_device" ? "chip-device" : ""}`}>{mode === "on_device" ? "on-device" : "cloud"}</span>;
+  return <Hybrid mode={mode} className="chip-route" />;
 }
 
 function MicIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="mic-icon">
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
-    </svg>
-  );
+  return <Glyph name="mic" className="mic-icon" />;
 }
 
 interface Preview {
@@ -225,11 +221,25 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
   const busy = phase !== "talk";
   return (
     <div className="page interview">
-      <h1>Record a Moment</h1>
-      <p className="lede">Say it the way you'd tell a friend. A few quick questions, then recording starts.</p>
+      <header className="iv-head">
+        <span className="iv-steps" aria-hidden="true">
+          <span className="wpdot wpdot-intent" />
+          <i />
+          <span className="wpdot wpdot-proof" />
+          <i />
+          <span className="wpdot wpdot-result" />
+        </span>
+        <h1>Record a Moment</h1>
+        <p className="lede">Say what you're about to do. A few questions, then you record.</p>
+      </header>
       <ol className="talk" aria-live="polite">
         {turns.map((t, i) => (
           <li key={i} className={`bubble bubble-${t.who}`}>
+            {t.who === "ai" && (
+              <span className="bubble-av" aria-hidden="true">
+                <Glyph name="ai" />
+              </span>
+            )}
             <p>{t.text}</p>
             {t.who === "ai" && <RouteChip mode={t.mode} />}
           </li>
@@ -241,6 +251,9 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
         )}
         {busy && (
           <li className="bubble bubble-ai bubble-wait" aria-label="Thinking">
+            <span className="bubble-av" aria-hidden="true">
+              <Glyph name="ai" />
+            </span>
             <p>{phase === "structuring" ? "Writing it up…" : "…"}</p>
           </li>
         )}
@@ -256,7 +269,9 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
             disabled={busy}
             onClick={() => (listening ? listening.stop() : void startListening())}
           >
-            <MicIcon />
+            <span className="mic-disc" aria-hidden="true">
+              <MicIcon />
+            </span>
             <span>{listening ? "Listening… tap to stop" : "Tap to talk"}</span>
           </button>
         )}
@@ -282,27 +297,28 @@ export default function Interview({ onStart, onSkip, guest }: { onStart: (i: Int
             placeholder={canListen ? "…or type it" : "Type it: going fishing, a 5 km run…"}
             autoComplete="off"
           />
-          <button className="btn btn-small" disabled={busy || !typed.trim()}>
-            Send
+          <button className="btn btn-small btn-send" disabled={busy || !typed.trim()}>
+            <Glyph name="up" />
+            <span>Send</span>
           </button>
         </form>
       </div>
       <div className="talk-foot">
         {ttsSupported() && (
           <button type="button" className="btn btn-quiet btn-small" aria-pressed={voiceOut} onClick={() => (voiceOut ? (stopSpeaking(), setVoiceOut(false)) : setVoiceOut(true))}>
-            Spoken replies: {voiceOut ? "on" : "off"}
+            <Glyph name={voiceOut ? "speaker" : "mute"} /> Spoken replies: {voiceOut ? "on" : "off"}
           </button>
         )}
         {turns.some((t) => t.who === "me") && (
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void finish(turnsRef.current, draftRef.current)}>
-            That's it, write it up
+            <Glyph name="check" /> That's it, write it up
           </button>
         )}
         <button type="button" className="btn btn-quiet btn-small" onClick={onSkip}>
-          Skip, just type it
+          <Glyph name="type" /> Skip, just type it
         </button>
       </div>
-      {!canListen && <p className="muted small">Voice input isn't available in this browser, so type your answers.</p>}
+      {!canListen && <p className="muted small">No voice input in this browser: type your answers.</p>}
     </div>
   );
 }
@@ -352,16 +368,20 @@ function ClaimCard({
       }}
     >
       <h1>Here's your claim.</h1>
-      <p className="lede">Check it, fix anything the AI assumed, then start. It can't change once you finish.</p>
+      <p className="lede">Fix anything the AI assumed. It locks when you finish.</p>
       <div className="claim-card">
-        <label className="field">
-          <span className="field-label">In one sentence</span>
+        <label className="field field-intent">
+          <span className="field-label">
+            <span className="wpdot wpdot-intent" aria-hidden="true" /> In one sentence
+          </span>
           <textarea value={i.text} maxLength={200} rows={2} onChange={(e) => onChange({ ...i, text: e.target.value })} />
         </label>
         <dl className="claim-facts">
           {i.goal && (
             <div>
-              <dt>Counts as done when</dt>
+              <dt>
+                <Glyph name="flag" /> Counts as done when
+              </dt>
               <dd>
                 <input value={i.goal} maxLength={120} onChange={(e) => onChange({ ...i, goal: e.target.value })} aria-label="Goal" />
               </dd>
@@ -369,7 +389,9 @@ function ClaimCard({
           )}
           {!!i.quantities?.length && (
             <div>
-              <dt>Numbers</dt>
+              <dt>
+                <Glyph name="hash" /> Numbers
+              </dt>
               <dd>
                 <Chips label="Numbers" items={i.quantities.map(qText)} onRemove={(n) => onChange({ ...i, quantities: without(i.quantities, n) })} />
               </dd>
@@ -377,7 +399,9 @@ function ClaimCard({
           )}
           {(where || i.place?.lat != null) && (
             <div>
-              <dt>Where</dt>
+              <dt>
+                <Glyph name="gps" /> Where
+              </dt>
               <dd>
                 {where || "Here"}
                 {i.place?.lat != null && <span className="muted small"> · GPS {i.place.lat.toFixed(3)}, {i.place.lng?.toFixed(3)}</span>}
@@ -386,13 +410,17 @@ function ClaimCard({
           )}
           {i.window?.expectedMinutes ? (
             <div>
-              <dt>Expected</dt>
+              <dt>
+                <Glyph name="timing" /> Expected
+              </dt>
               <dd>about {i.window.expectedMinutes} min</dd>
             </div>
           ) : null}
           {!!i.conditions?.length && (
             <div>
-              <dt>Conditions</dt>
+              <dt>
+                <Glyph name="info" /> Conditions
+              </dt>
               <dd>
                 <Chips label="Conditions" items={i.conditions} onRemove={(n) => onChange({ ...i, conditions: without(i.conditions, n) })} />
               </dd>
@@ -400,7 +428,9 @@ function ClaimCard({
           )}
           {!!i.assumptions?.length && (
             <div>
-              <dt>The AI assumed</dt>
+              <dt>
+                <Glyph name="ai" /> The AI assumed
+              </dt>
               <dd>
                 <Chips label="Assumptions" items={i.assumptions} onRemove={(n) => onChange({ ...i, assumptions: without(i.assumptions, n) })} />
               </dd>
@@ -423,21 +453,42 @@ function ClaimCard({
           }}
         />
         <BarPreview preview={preview} />
-        <p className="muted small">
-          Interview: {i.interview?.turns ?? 0} answer{i.interview?.turns === 1 ? "" : "s"}, {i.interview?.mode === "on_device" ? "on-device" : i.interview?.mode}
+        <p className="muted small iv-meta">
+          <Glyph name="mic" /> {i.interview?.turns ?? 0} answer{i.interview?.turns === 1 ? "" : "s"}
+          {i.interview?.mode === "on_device" || i.interview?.mode === "cloud" ? <Hybrid mode={i.interview.mode} /> : i.interview?.mode ? <span>{i.interview.mode}</span> : null}
         </p>
       </div>
-      <button className="btn btn-primary btn-big" type="submit" disabled={!i.text.trim()}>
-        Start Moment
-      </button>
-      <button type="button" className="btn btn-quiet" onClick={onBack}>
-        Back to the interview
-      </button>
-      <p className="muted small">
-        Uses your location, motion sensor and camera while recording. Works offline.{" "}
-        {guest ? "As a guest, the Moment stays on this device until you sign in to upload it." : "It syncs when you're back online."}
-      </p>
+      <Uses guest={guest} />
+      <div className="start-dock">
+        <button type="button" className="btn btn-quiet" onClick={onBack}>
+          <Glyph name="back" /> Back to the interview
+        </button>
+        <button className="btn btn-primary btn-big btn-start" type="submit" disabled={!i.text.trim()}>
+          <Glyph name="record" /> Start Moment
+        </button>
+      </div>
     </form>
+  );
+}
+
+/** What recording uses, as glyphs: location, motion, camera; works offline; stays on the device for a guest. */
+export function Uses({ guest }: { guest: boolean }) {
+  const items: [GlyphName, string][] = [
+    ["gps", "location"],
+    ["motion", "motion"],
+    ["camera", "camera"],
+    ["offline", "works offline"],
+    guest ? ["device", "stays on this device until you upload"] : ["upload", "syncs when online"],
+  ];
+  return (
+    <ul className="uses" aria-label="While recording">
+      {items.map(([g, t]) => (
+        <li key={t}>
+          <Glyph name={g} />
+          {t}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -445,21 +496,25 @@ export function BarPreview({ preview }: { preview: Preview | null }) {
   if (!preview)
     return (
       <div className="barbox barbox-wait">
-        <p className="muted small">The bar this claim must clear is set by a Cloud Function when you finish.</p>
+        <ScoreRing value={null} size={52} />
+        <p className="muted small">The bar to clear is set by a Cloud Function when you finish.</p>
       </div>
     );
   return (
     <div className="barbox">
-      <div className="barbox-head">
-        <strong>Bar ≈ {preview.bar.toFixed(2)}</strong>
-        <span className="muted small">(preview)</span>
-        <RouteChip mode={preview.mode} />
-      </div>
-      <span className="barbox-meter" aria-hidden="true">
-        <span style={{ left: `${preview.bar * 100}%` }} />
+      <span className="bar-ring" role="img" aria-label={`Bar preview ${preview.bar.toFixed(2)}`}>
+        <ScoreRing value={null} bar={preview.bar} size={60} className="ring-bar-only" />
+        <b aria-hidden="true">{Math.round(preview.bar * 100)}</b>
       </span>
-      {preview.rationale && <p className="small">{preview.rationale}</p>}
-      <p className="muted small">The score the evidence must reach to count as Verified. The binding bar is set server-side when you finish.</p>
+      <div>
+        <div className="barbox-head">
+          <strong>Bar ≈ {preview.bar.toFixed(2)}</strong>
+          <span className="muted small">(preview)</span>
+          <RouteChip mode={preview.mode} />
+        </div>
+        {preview.rationale && <p className="small">{preview.rationale}</p>}
+        <p className="muted small">The score the evidence must reach. Set for real when you finish.</p>
+      </div>
     </div>
   );
 }

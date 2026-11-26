@@ -9,7 +9,9 @@ import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
 import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
-import Interview, { RouteChip } from "../components/Interview";
+import Interview, { RouteChip, Uses } from "../components/Interview";
+import { Glyph, ScoreRing } from "../kit";
+import "../record.css";
 import { WitnessAgent } from "../witnessAgent";
 import { clipCapMs, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
 import { captured, videoStatusText, type Requirement } from "../v4";
@@ -68,8 +70,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
       }}
     >
       <h1>What are you about to do?</h1>
-      <p className="lede">One sentence. The coach and the judges check every proof shot against it.</p>
-      <label className="field">
+      <p className="lede">One sentence. Every proof shot is checked against it.</p>
+      <label className="field field-intent">
         <span className="sr-only">Intention</span>
         <textarea value={text} maxLength={200} rows={2} placeholder={EXAMPLES[cat]} onChange={(e) => setText(e.target.value)} />
       </label>
@@ -80,16 +82,15 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
           </button>
         ))}
       </div>
-      <button className="btn btn-primary btn-big" type="submit" disabled={planning} aria-busy={planning}>
-        {planning ? "Planning the evidence…" : "Start Moment"}
-      </button>
-      <button type="button" className="btn btn-quiet" onClick={onVoice}>
-        Use the voice interview instead
-      </button>
-      <p className="muted small">
-        Uses your location, motion sensor and camera while recording. Works offline.{" "}
-        {guest ? "As a guest, the Moment stays on this device until you sign in to upload it." : "It syncs when you're back online."}
-      </p>
+      <Uses guest={guest} />
+      <div className="start-dock">
+        <button type="button" className="btn btn-quiet" onClick={onVoice}>
+          <Glyph name="mic" /> Use the voice interview instead
+        </button>
+        <button className="btn btn-primary btn-big btn-start" type="submit" disabled={planning} aria-busy={planning}>
+          <Glyph name="record" /> {planning ? "Planning the evidence…" : "Start Moment"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -110,6 +111,11 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   useEffect(() => {
     session.onChange = setS;
   }, [session]);
+  // Full-bleed camera: the phone tab bar and the footer step aside while recording.
+  useEffect(() => {
+    document.body.classList.add("rec-live");
+    return () => document.body.classList.remove("rec-live");
+  }, []);
 
   // The witness runs only while this screen records; recording never waits for it.
   const [agent] = useState(() => new WitnessAgent(session));
@@ -219,46 +225,140 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
   const clipMs = clipAt != null ? Math.min(capMs, Math.max(0, Date.now() - clipAt)) : 0;
+  const recording = clipAt != null;
   const clipButton = clipSupported() && (
     <button
-      className={`btn btn-big btn-clip ${mode === "video" ? "btn-primary" : ""} ${clipAt != null ? "on" : ""}`}
-      onClick={() => void (clipAt != null ? stopClip() : startClip())}
-      disabled={!!camErr || (shooting && clipAt == null)}
-      aria-pressed={clipAt != null}
+      className={`shutter shutter-clip ${mode === "video" ? "shutter-main" : "shutter-side"} ${recording ? "on" : ""}`}
+      onClick={() => void (recording ? stopClip() : startClip())}
+      disabled={!!camErr || (shooting && !recording)}
+      aria-pressed={recording}
     >
-      <span className="rec-dot" aria-hidden="true" />
-      {clipAt != null ? (
-        <>
-          Stop video {fmtDuration(clipMs)}
-          {needSec > 0 && <span className={`clip-need ${clipMs >= needSec * 1000 ? "ok" : ""}`}> / ≥ {fmtDuration(needSec * 1000)}</span>}
-        </>
-      ) : mode === "video" ? (
-        "Record video"
-      ) : (
-        "Clip"
-      )}
+      <span className="shutter-disc" aria-hidden="true">
+        {recording ? <Glyph name="stop" /> : <span className="rec-dot" />}
+      </span>
+      <span className="shutter-label">
+        {recording ? (
+          <>
+            Stop video {fmtDuration(clipMs)}
+            {needSec > 0 && <span className={`clip-need ${clipMs >= needSec * 1000 ? "ok" : ""}`}> / ≥ {fmtDuration(needSec * 1000)}</span>}
+          </>
+        ) : mode === "video" ? (
+          "Record video"
+        ) : (
+          "Clip"
+        )}
+      </span>
     </button>
   );
   const shotButton = (
-    <button className={`btn btn-big ${mode === "photo" ? "btn-primary" : ""}`} onClick={() => void shoot()} disabled={shooting || !!camErr || clipAt != null}>
-      {shooting ? "Checking…" : "Proof shot"}
+    <button className={`shutter shutter-shot ${mode === "photo" ? "shutter-main" : "shutter-side"}`} onClick={() => void shoot()} disabled={shooting || !!camErr || recording}>
+      <span className="shutter-disc" aria-hidden="true">
+        <Glyph name="camera" />
+      </span>
+      <span className="shutter-label">{shooting ? "Checking…" : "Proof shot"}</span>
     </button>
   );
+  const witnessText = !agent.available
+    ? "off"
+    : witnessStatus === "thinking"
+      ? "thinking…"
+      : witnessStatus === "unavailable"
+        ? "quiet"
+        : s.witnessAsked
+          ? `${s.witnessAnswered}/${s.witnessAsked}`
+          : s.elapsedMs < 30_000
+            ? "from 0:30"
+            : "watching";
+  const planDone = plan?.requirements.filter((r) => captured(r, s.facts)).length ?? 0;
   return (
     <div className="page live">
-      <p className="live-intent">{session.intention}</p>
-      {clipSupported() && (
-        <div className="mode-switch" role="radiogroup" aria-label="Record mode">
-          {(["video", "photo"] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} disabled={clipAt != null} onClick={() => setMode(m)}>
-              {m === "video" ? "Video" : "Photo"}
-            </button>
-          ))}
+      <div className="cam on-media">
+        <video ref={video} autoPlay playsInline muted className={facing === "user" ? "mirror" : undefined} />
+        {camErr && (
+          <p className="cam-err">
+            <Glyph name="camera" /> Camera unavailable: {camErr}
+          </p>
+        )}
+
+        {/* HUD: time, live sensors, chain, shots, witness, sync */}
+        <div className="hud">
+          <div className="hud-row">
+            <span className={`hud-time ${recording ? "hud-rec" : ""}`} role="timer" aria-label={`Elapsed ${fmtDuration(s.elapsedMs)}`}>
+              <span className="hud-dot" aria-hidden="true" />
+              {fmtDuration(s.elapsedMs)}
+            </span>
+            {short && (
+              <span className="hud-pill hud-warn" title="Moments shorter than 20 seconds can't be sealed.">
+                min 0:20
+              </span>
+            )}
+            <p className={`sync hud-pill ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
+              <Glyph name={session.guest ? "device" : s.online ? "upload" : "offline"} />
+              {session.guest
+                ? `On this device · ${s.chunks} chunk${s.chunks === 1 ? "" : "s"} chained`
+                : s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
+            </p>
+          </div>
+          <dl className="hud-row hud-stats">
+            <div className={`hud-pill ${s.gps ? "hud-ok" : ""}`} title="Location">
+              <dt>
+                <Glyph name="gps" />
+                <span className="sr-only">location</span>
+              </dt>
+              <dd>{s.gps ? `±${Math.round(s.gps[3])} m` : (s.gpsError ?? "searching")}</dd>
+            </div>
+            <div className="hud-pill" title="Distance">
+              <dt>
+                <Glyph name="route" />
+                <span className="sr-only">distance</span>
+              </dt>
+              <dd>{fmtDistance(s.distanceM)}</dd>
+            </div>
+            <div className={`hud-pill ${s.motionOn ? "hud-ok" : ""}`} title="Motion">
+              <dt>
+                <Glyph name="motion" />
+                <span className="sr-only">motion</span>
+              </dt>
+              <dd>{s.motionOn ? <Spark values={s.motionTail} /> : "no sensor"}</dd>
+            </div>
+            <div className="hud-pill" title="Chunks chained">
+              <dt>
+                <Glyph name="chain" />
+                <span className="sr-only">chunks chained</span>
+              </dt>
+              <dd>{s.chunks}</dd>
+            </div>
+            <div className="hud-pill" title="Proof shots">
+              <dt>
+                <Glyph name="frames" />
+                <span className="sr-only">proof shots</span>
+              </dt>
+              <dd>
+                {s.frames}
+                {s.retakes ? <small> · {s.retakes}↻</small> : null}
+              </dd>
+            </div>
+            <div className="hud-pill" title="Witness">
+              <dt>
+                <Glyph name="witness" />
+                <span className="sr-only">witness</span>
+              </dt>
+              <dd>{witnessText}</dd>
+            </div>
+          </dl>
         </div>
-      )}
-      <div className="live-grid">
-        <div className="cam">
-          <video ref={video} autoPlay playsInline muted className={facing === "user" ? "mirror" : undefined} />
+
+        <div className="cam-side">
+          {clipSupported() && (
+            <div className="mode-switch" role="radiogroup" aria-label="Record mode">
+              {(["video", "photo"] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} disabled={recording} onClick={() => setMode(m)}>
+                  <Glyph name={m === "video" ? "video" : "camera"} />
+                  <span>{m === "video" ? "Video" : "Photo"}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="cam-tools">
             {torchOk && (
               <button type="button" className="cam-tool" aria-pressed={torch} aria-label={torch ? "Flash on" : "Flash off"} onClick={toggleTorch}>
@@ -283,134 +383,102 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               </button>
             )}
           </div>
-          {camErr && <p className="cam-err">Camera unavailable: {camErr}</p>}
-          {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
-          {s.witnessOpen?.kind === "show" && (
-            <p className="cam-ask" aria-hidden="true">
-              {s.witnessOpen.ask}
-            </p>
+        </div>
+
+        <div className="cam-mid">
+          {!!plan?.requirements.length && (
+            <details className="live-plan" open>
+              <summary>
+                <h2 id="live-plan-h">
+                  <Glyph name="intent" />
+                  <span className="sr-only">To get this verified · </span>
+                  {planDone}/{plan.requirements.length} captured
+                </h2>
+                <Glyph name="down" className="more-chev" />
+              </summary>
+              <PlanList compact requirements={plan.requirements} state={(r) => (captured(r as Requirement, s.facts) ? "captured" : "todo")} />
+            </details>
           )}
+          <p className="live-intent">{session.intention}</p>
+        </div>
+
+        {last && <img className="cam-last" src={jpegSrc(last)} alt="Last proof shot" />}
+        {s.witnessOpen?.kind === "show" && (
+          <p className="cam-ask" aria-hidden="true">
+            <Glyph name="witness" /> {s.witnessOpen.ask}
+          </p>
+        )}
+
+        <div className="cam-bottom">
           {coach && (
             <p className={`coach-banner ${coach.pending ? "pending" : coach.mode === "none" ? "none" : coach.ok ? "ok" : "bad"}`} role="status">
-              {coach.pending
-                ? "Checking on-device…"
-                : coach.mode === "none"
-                  ? "Coach offline: shot kept"
-                  : coach.ok
-                    ? `${coach.mode === "on_device" ? "On-device" : "Cloud"}: keep going`
-                    : `Retake: ${coach.reason}`}
-              {!coach.pending && coach.label && <span className="muted"> · {coach.label}</span>}
+              <Glyph name={coach.pending ? "ai" : coach.mode === "none" ? "offline" : coach.ok ? "check" : "close"} />
+              <span>
+                {coach.pending
+                  ? "Checking on-device…"
+                  : coach.mode === "none"
+                    ? "Coach offline: shot kept"
+                    : coach.ok
+                      ? `${coach.mode === "on_device" ? "On-device" : "Cloud"}: keep going`
+                      : `Retake: ${coach.reason}`}
+                {!coach.pending && coach.label && <span className="muted"> · {coach.label}</span>}
+              </span>
             </p>
           )}
-        </div>
-        <div className="gauges">
-          <div className="gauge gauge-time">
-            <span className="g-label">time</span>
-            <span className="g-val">{fmtDuration(s.elapsedMs)}</span>
-          </div>
-          {!!plan?.requirements.length && (
-            <section className="live-plan" aria-labelledby="live-plan-h">
-              <h2 id="live-plan-h" className="g-label">
-                To get this verified · {plan.requirements.filter((r) => captured(r, s.facts)).length}/{plan.requirements.length} captured
-              </h2>
-              <PlanList compact requirements={plan.requirements} state={(r) => (captured(r as Requirement, s.facts) ? "captured" : "todo")} />
-            </section>
+          {s.witnessOpen && (
+            <WitnessToast
+              req={s.witnessOpen}
+              busy={shooting}
+              voice={agent.voice}
+              onVoice={(v) => {
+                agent.voice = v;
+                if (!v) stopSpeaking();
+              }}
+              onShow={() => void shoot(s.witnessOpen!.wid)}
+              onAnswer={(via, text) => session.witnessAnswer(via, text)}
+              onSkip={() => session.witnessSkip()}
+              canShoot={!camErr && clipAt == null}
+            />
           )}
-          <div className="gauge">
-            <span className="g-label">distance</span>
-            <span className="g-val">{fmtDistance(s.distanceM)}</span>
+          {s.vaultError && (
+            <p className="notice notice-bad small" role="alert">
+              Couldn't save this Moment's raw data on this device ({s.vaultError}). Recording has stopped writing.
+            </p>
+          )}
+          {clipErr && <p className="notice notice-bad small">Clip: {clipErr}</p>}
+          <div className="live-actions">
+            <button
+              className="shutter shutter-finish"
+              onClick={async () => {
+                try {
+                  if (clipRef.current) await stopClip();
+                  await session.finish();
+                  onDone();
+                } catch (e) {
+                  console.error("finish failed", e); // shown above as the vault error
+                }
+              }}
+              disabled={shooting}
+            >
+              <span className="shutter-disc" aria-hidden="true">
+                <Glyph name="check" />
+              </span>
+              <span className="shutter-label">Finish</span>
+            </button>
+            {mode === "video" ? (
+              <>
+                {clipButton}
+                {shotButton}
+              </>
+            ) : (
+              <>
+                {shotButton}
+                {clipButton}
+              </>
+            )}
           </div>
-          <div className="gauge">
-            <span className="g-label">location</span>
-            <span className="g-val g-small">
-              <span className={`gps-dot ${s.gps ? "on" : ""}`} aria-hidden="true" />
-              {s.gps ? `±${Math.round(s.gps[3])} m` : (s.gpsError ?? "searching")}
-            </span>
-          </div>
-          <div className="gauge">
-            <span className="g-label">motion</span>
-            {s.motionOn ? <Spark values={s.motionTail} /> : <span className="g-val g-small">no sensor</span>}
-          </div>
-          <div className="gauge">
-            <span className="g-label">proof shots</span>
-            <span className="g-val">
-              {s.frames}
-              {s.retakes ? <span className="g-small muted"> ({s.retakes} retake)</span> : null}
-            </span>
-          </div>
-          <div className="gauge">
-            <span className="g-label">witness</span>
-            <span className="g-val g-small">
-              {!agent.available
-                ? "off (no model in this build)"
-                : witnessStatus === "thinking"
-                ? "thinking…"
-                : witnessStatus === "unavailable"
-                  ? "quiet (no model)"
-                  : s.witnessAsked
-                    ? `${s.witnessAnswered} of ${s.witnessAsked} answered`
-                    : s.elapsedMs < 30_000
-                      ? "listens from 0:30"
-                      : "watching"}
-            </span>
-          </div>
-          <p className={`sync ${s.online && !session.guest ? "" : "sync-off"}`} role="status">
-            {session.guest
-              ? `On this device · ${s.chunks} chunk${s.chunks === 1 ? "" : "s"} chained`
-              : s.online ? (s.queued ? `Syncing · ${s.queued} chunks queued` : `Synced · ${s.chunks} chunks`) : `Offline · ${s.queued} chunks queued`}
-          </p>
         </div>
       </div>
-      {s.witnessOpen && (
-        <WitnessToast
-          req={s.witnessOpen}
-          busy={shooting}
-          voice={agent.voice}
-          onVoice={(v) => {
-            agent.voice = v;
-            if (!v) stopSpeaking();
-          }}
-          onShow={() => void shoot(s.witnessOpen!.wid)}
-          onAnswer={(via, text) => session.witnessAnswer(via, text)}
-          onSkip={() => session.witnessSkip()}
-          canShoot={!camErr && clipAt == null}
-        />
-      )}
-      <div className="live-actions">
-        {mode === "video" ? (
-          <>
-            {clipButton}
-            {shotButton}
-          </>
-        ) : (
-          <>
-            {shotButton}
-            {clipButton}
-          </>
-        )}
-        <button
-          className="btn btn-big"
-          onClick={async () => {
-            try {
-              if (clipRef.current) await stopClip();
-              await session.finish();
-              onDone();
-            } catch (e) {
-              console.error("finish failed", e); // shown below as the vault error
-            }
-          }}
-          disabled={shooting}
-        >
-          Finish
-        </button>
-      </div>
-      {s.vaultError && (
-        <p className="notice notice-bad small" role="alert">
-          Couldn't save this Moment's raw data on this device ({s.vaultError}). Recording has stopped writing.
-        </p>
-      )}
-      {clipErr && <p className="notice notice-bad small">Clip: {clipErr}</p>}
-      {short && <p className="muted small center">Moments shorter than 20 seconds can't be sealed.</p>}
     </div>
   );
 }
@@ -463,7 +531,9 @@ function WitnessToast({
   return (
     <section className="witness" role="alert" aria-labelledby={`w-${req.wid}`}>
       <div className="witness-head">
-        <span className="witness-who">Witness</span>
+        <span className="witness-who">
+          <Glyph name="witness" /> Witness
+        </span>
         <RouteChip mode={req.by} />
         <button
           type="button"
@@ -474,13 +544,18 @@ function WitnessToast({
             setVoiceOn(!voiceOn);
           }}
         >
-          voice {voiceOn ? "on" : "off"}
+          <Glyph name={voiceOn ? "speaker" : "mute"} />
+          <span className="sr-only">voice {voiceOn ? "on" : "off"}</span>
         </button>
       </div>
       <p className="witness-ask" id={`w-${req.wid}`}>
         {req.ask}
       </p>
-      {req.why && <p className="muted small">Proves: {req.why}</p>}
+      {req.why && (
+        <p className="muted small witness-why">
+          <Glyph name="intent" /> {req.why}
+        </p>
+      )}
       {heard && listening && <p className="small">“{heard}”</p>}
       {err && <p className="notice notice-bad small">{err}</p>}
       {typing ? (
@@ -503,6 +578,7 @@ function WitnessToast({
         <div className="witness-actions">
           {req.kind === "show" && (
             <button className="btn btn-primary" onClick={onShow} disabled={busy || !canShoot}>
+              <Glyph name="camera" />
               {busy ? "Checking…" : "Show"}
             </button>
           )}
@@ -538,8 +614,11 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
   const [err, setErr] = useState<string | null>(null);
   return (
     <div className="page done">
+      <span className="done-badge" aria-hidden="true">
+        <Glyph name="device" />
+      </span>
       <h1>Moment recorded.</h1>
-      <p className="lede">{session.intention}</p>
+      <p className="lede done-intent">{session.intention}</p>
       <ol className="steps">
         <li className="step step-done">Recorded and chained on this device ({session.chunks.length} chunks)</li>
         <li className="step step-now">On this device · sign in to verify</li>
@@ -565,10 +644,10 @@ function GuestDone({ session, onClaimed }: { session: Session; onClaimed: () => 
             }
           }}
         >
-          {busy ? (up?.phase === "uploading" ? uploadText(up) : busy) : "Upload and verify"}
+          <Glyph name="upload" /> {busy ? (up?.phase === "uploading" ? uploadText(up) : busy) : "Upload and verify"}
         </button>
         <Link to={`/m/${session.id}`} className="btn">
-          Open it
+          <Glyph name="search" /> Open it
         </Link>
         <Link to="/me" className="btn btn-quiet">
           Moments on this device
@@ -658,8 +737,14 @@ function Done({ session }: { session: Session }) {
   ];
   return (
     <div className="page done">
+      <span className={`done-badge ${m?.seal ? (m.seal.sealed ? "done-ok" : "done-bad") : ""}`} aria-hidden="true">
+        <Glyph name={m?.seal ? "seal" : "upload"} />
+      </span>
       <h1>Moment finished.</h1>
-      <p className="lede">{session.intention}</p>
+      <p className="lede done-intent">{session.intention}</p>
+      {(m?.score || m?.verification) && (
+        <ScoreRing value={m.verification?.score ?? m.score?.probability ?? null} bar={m.verification?.bar ?? m.bar?.value ?? null} sealed={m.seal ? m.seal.sealed : null} size={84} caption="likely true" />
+      )}
       <ol className="steps">
         {steps.map((s) => (
           <li key={s.name} className={`step step-${s.state}`}>
@@ -681,7 +766,7 @@ function Done({ session }: { session: Session }) {
       <div className="hero-actions">
         {m?.seal && (
           <Link to={`/m/${session.id}`} className="btn btn-primary">
-            Open the sealed Moment
+            <Glyph name="seal" /> Open the sealed Moment
           </Link>
         )}
         <Link to="/me" className="btn btn-quiet">

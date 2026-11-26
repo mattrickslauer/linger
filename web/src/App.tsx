@@ -55,6 +55,9 @@ export default function App() {
   useEffect(() => {
     document.body.classList.toggle("immersive", immersive);
   }, [immersive]);
+  useEffect(() => {
+    document.body.dataset.route = route.name;
+  }, [route.name]);
   // Browser chrome (theme-color) follows the page: always dark on the feed, else the paper colour.
   useEffect(() => {
     const m = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
