@@ -119,6 +119,32 @@ export function verificationDocV4(e: Pick<SealV4Evaluation, "score" | "bar" | "b
 }
 
 /** v4.8 feed fields derived from the claims, the per-claim scores, the plan and the video review. */
+const CLIP_CONTENT_TYPES: Record<string, string> = { mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm" };
+
+export interface FeedClip {
+  path: string;
+  sha256: string;
+  ext: string;
+  contentType: string;
+  durationMs: number;
+  hashOk: boolean | null;
+}
+
+/** v4.12: the uploaded clips of the video review (ext != null), chain order, as playable Storage paths. */
+export function feedVideoClips(ownerUid: string | null | undefined, momentId: string, vr: Partial<VideoReview> | null | undefined): FeedClip[] {
+  if (!ownerUid) return [];
+  return (vr?.clips ?? [])
+    .filter((c) => c.ext != null && CLIP_CONTENT_TYPES[c.ext] != null)
+    .map((c) => ({
+      path: `clips/${ownerUid}/${momentId}/${c.sha256}.${c.ext}`,
+      sha256: c.sha256,
+      ext: c.ext as string,
+      contentType: CLIP_CONTENT_TYPES[c.ext as string],
+      durationMs: typeof c.durationMs === "number" ? c.durationMs : 0,
+      hashOk: c.hashOk ?? null,
+    }));
+}
+
 export function feedV4Fields(
   claims: Claim[],
   claimScores: ClaimScore[],
@@ -127,6 +153,7 @@ export function feedV4Fields(
   checks: ChecksV4,
   signals: string[],
   vr: Partial<VideoReview> | null | undefined,
+  owner?: { uid: string | null | undefined; momentId: string },
 ) {
   const met = new Set(claimScores.flatMap((c) => c.met));
   return {
@@ -149,7 +176,12 @@ export function feedV4Fields(
     claimsTotal: claims.length,
     cheating: !checks.cheating,
     cheatingSignals: signals,
-    video: { reviewed: vr?.status === "done", summary: vr?.status === "done" ? (vr.summary ?? null) || null : null, status: vr?.status ?? "none" },
+    video: {
+      reviewed: vr?.status === "done",
+      summary: vr?.status === "done" ? (vr.summary ?? null) || null : null,
+      status: vr?.status ?? "none",
+      clips: owner ? feedVideoClips(owner.uid, owner.momentId, vr) : [],
+    },
     plan: {
       recordMode: plan.recordMode,
       requirements: (plan.requirements ?? []).map((r) => ({ id: r.id, claimId: r.claimId, evidence: r.evidence, ask: r.ask, met: met.has(r.id) })),

@@ -72,6 +72,7 @@ final class MomentDetailModel {
     var next = MomentCardData.fromMoment(id: snap.documentID, d, pending: snap.metadata.hasPendingWrites)
     next.heroJpegB64 = self.card.heroJpegB64
     if next.track.isEmpty { next.track = self.card.track }
+    if next.videoClips.isEmpty { next.videoClips = self.card.videoClips }  // v4.12: the feed's `video.clips`
     self.card = next
     if self.loadedStatus != next.status {
       self.loadedStatus = next.status

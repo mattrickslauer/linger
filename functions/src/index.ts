@@ -349,7 +349,7 @@ export async function trySeal(momentId: string): Promise<SealOutcome> {
       witness: witnessCounts(e.facts),
       recordedAsGuest: m.recordedAsGuest === true,
       // v4
-      ...feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, vr),
+      ...feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, vr, { uid: m.ownerUid, momentId }),
     });
     logger.info(`moment ${status}`, { momentId, checks: e.score.checks, bar: e.bar, score: e.score.score, claims: e.score.claims, cheating: e.score.cheating });
     return status;

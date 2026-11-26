@@ -1,0 +1,161 @@
+/* Evidence room: the feed slide's thread, unrolled. Same three waypoints (intent, proof, result),
+   each now a section holding the full evidence. Follows the page theme. */
+
+.room {
+  --dot: 16px;
+  --wp-ink: var(--track);
+}
+.room-no {
+  --wp-ink: var(--ink-3);
+}
+
+.room .detail-bar {
+  position: sticky;
+  top: 59px;
+  z-index: 5;
+  gap: 12px;
+  padding: 10px 0;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+.room-nav {
+  display: flex;
+  gap: 4px;
+  margin: 0 auto;
+}
+.room-nav a {
+  padding: 5px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 650;
+  font-size: 0.92rem;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+.room-nav a:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.room-title {
+  margin: 18px 0 6px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.room-wp {
+  position: relative;
+  padding: 8px 0 44px calc(var(--dot) + 22px);
+  scroll-margin-top: 120px;
+}
+/* The dashed track running from one waypoint to the next. */
+.room-wp::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--dot) / 2 - 1px);
+  top: 26px;
+  bottom: 0;
+  width: 2px;
+  background: repeating-linear-gradient(var(--wp-ink) 0 7px, transparent 7px 12px);
+  opacity: 0.7;
+}
+.room-result::before {
+  display: none;
+}
+.room-wp::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  border: 2.5px solid var(--wp-ink);
+  background: var(--paper);
+}
+.room-proof::after {
+  background: var(--wp-ink);
+}
+.room-result::after {
+  border-color: var(--gold);
+  background: var(--gold);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--gold) 30%, transparent);
+}
+.room-no .room-result::after {
+  border-color: var(--bad);
+  background: var(--bad);
+  box-shadow: 0 0 0 5px var(--bad-soft);
+}
+
+.room-label {
+  font-size: 1.25rem;
+  font-weight: 760;
+  margin: 0 0 14px;
+}
+.room-label span {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.92rem;
+  font-weight: 450;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.room-exhibit {
+  font-size: 1.02rem;
+  font-weight: 700;
+  margin: 26px 0 10px;
+}
+.room .detail-head {
+  margin: 0;
+}
+.room-intent-text {
+  font-size: clamp(1.9rem, 4.6vw, 3rem);
+}
+.room-intent-text::before {
+  content: "\201C";
+  color: var(--wp-ink);
+}
+.room-intent-text::after {
+  content: "\201D";
+  color: var(--wp-ink);
+}
+.room-verdict {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 18px 20px;
+  border-radius: var(--r);
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.room-verdict .seal-reason {
+  margin: 0 0 4px;
+}
+.room .review,
+.room .seal {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .room {
+    --dot: 12px;
+  }
+  .room-wp {
+    padding-left: calc(var(--dot) + 14px);
+  }
+  .room-nav a {
+    padding: 4px 9px;
+    font-size: 0.85rem;
+  }
+  .room .detail-bar {
+    top: 55px;
+  }
+}
+
+.room.detail {
+  gap: 0;
+}
+.room-verdict > div {
+  flex: 1;
+  min-width: 240px;
+}

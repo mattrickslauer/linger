@@ -9,7 +9,7 @@ import { unmetNeedV4 } from "../src/callable";
 import { fakeClaimsAndPlan, fallbackClaims, normalizeClaims, normalizePlan } from "../src/claims";
 import { chainFacts } from "../src/ladder";
 import { ChunkDoc, MomentDoc, chunkHash, genesis, sha256hex } from "../src/seal";
-import { evaluateSealV4, feedV4Fields, isReadyToSealV4, needsBarAndClaims, needsVideoReview, videoWaitExpired } from "../src/seal4";
+import { evaluateSealV4, feedV4Fields, feedVideoClips, isReadyToSealV4, needsBarAndClaims, needsVideoReview, videoWaitExpired } from "../src/seal4";
 import { applyLadderV4, claimsBackedByModule, moduleOutcomes, scoreV4 } from "../src/score4";
 import { getModule } from "../src/shared";
 import { Claim, VIDEO_WAIT_MS } from "../src/v4";
@@ -327,6 +327,20 @@ describe("seal v4 evaluation (v4.5, v4.6)", () => {
     const f = feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, DONE as never);
     expect(f).toMatchObject({ sealVersion: 4, claimsBacked: 2, claimsTotal: 2, cheating: false, video: { reviewed: true, summary: "One clip of 50 claps", status: "done" } });
     expect(f.plan.requirements.map((r) => r.met)).toEqual([true, true]);
+    expect(f.video.clips).toEqual([]); // no owner given → no playable paths
+  });
+  it("v4.12: feed.video.clips lists the uploaded clips as Storage paths, chain order", () => {
+    const vr = { ...DONE, clips: [clip({ sha256: "a".repeat(64), ext: "mp4" }), clip({ sha256: "b".repeat(64), uploaded: false, ext: null, hashOk: null }), clip({ sha256: "c".repeat(64), ext: "webm", hashOk: false, durationMs: 4000 })] };
+    const clips = feedVideoClips("alice", ID, vr as never);
+    expect(clips).toEqual([
+      { path: `clips/alice/${ID}/${"a".repeat(64)}.mp4`, sha256: "a".repeat(64), ext: "mp4", contentType: "video/mp4", durationMs: clips[0].durationMs, hashOk: clips[0].hashOk },
+      { path: `clips/alice/${ID}/${"c".repeat(64)}.webm`, sha256: "c".repeat(64), ext: "webm", contentType: "video/webm", durationMs: 4000, hashOk: false },
+    ]);
+    expect(feedVideoClips(null, ID, vr as never)).toEqual([]);
+    expect(feedVideoClips("alice", ID, undefined)).toEqual([]);
+    const e = evaluateSealV4(ID, clapMoment(), chunks);
+    const f = feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, vr as never, { uid: "alice", momentId: ID });
+    expect(f.video.clips.map((c) => c.ext)).toEqual(["mp4", "webm"]);
   });
   it("the clip expired after 24 h: video requirements unmet, no cheating, stays at the baseline", () => {
     const e = evaluateSealV4(ID, clapMoment({ videoReview: { ...DONE, status: "expired", claims: [], clips: [clip({ uploaded: false, ext: null, hashOk: null })] } }), chunks);

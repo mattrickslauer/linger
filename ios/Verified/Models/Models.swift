@@ -93,6 +93,33 @@ struct ClaimScoreInfo: Sendable, Equatable {
   }
 }
 
+/// v4.12: one uploaded clip anyone who can see the Moment can play. From the feed's `video.clips[]`, or from
+/// `moments/{id}.videoReview.clips[]` where `uploaded` (path = `clips/{ownerUid}/{momentId}/{sha256}.{ext}`).
+struct SharedClip: Sendable, Equatable, Identifiable {
+  var path: String
+  var sha256: String
+  var durationMs: Int64
+  /// false = the uploaded bytes don't match the chained hash; nil = not checked yet.
+  var hashOk: Bool?
+  var id: String { path }
+
+  init?(feed d: [String: Any]) {
+    guard let path = d.str("path"), !path.isEmpty else { return nil }
+    self.path = path
+    sha256 = d.str("sha256") ?? ""
+    durationMs = d.i64("durationMs") ?? 0
+    hashOk = d.bool("hashOk")
+  }
+
+  init?(moment d: [String: Any], ownerUid: String, momentId: String) {
+    guard d.bool("uploaded") == true, let sha = d.str("sha256"), let ext = d.str("ext"), !ext.isEmpty else { return nil }
+    path = "clips/\(ownerUid)/\(momentId)/\(sha).\(ext)"
+    sha256 = sha
+    durationMs = d.i64("durationMs") ?? 0
+    hashOk = d.bool("hashOk")
+  }
+}
+
 /// `moments/{id}.videoReview` (server-only) or the feed's `video`.
 struct VideoReviewInfo: Sendable, Equatable {
   struct ClaimVerdict: Sendable, Equatable {
@@ -267,6 +294,8 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var platform: String
   var status: String  // recording | submitted | sealed | rejected
   var startedAt: Int64
+  /// Feed only: `sealedAtServer` (set by FeedStore, which reads the Firestore Timestamp).
+  var sealedAt: Date? = nil
   var summary: SummaryInfo?
   var onDeviceMode: String
   var heroJpegB64: String?
@@ -309,6 +338,11 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var cheating = false
   var cheatingSignals: [String] = []
   var videoReview: VideoReviewInfo?
+  /// v4.12: uploaded clips, chain order (feed `video.clips`, or the Moment's uploaded `videoReview.clips`).
+  var videoClips: [SharedClip] = []
+
+  /// v4.12: the clip the feed autoplays: the last one whose hash isn't known to mismatch.
+  var feedClip: SharedClip? { videoClips.last { $0.hashOk != false } }
 
   /// Sealed (or being sealed) under the v4 rules: per-claim scores.
   var isV4: Bool { (sealVersion ?? 0) >= 4 || claimsFromServer }
@@ -380,6 +414,8 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     c.cheating = d.bool("cheating") ?? false
     c.cheatingSignals = d["cheatingSignals"] as? [String] ?? []
     if let v = d.obj("video"), let st = v.str("status") { c.videoReview = VideoReviewInfo(status: st, summary: v.str("summary")) }
+    // v4.12: absent on feed docs sealed before it (= no clips).
+    c.videoClips = (d.obj("video")?["clips"] as? [[String: Any]] ?? []).compactMap { SharedClip(feed: $0) }
     return c
   }
 
@@ -424,6 +460,12 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     if let sig = seal?["cheatingSignals"] as? [String], !sig.isEmpty { c.cheatingSignals = sig; c.cheating = true }
     if seal?.obj("checks")?.bool("cheating") == false { c.cheating = true }
     c.videoReview = VideoReviewInfo(d.obj("videoReview"))
+    if let uid = c.ownerUid {
+      let momentId = c.id
+      c.videoClips = (d.obj("videoReview")?["clips"] as? [[String: Any]] ?? []).compactMap {
+        SharedClip(moment: $0, ownerUid: uid, momentId: momentId)
+      }
+    }
     return c
   }
 

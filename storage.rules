@@ -1,10 +1,15 @@
 rules_version = '2';
 
-// Verified — Cloud Storage rules. Contract: docs/ARCHITECTURE.md "v3.6" + "v4.4".
+// Verified — Cloud Storage rules. Contract: docs/ARCHITECTURE.md "v3.6" + "v4.4" + "v4.12".
 // v4: the owner uploads every chained video clip at submit, once; Cloud Functions (Admin SDK) re-hash and review it.
 // The owner may `get` its own clip (metadata check before an idempotent re-upload); no list, update or delete.
 service firebase.storage {
   match /b/{bucket}/o {
+    function publicMomentOf(uid, momentId) {
+      let m = firestore.get(/databases/(default)/documents/moments/$(momentId));
+      return m != null && m.data.ownerUid == uid && m.data.status in ['sealed', 'rejected'];
+    }
+
     match /clips/{uid}/{momentId}/{file} {
       // `resource == null`: an upload to an existing path also evaluates as create; clips are written once.
       allow create: if resource == null
@@ -13,7 +18,9 @@ service firebase.storage {
         && file.matches('^[0-9a-f]{64}\\.(mp4|mov|webm)$')
         && request.resource.size < 200 * 1024 * 1024
         && request.resource.contentType.matches('video/.*');
-      allow get: if request.auth != null && request.auth.uid == uid;
+      // v4.12: whoever can read the Moment can play its clips: the owner, or anyone (guests too) once the Moment is
+      // public (sealed/rejected), the same condition as moments/{id} reads in firestore.rules.
+      allow get: if (request.auth != null && request.auth.uid == uid) || publicMomentOf(uid, momentId);
       allow list, update, delete: if false;
     }
     match /{path=**} {

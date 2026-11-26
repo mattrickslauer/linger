@@ -3,14 +3,19 @@ import MapKit
 import SwiftUI
 import VerifiedCore
 
-/// Moment detail: map track, frame timeline, motion chart, judge/skeptic reasons, verification score, seal checklist.
+/// The evidence room (feed v5): the Moment detail regrouped under the feed's three waypoints, Intent / Proof /
+/// Result, with the dashed track and dots down the left and a sticky jump bar. Nothing from the old detail is gone:
+/// map track, frame timeline, motion chart, video review, judge/skeptic/score, claims, bar, ladder, seal checklist,
+/// guest upload and owner delete. Follows the app theme.
 struct MomentDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var model: MomentDetailModel
   @State private var selectedFrame: MomentDetailModel.Frame?
   @State private var confirmingDelete = false
   @State private var deleteError: String?
+  @State private var activeSection: Waypoint = .intent
   /// Opened from "My Moments": the only place delete is offered (never from the feed).
   private let fromMyMoments: Bool
 
@@ -21,32 +26,40 @@ struct MomentDetailView: View {
 
   var body: some View {
     let m = model.card
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        header(m)
-        if let s = m.structured { section("Intention", icon: "text.quote") { IntentionDetails(intention: s) } }
-        if ClaimsSection.visible(m) { section("Claims", icon: "checklist") { ClaimsSection(model: model) } }
-        if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
-          section("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
+    let muted = m.status == "rejected"
+    ScrollViewReader { proxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          header(m)
+          VStack(alignment: .leading, spacing: 30) {
+            intentSection(m).id(Waypoint.intent)
+            proofSection(m).id(Waypoint.proof)
+            resultSection(m).id(Waypoint.result)
+          }
+          .scrollTargetLayout()
+          .waypointTrack(muted ? Color.secondary.opacity(0.6) : FeedInk.orange)
         }
-        if LadderSection.visible(m, uid: app.auth.user?.uid) {
-          section("Verification ladder", icon: "chart.line.uptrend.xyaxis") { LadderSection(model: model) }
-        }
-        section("Track", icon: "map") { TrackMap(track: model.track) }
-        section("Proof frames", icon: "camera") { frameTimeline }
-        section("Motion", icon: "waveform.path.ecg") { motionChart }
-        section("AI opinions", icon: "brain") { opinions(m) }
-        section("Seal", icon: "checkmark.seal") { SealChecklist(card: m, chainVerified: model.chainVerified, chunkCount: model.chunkCount) }
+        .padding(16)
       }
-      .padding(16)
+      .onScrollTargetVisibilityChange(idType: Waypoint.self, threshold: 0.05) { visible in
+        if let first = Waypoint.allCases.first(where: { visible.contains($0) }) { activeSection = first }
+      }
+      .safeAreaInset(edge: .top, spacing: 0) { jumpBar(proxy) }
     }
     .background(Color(.systemGroupedBackground))
-    .navigationTitle("Moment")
+    .navigationTitle("Evidence room")
     .navigationBarTitleDisplayMode(.inline)
     .task { model.start() }
     .onDisappear { model.stop() }
     .sheet(item: $selectedFrame) { f in FrameSheet(frame: f) }
     .toolbar {
+      if !m.local {
+        ToolbarItem(placement: .topBarTrailing) {
+          ShareLink(item: momentShareURL(m.id), subject: Text("Verified"), message: Text(m.intention)) {
+            Label("Share", systemImage: "square.and.arrow.up")
+          }
+        }
+      }
       if app.canDelete(m, fromMyMoments: fromMyMoments) {
         ToolbarItem(placement: .topBarTrailing) {
           Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete Moment", systemImage: "trash") }
@@ -76,37 +89,44 @@ struct MomentDetailView: View {
     }
   }
 
+  /// Sticky Intent / Proof / Result jump bar.
+  private func jumpBar(_ proxy: ScrollViewProxy) -> some View {
+    HStack(spacing: 8) {
+      ForEach(Waypoint.allCases) { w in
+        Button {
+          activeSection = w
+          if reduceMotion {
+            proxy.scrollTo(w, anchor: .top)
+          } else {
+            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(w, anchor: .top) }
+          }
+        } label: {
+          Text(w.title)
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .foregroundStyle(activeSection == w ? Color.white : Color.primary)
+            .background(activeSection == w ? AnyShapeStyle(FeedInk.orange) : AnyShapeStyle(Color(.tertiarySystemFill)),
+                        in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(activeSection == w ? .isSelected : [])
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 16).padding(.vertical, 8)
+    .background(.bar)
+  }
+
+  // MARK: Header (above the thread): the proof shot, the badge, and the guest upload box.
+
   private func header(_ m: MomentCardData) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       ZStack(alignment: .topTrailing) {
         HeroImage(b64: m.heroJpegB64, category: m.category)
-          .frame(height: 240).clipped()
+          .frame(height: 240).frame(maxWidth: .infinity).clipped()
+          .saturation(m.status == "rejected" ? 0.2 : 1)
           .clipShape(RoundedRectangle(cornerRadius: 18))
         VerdictBadge(status: m.badgeStatus).padding(10)
-      }
-      Text(m.intention).font(.title3.bold())
-      HStack(spacing: 8) {
-        Avatar(url: m.ownerPhotoURL, name: m.ownerName, size: 24)
-        Text(m.ownerName).font(.subheadline).foregroundStyle(.secondary)
-        Spacer()
-        Chip(text: platformName(m.platform), systemImage: platformIcon(m.platform))
-        if m.onDeviceMode == "on_device" { Chip(text: "checked on-device", systemImage: "cpu", color: Theme.accent) }
-      }
-      if let s = m.summary {
-        HStack {
-          stat(formatDuration(ms: s.durationMs), "duration")
-          stat(formatDistance(s.distanceM), "distance")
-          stat("\(s.frameCount)", "frames")
-          stat("\(model.chunkCount)", "chunks")
-        }
-        .padding(.vertical, 10)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
-      }
-      if let reason = m.sealReason, !reason.isEmpty {
-        Text(reason).font(.footnote).foregroundStyle(m.isVerified ? Theme.accent : Theme.bad)
-      }
-      if !m.local {
-        VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
       }
       if m.local {
         HStack(alignment: .top, spacing: 12) {
@@ -129,6 +149,149 @@ struct MomentDetailView: View {
         .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
       }
     }
+  }
+
+  // MARK: 1. Intent
+
+  private func intentSection(_ m: MomentCardData) -> some View {
+    let cat = Category(rawValue: m.category) ?? .other
+    return waypointSection(.intent, m, detail: "what \(m.ownerName) said they would do, before starting") {
+      VStack(alignment: .leading, spacing: 10) {
+        Label(cat.label.uppercased(), systemImage: cat.icon)
+          .font(.caption.weight(.bold)).kerning(1).foregroundStyle(FeedInk.orange)
+        Text("\(Text("“").foregroundStyle(FeedInk.orange))\(m.intention)\(Text("”").foregroundStyle(FeedInk.orange))")
+          .font(.title2.weight(.heavy))
+          .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 8) {
+          Avatar(url: m.ownerPhotoURL, name: m.ownerName, size: 24)
+          Text(m.ownerName).font(.subheadline)
+          if let when = startedText(m) { Text("· \(when)").font(.subheadline).foregroundStyle(.secondary) }
+        }
+        FlowChips {
+          Chip(text: platformName(m.platform), systemImage: platformIcon(m.platform))
+          if m.onDeviceMode == "on_device" { Chip(text: "checked on-device", systemImage: "cpu", color: Theme.accent) }
+          if m.recordedAsGuest { Chip(text: "recorded as a guest", systemImage: "person.crop.circle.badge.questionmark") }
+          if m.hasPendingWrites { Chip(text: "queued", systemImage: "icloud.slash", color: Theme.warn) }
+        }
+      }
+      if let s = m.structured { card("Intention", icon: "text.quote") { IntentionDetails(intention: s) } }
+      if !m.claims.isEmpty {
+        card(m.claimsFromServer ? "What has to be shown" : "What has to be shown (draft)", icon: "checklist") {
+          VStack(alignment: .leading, spacing: 6) {
+            ForEach(m.claims) { c in
+              Label(c.text, systemImage: c.kind.icon).font(.subheadline)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: 2. Proof
+
+  private func proofSection(_ m: MomentCardData) -> some View {
+    let answered = max(m.witnessAnswered, model.witnessAnswers)
+    return waypointSection(.proof, m, detail: "captured on the phone as it happened, hashed chunk by chunk") {
+      if let s = m.summary {
+        HStack {
+          stat(formatDuration(ms: s.durationMs), "duration")
+          stat(formatDistance(s.distanceM), "distance")
+          stat("\(s.frameCount)", "frames")
+          stat("\(model.chunkCount)", "chunks")
+        }
+        .padding(.vertical, 10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+      }
+      card("Proof frames", icon: "camera") { frameTimeline }
+      card("Motion", icon: "waveform.path.ecg") { motionChart }
+      card("Track", icon: "map") { TrackMap(track: model.track) }
+      if m.witnessAsked > 0 || answered > 0 {
+        card("Witness", icon: "person.wave.2.fill") {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(m.witnessAsked > 0
+                 ? "\(answered) of \(m.witnessAsked) witness \(m.witnessAsked == 1 ? "question" : "questions") answered"
+                 : "\(answered) witness \(answered == 1 ? "answer" : "answers") in the chain")
+              .font(.subheadline)
+            if m.witnessSkipped > 0 {
+              Text("\(m.witnessSkipped) skipped").font(.caption).foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
+      if !m.local {
+        VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
+      }
+      if !m.videoClips.isEmpty {
+        // v4.12: the uploaded clips, for anyone who can see the Moment.
+        card("Video", icon: "film") { SharedClipsSection(clips: m.videoClips) }
+      }
+      card("Hash chain", icon: "link") { ChainRecheckLine(chainVerified: model.chainVerified, chunkCount: model.chunkCount) }
+    }
+  }
+
+  // MARK: 3. Result
+
+  private func resultSection(_ m: MomentCardData) -> some View {
+    waypointSection(.result, m, detail: "AIs propose, a Cloud Function decides") {
+      verdictBox(m)
+      if ClaimsSection.visible(m) { card("Claims", icon: "checklist") { ClaimsSection(model: model) } }
+      if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
+        card("Bar & score", icon: "flag.checkered") { BarScoreCard(card: m) }
+      }
+      card("AI opinions", icon: "brain") { opinions(m) }
+      if LadderSection.visible(m, uid: app.auth.user?.uid) {
+        card("Verification ladder", icon: "chart.line.uptrend.xyaxis") { LadderSection(model: model) }
+      }
+      card("Seal", icon: "checkmark.seal") {
+        SealChecklist(card: m, chainVerified: model.chainVerified, chunkCount: model.chunkCount, showsChain: false)
+      }
+    }
+  }
+
+  /// Stamp + seal reason + "n of 5 seal checks passed, p% likely true".
+  private func verdictBox(_ m: MomentCardData) -> some View {
+    let decided = m.status == "sealed" || m.status == "rejected"
+    let passed = feedCheckOrder.filter { m.checks[$0.key] == true }.count
+    let summary = [m.checks.isEmpty ? nil : "\(passed) of 5 seal checks passed",
+                   percent(m.displayScore).map { "\($0)% likely true" }].compactMap { $0 }
+    return VStack(alignment: .leading, spacing: 12) {
+      SealStamp(verified: m.isVerified, pending: !decided, fontSize: 20).padding(.vertical, 4)
+      if let reason = m.sealReason, !reason.isEmpty {
+        Text(reason).font(.subheadline).foregroundStyle(m.isVerified ? Theme.accent : decided ? Theme.bad : Color.secondary)
+      }
+      if !summary.isEmpty {
+        Text(summary.joined(separator: ", ")).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+      }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+  }
+
+  // MARK: Building blocks
+
+  /// One waypoint: dot + title + subtitle, then its cards.
+  private func waypointSection<Content: View>(_ w: Waypoint, _ m: MomentCardData, detail: String,
+                                               @ViewBuilder _ content: () -> Content) -> some View {
+    HStack(alignment: .top, spacing: 10) {
+      WaypointDot(kind: w, muted: m.status == "rejected",
+                  pending: w == .result && m.status != "sealed" && m.status != "rejected",
+                  fill: Color(.systemGroupedBackground))
+        .padding(.top, 4)
+      VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(w.title).font(.title3.weight(.heavy))
+          Text(detail).font(.footnote).foregroundStyle(.secondary)
+        }
+        content()
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private func startedText(_ m: MomentCardData) -> String? {
+    let date = m.startedAt > 0 ? Date(timeIntervalSince1970: Double(m.startedAt) / 1000) : m.sealedAt
+    return date?.formatted(date: .abbreviated, time: .shortened)
   }
 
   private func stat(_ v: String, _ l: String) -> some View {
@@ -198,7 +361,7 @@ struct MomentDetailView: View {
     }
   }
 
-  private func section<Content: View>(_ title: String, icon: String, @ViewBuilder _ content: () -> Content) -> some View {
+  private func card<Content: View>(_ title: String, icon: String, @ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Label(title, systemImage: icon).font(.headline)
       content()
@@ -312,6 +475,8 @@ struct SealChecklist: View {
   let card: MomentCardData
   let chainVerified: Bool?
   let chunkCount: Int
+  /// The evidence room shows the on-phone chain re-check under Proof instead.
+  var showsChain = true
 
   /// Seal v3 moves the score gate from `ai` to the new `bar` check (docs/ARCHITECTURE.md v3.5); seal v4 adds
   /// `cheating` and makes `bar` per claim (v4.5).
@@ -350,12 +515,9 @@ struct SealChecklist: View {
           Spacer()
         }
       }
-      Divider()
-      HStack(spacing: 10) {
-        icon(chainVerified)
-        Text(chainVerified == nil ? "Re-checking the chain on this phone…"
-             : "Re-checked on this phone: \(chunkCount) chunks, SHA-256 chain \(chainVerified == true ? "valid" : "BROKEN")")
-          .font(.footnote).foregroundStyle(.secondary)
+      if showsChain {
+        Divider()
+        ChainRecheckLine(chainVerified: chainVerified, chunkCount: chunkCount)
       }
       if card.checks.isEmpty {
         Text(statusLine).font(.footnote).foregroundStyle(.secondary)
@@ -376,7 +538,27 @@ struct SealChecklist: View {
     }
   }
 
-  @ViewBuilder private func icon(_ ok: Bool?) -> some View {
+  private func icon(_ ok: Bool?) -> some View { CheckIcon(ok: ok) }
+}
+
+/// "Re-checked on this phone: 42 chunks, SHA-256 chain valid" (the evidence room shows it under Proof).
+struct ChainRecheckLine: View {
+  let chainVerified: Bool?
+  let chunkCount: Int
+
+  var body: some View {
+    HStack(spacing: 10) {
+      CheckIcon(ok: chainVerified)
+      Text(chainVerified == nil ? "Re-checking the chain on this phone…"
+           : "Re-checked on this phone: \(chunkCount) chunks, SHA-256 chain \(chainVerified == true ? "valid" : "BROKEN")")
+        .font(.footnote).foregroundStyle(.secondary)
+    }
+  }
+}
+
+struct CheckIcon: View {
+  let ok: Bool?
+  var body: some View {
     switch ok {
     case .some(true): Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
     case .some(false): Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.bad)

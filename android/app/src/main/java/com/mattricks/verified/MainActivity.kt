@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.google.firebase.Firebase
@@ -78,6 +79,8 @@ class MainActivity : ComponentActivity() {
                 // The witness notification opens the live record screen, even from a Moment's detail.
                 LaunchedEffect(requested) { requested?.let { tab = it; open = null; tabRequest.value = null } }
 
+                // Keeps the Feed pager (page, tab) while an evidence room or another tab is shown: back lands on the same slide.
+                val screens = rememberSaveableStateHolder()
                 val o = open
                 if (o != null) {
                     BackHandler { open = null }
@@ -98,7 +101,9 @@ class MainActivity : ComponentActivity() {
                 }) { pad ->
                     Box(Modifier.padding(pad)) {
                         when (tab) {
-                            0 -> FeedScreen(user, onOpen = { open = it; openFromMe = false }, onRecord = { tab = 1 })
+                            0 -> screens.SaveableStateProvider("feed") {
+                                FeedScreen(user, onOpen = { open = it; openFromMe = false }, onRecord = { tab = 1 })
+                            }
                             1 -> RecordScreen(user) { open = it; openFromMe = false }
                             2 -> MeScreen(user) { open = it; openFromMe = true }
                             else -> SettingsScreen()

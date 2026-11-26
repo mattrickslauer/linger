@@ -103,7 +103,24 @@ data class MomentCard(
     val claimsBacked: Int? = null,
     val claimsTotal: Int? = null,
     val cheating: Boolean = false,
-)
+    /** Feed v5 slide: the five seal checks, the track for the sketch, when it was sealed, and its one reason. */
+    val checks: Map<String, Boolean> = emptyMap(),
+    val track: List<LatLng> = emptyList(),
+    val sealedAt: Long = 0,
+    val sealReason: String = "",
+    val scoreReasons: List<String> = emptyList(),
+    val judgeReasons: List<String> = emptyList(),
+    val cheatingSignals: List<String> = emptyList(),
+    val witnessAnswered: Int = 0,
+    /** v4.12: feed.video.clips, the uploaded clips in chain order ([] before v4.12). */
+    val clips: List<SharedClip> = emptyList(),
+) {
+    /** v4.12 feed clip: the last clip whose hash is not known to mismatch; autoplayed muted on the feed slide. */
+    val feedClip: SharedClip? get() = clips.lastOrNull { it.hashOk != false }
+}
+
+/** An uploaded clip anyone who can see the Moment can play (v4.12); [path] is its Cloud Storage path. */
+data class SharedClip(val path: String, val sha256: String, val ext: String, val durationMs: Long, val hashOk: Boolean?)
 
 /** [witnessAsk] is the witness request this frame answered (frame event `wid`), if any. */
 data class Frame(val seq: Int, val t: Long, val jpegB64: String, val check: Check?, val witnessAsk: String? = null)
@@ -139,6 +156,8 @@ data class MomentDetail(
     val v4: V4Detail? = null,
     /** v4 facts from the chain for previews: answered witness requests' rid ("" = untagged), good GPS fixes. */
     val witnessRids: List<String?> = emptyList(),
+    /** v4.12: uploaded clips (moments videoReview.clips where uploaded, else feed.video.clips), chain order. */
+    val sharedClips: List<SharedClip> = emptyList(),
 )
 
 data class VideoRef(val sha256: String, val name: String, val bytes: Long, val durationMs: Long)

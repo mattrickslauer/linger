@@ -1,6 +1,25 @@
 package com.mattricks.verified.ui
 
+import android.text.format.DateUtils
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,9 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -68,7 +85,7 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
     }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Moment") },
+            title = { Text("Evidence room") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
                 // Only from "my Moments", only the owner's own, never the one being recorded (ARCHITECTURE.md).
@@ -113,29 +130,61 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
     }
 }
 
+/**
+ * The evidence room (feed v5): the detail content regrouped under the slide's three waypoints, Intent / Proof /
+ * Result, with the dashed track down the left and a sticky jump bar. Nothing removed, only moved. Follows the app theme.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> Unit) {
     var selected by remember(d.frames.size) { mutableIntStateOf((d.frames.size - 1).coerceAtLeast(0)) }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(d.card.intention, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            StatusBadge(d.card.status, d.local)
+    val sealed = d.card.status == "sealed"
+    val ok = sealed && !d.card.cheating
+    val owner = d.card.ownerName.ifBlank { "the owner" }
+    val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
+
+    val intent = buildList<@Composable ColumnScope.() -> Unit> {
+        add {
+            Text(d.card.category.uppercase(), style = MaterialTheme.typography.labelMedium, color = Color.Gray, letterSpacing = 1.sp)
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = if (ok) TrackOrange else Color.Gray)) { append("“") }
+                    append(d.card.intention)
+                    withStyle(SpanStyle(color = if (ok) TrackOrange else Color.Gray)) { append("”") }
+                },
+                fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                listOf(
+                    owner, d.card.platform.ifBlank { "android" },
+                    d.startedAt.takeIf { it > 0 }?.let {
+                        DateUtils.formatDateTime(LocalContext.current, it, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH)
+                    },
+                ).filterNotNull().joinToString(" · "),
+                color = Color.Gray, style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatusBadge(d.card.status, d.local)
+                if (!d.local) Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            if (d.local) LocalBanner(d)
         }
-        Text(
-            "${d.card.ownerName} · ${d.card.category} · ${d.card.platform} · ${fmtDuration(d.card.summary.durationMs)} · ${fmtDistance(d.card.summary.distanceM)}",
-            color = Color.Gray, style = MaterialTheme.typography.bodySmall,
-        )
-        if (d.local) LocalBanner(d)
-        else Pill(onDeviceLabel(d.card.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        d.intention?.takeIf { it.structured }?.let { i -> add { IntentionSection(i, d.card.summary.distanceM) } }
+    }
 
-        // v4: overall verdict on top, the free video review, then one row per claim (docs/ARCHITECTURE.md v4.11).
-        if (isV4(d)) {
-            VerdictHeader(d)
-            VideoReviewCard(d)
-            ClaimsSection(d) { c, s -> ClaimOffers(d, c, s) }
-        } else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) VideoUploadLine(d.card.id)
-
-        if (d.frames.isNotEmpty()) {
+    val proof = buildList<@Composable ColumnScope.() -> Unit> {
+        add {
+            Text(
+                "${fmtDuration(d.card.summary.durationMs)} · ${fmtDistance(d.card.summary.distanceM)} · ${d.frames.size} proof shot(s) · ${d.track.size} GPS fixes",
+                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+            )
+        }
+        // v4: the free video review sits with the evidence it reviewed.
+        if (isV4(d)) add { VideoReviewCard(d) }
+        else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) add { VideoUploadLine(d.card.id) }
+        // v4.12: every uploaded clip, playable by anyone who can see the Moment.
+        if (d.sharedClips.isNotEmpty()) add { SharedVideoSection(d) }
+        if (d.frames.isNotEmpty()) add {
             val f = d.frames[selected.coerceIn(0, d.frames.size - 1)]
             B64Image(f.jpegB64, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(16.dp)))
             f.check?.let { c ->
@@ -160,57 +209,170 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
                 }
             }
         }
-
-        if (d.witness.isNotEmpty()) WitnessSection(d)
-
-        Section("Track")
-        TrackMap(d.track, Modifier.fillMaxWidth().height(260.dp))
-        Text("${d.track.size} GPS fixes", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-
-        if (d.motion.isNotEmpty()) {
+        if (d.witness.isNotEmpty()) add { WitnessSection(d) }
+        add {
+            Section("Track")
+            TrackMap(d.track, Modifier.fillMaxWidth().height(260.dp))
+            Text("${d.track.size} GPS fixes", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+        if (d.motion.isNotEmpty()) add {
             Section("Motion")
             MotionChart(d.motion, d.frames.map { it.t }, Modifier.fillMaxWidth().height(120.dp))
             Text("|acceleration| m/s² · ${d.motion.size} samples · amber = proof shot", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
+        add {
+            Section("Hash chain")
+            Text(
+                when {
+                    d.chunkCount == 0 -> "Chunks stay with the owner; the seal below records the server's chain check."
+                    d.chainOk == true -> "${d.chunkCount} chunks, each hashed into the next · intact (checked on this phone) ✓"
+                    d.chainOk == false -> "${d.chunkCount} chunks · the chain does not verify on this phone ✗"
+                    else -> "${d.chunkCount} chunks"
+                },
+                style = MaterialTheme.typography.bodySmall, color = if (d.chainOk == false) Red else Color.Gray,
+            )
+        }
+    }
 
-        d.intention?.takeIf { it.structured }?.let { IntentionSection(it, d.card.summary.distanceM) }
+    val result = buildList<@Composable ColumnScope.() -> Unit> {
+        add { RoomVerdict(d, ok, checks) }
+        // v4: overall verdict, then one row per claim (docs/ARCHITECTURE.md v4.11).
+        if (isV4(d)) add {
+            VerdictHeader(d)
+            ClaimsSection(d) { c, s -> ClaimOffers(d, c, s) }
+        }
+        add {
+            Section("AI opinions")
+            OpinionCard("Judge", d.judge, d.judgeReasons)
+            OpinionCard("Skeptic", d.skeptic, emptyList())
+            ScoreCard(d.score, d.bar?.value ?: 0.5, baseline = d.verification?.modules?.isNotEmpty() == true)
+            BarCard(d)
+        }
+        add { LadderSection(d, isOwner = d.ownerUid.isNotEmpty() && d.ownerUid == Firebase.auth.currentUser?.uid, onOpenLadder = onOpenLadder) }
+        add { SealChecksCard(d, checks) }
+    }
 
-        Section("AI opinions")
-        OpinionCard("Judge", d.judge, d.judgeReasons)
-        OpinionCard("Skeptic", d.skeptic, emptyList())
-        ScoreCard(d.score, d.bar?.value ?: 0.5, baseline = d.verification?.modules?.isNotEmpty() == true)
-        BarCard(d)
-        LadderSection(d, isOwner = d.ownerUid.isNotEmpty() && d.ownerUid == Firebase.auth.currentUser?.uid, onOpenLadder = onOpenLadder)
-
-        Section("Seal")
-        val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
-        val labels = if (d.sealVersion >= 4) linkedMapOf(
-            "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
-            "frames" to "Proof frames match",
-            "ai" to "The proof frames don't contradict the intention",
-            "cheating" to "No cheating detected",
-            "bar" to "Every claim reaches the bar" + (barOf(d)?.let { " (${com.mattricks.verified.data.V3Math.fmt(it)})" } ?: ""),
-        ) else linkedMapOf(
-            "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
-            "frames" to "Proof frames match",
-            "ai" to if (d.sealVersion >= 3) "Judge consistent, skeptic found nothing" else "Judge consistent, skeptic found nothing, score ≥ 50%",
-            "bar" to "Score reaches the bar" + (d.bar?.let { " (${com.mattricks.verified.data.V3Math.fmt(it.value)})" } ?: ""),
-        )
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (checks.isEmpty()) {
-                    Text(
-                        if (d.card.status == "submitted") "Waiting for judge, skeptic + scorer, then the Cloud Function seals." else "Not sealed yet.",
-                        color = Color.Gray,
-                    )
-                    d.chainOk?.let { CheckRow("Hash chain (checked on this phone, ${d.chunkCount} chunks)", it) }
-                } else {
-                    labels.forEach { (k, label) -> checks[k]?.let { CheckRow(label, it) } }
-                    (d.seal?.reason ?: d.feedReason)?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var barPx by remember { mutableIntStateOf(0) }
+    // Item 0 is the sticky bar; then the three sections in order.
+    val starts = listOf(1, 1 + intent.size, 1 + intent.size + proof.size)
+    val current by remember(starts) {
+        derivedStateOf {
+            val first = list.firstVisibleItemIndex + if (list.firstVisibleItemScrollOffset > 0) 1 else 0
+            when {
+                !list.canScrollForward && list.firstVisibleItemIndex > 0 -> 2
+                first >= starts[2] -> 2
+                first >= starts[1] -> 1
+                else -> 0
+            }
+        }
+    }
+    LazyColumn(modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 32.dp)) {
+        stickyHeader(key = "jump") {
+            Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth().onSizeChanged { barPx = it.height }) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Intent", "Proof", "Result").forEachIndexed { i, label ->
+                        FilterChip(
+                            selected = current == i, label = { Text(label) },
+                            onClick = { scope.launch { list.animateScrollToItem(starts[i], -barPx) } },
+                        )
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(24.dp))
+        listOf(
+            Triple(Wp.Intent, intent, "what $owner said they would do, before starting"),
+            Triple(Wp.Proof, proof, "captured on the phone as it happened, hashed chunk by chunk"),
+            Triple(Wp.Result, result, "AIs propose, a Cloud Function decides"),
+        ).forEach { (kind, body, sub) ->
+            item(key = kind.name) {
+                RoomRow(kind, ok, header = true) {
+                    Text(kind.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                    Text(sub, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    body.first().invoke(this)
+                }
+            }
+            items(body.size - 1) { i -> RoomRow(kind, ok, header = false) { body[i + 1].invoke(this) } }
+        }
+    }
+}
+
+/**
+ * One row of the evidence room: a 28dp gutter carrying the dashed track (Intent and Proof only; it stops at the result
+ * dot) and, on a section's first row, the waypoint dot beside its title.
+ */
+@Composable
+private fun RoomRow(kind: Wp, ok: Boolean, header: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    val muted = MaterialTheme.colorScheme.outline
+    val hole = MaterialTheme.colorScheme.background
+    Row(
+        Modifier.fillMaxWidth().drawBehind {
+            val x = 16.dp.toPx() + 7.dp.toPx()
+            val dotY = 22.dp.toPx()
+            if (kind != Wp.Result) dashedTrack(x, if (header) dotY + 14.dp.toPx() else 0f, size.height, if (ok) TrackOrange else muted)
+            if (header) waypointDot(kind, ok, Offset(x, dotY), hole = hole, muted = muted, bad = Red)
+        }.padding(start = 16.dp + 28.dp, end = 16.dp),
+    ) {
+        Column(Modifier.weight(1f).padding(top = if (header) 8.dp else 7.dp, bottom = 7.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
+}
+
+/** The verdict box: the stamp, the seal reason, "n of 5 seal checks passed, p% likely true". */
+@Composable
+private fun RoomVerdict(d: MomentDetail, ok: Boolean, checks: Map<String, Boolean>) {
+    val decided = d.card.status == "sealed" || d.card.status == "rejected"
+    val passed = CHECK_ORDER.count { checks[it.first] == true }
+    val p = d.verification?.score ?: d.score?.probability ?: d.card.score
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (decided) SealStamp(ok, Modifier.padding(vertical = 4.dp).graphicsLayer { rotationZ = -4f }, big = false)
+            else StatusBadge(d.card.status, d.local)
+            if (d.card.cheating) d.v4?.cheatingSignals?.firstOrNull()?.let { Text(it, color = Red, style = MaterialTheme.typography.bodyMedium) }
+            (d.seal?.reason ?: d.feedReason)?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            Text(
+                buildString {
+                    if (checks.isNotEmpty()) append("$passed of 5 seal checks passed")
+                    if (p != null) { if (isNotEmpty()) append(", "); append("${(p * 100).toInt()}% likely true") }
+                    if (isEmpty()) append(if (d.card.status == "submitted") "Waiting for the judge, skeptic and scorer." else "Not sealed yet.")
+                },
+                style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+            )
+            if (checks.isNotEmpty()) CheckPips(
+                checks, ok = Green, bad = Red, ink = MaterialTheme.colorScheme.onSurface, bg = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SealChecksCard(d: MomentDetail, checks: Map<String, Boolean>) {
+    Section("Seal")
+    val labels = if (d.sealVersion >= 4) linkedMapOf(
+        "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
+        "frames" to "Proof frames match",
+        "ai" to "The proof frames don't contradict the intention",
+        "cheating" to "No cheating detected",
+        "bar" to "Every claim reaches the bar" + (barOf(d)?.let { " (${com.mattricks.verified.data.V3Math.fmt(it)})" } ?: ""),
+    ) else linkedMapOf(
+        "chain" to "Hash chain intact", "timing" to "Timing consistent", "physics" to "Physics plausible",
+        "frames" to "Proof frames match",
+        "ai" to if (d.sealVersion >= 3) "Judge consistent, skeptic found nothing" else "Judge consistent, skeptic found nothing, score ≥ 50%",
+        "bar" to "Score reaches the bar" + (d.bar?.let { " (${com.mattricks.verified.data.V3Math.fmt(it.value)})" } ?: ""),
+    )
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (checks.isEmpty()) {
+                Text(
+                    if (d.card.status == "submitted") "Waiting for judge, skeptic + scorer, then the Cloud Function seals." else "Not sealed yet.",
+                    color = Color.Gray,
+                )
+                d.chainOk?.let { CheckRow("Hash chain (checked on this phone, ${d.chunkCount} chunks)", it) }
+            } else {
+                labels.forEach { (k, label) -> checks[k]?.let { CheckRow(label, it) } }
+                (d.seal?.reason ?: d.feedReason)?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+            }
+        }
     }
 }
 
