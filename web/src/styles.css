@@ -1961,6 +1961,62 @@ path.lf-cursor {
 .sheet h2 {
   font-size: 1.35rem;
 }
+.sheet-grab {
+  display: none;
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  margin: -12px 0 2px;
+  border-radius: 3px;
+  background: var(--rule);
+}
+.signin-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #10242b;
+}
+.signin-mark .glyph {
+  width: 28px;
+  height: 28px;
+}
+.signin-props {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.signin-props li {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px 4px;
+  border-radius: 14px;
+  background: var(--paper);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-align: center;
+}
+.signin-props .glyph {
+  width: 24px;
+  height: 24px;
+  color: var(--lake);
+}
+.btn-google {
+  flex: 1 1 220px;
+}
+.g-logo {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 50%;
+  background: #fff;
+}
 .sheet-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1969,6 +2025,12 @@ path.lf-cursor {
   margin-top: 4px;
 }
 @media (max-width: 600px) {
+  .sheet .sheet-grab {
+    display: block;
+  }
+  .sheet .sheet-box {
+    padding-bottom: calc(24px + var(--safe-b));
+  }
   .sheet {
     margin: auto 0 0;
     width: 100vw;
