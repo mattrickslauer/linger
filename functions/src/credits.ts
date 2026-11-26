@@ -11,7 +11,7 @@ export interface CreditsDoc {
 
 export interface LedgerEntry {
   delta: number;
-  kind: "grant" | "spend" | "refund";
+  kind: "grant" | "spend" | "refund" | "purchase" | "purchase_refund";
   reason: string;
   momentId: string | null;
   module: string | null;

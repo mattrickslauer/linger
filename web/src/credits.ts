@@ -10,7 +10,7 @@ import { getMetadata, ref, uploadBytes } from "firebase/storage";
 import { bucket, clipPath } from "./upload";
 import { applyFixtureLadder, applyFixtureLadderV4 } from "./data";
 import { app, FIXTURES, USE_EMULATORS } from "./firebase";
-import { applyStep, countsAsPass, FREE_CREDITS, moduleSpec } from "./ladder";
+import { applyStep, countsAsPass, CREDIT_PACKS, FREE_CREDITS, moduleSpec } from "./ladder";
 import type { ModuleId } from "./types";
 import type { ClaimScore, ModuleClaimOutcome } from "./v4";
 import { clipsOf } from "./vault";
@@ -210,3 +210,55 @@ export const newRequestId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ (Math.random() * 16) >> (+c / 4)).toString(16));
+
+// ---------------------------------------------------------------- buying credits (pay.mattrickslauer.com)
+//
+// buyCredits opens a pay checkout in a Cloud Function and sends the browser there; pay sends it back to this page with
+// ?purchase=<id>. PurchaseReturn (components/BuyCredits.tsx) then calls confirmCreditPurchase, which looks the checkout
+// up on pay and credits the pack (the signed payWebhook does the same; whichever is first wins, once).
+
+export interface Purchase {
+  status: "open" | "paid" | "refunded";
+  credited: boolean;
+  credits: number;
+  balance: number;
+  reason: string;
+}
+
+const changed = new EventTarget();
+/** Views that show a balance listen here; fired after a purchase settles. */
+export function onCreditsChanged(f: (balance: number) => void): () => void {
+  const h = (e: Event) => f((e as CustomEvent<number>).detail);
+  changed.addEventListener("change", h);
+  return () => changed.removeEventListener("change", h);
+}
+const announce = (balance: number) => changed.dispatchEvent(new CustomEvent("change", { detail: balance }));
+
+/** Opens the pay checkout for `pack` and navigates there. In the sample-data demo it adds the pack locally instead. */
+export async function buyCredits(pack: string, returnUrl = location.href): Promise<"redirecting" | "simulated"> {
+  if (LADDER_DEMO) {
+    const p = CREDIT_PACKS.find((x) => x.id === pack);
+    if (!p) throw new LadderError("bad_pack", "Unknown credit pack.");
+    demo.balance += p.credits;
+    demo.granted += p.credits;
+    announce(demo.balance);
+    return "simulated";
+  }
+  try {
+    const r = await httpsCallable<object, { url: string; purchaseId: string }>(functions(), "buyCredits")({ pack, returnUrl });
+    location.assign(r.data.url);
+    return "redirecting";
+  } catch (e) {
+    throw wrap(e);
+  }
+}
+
+export async function confirmPurchase(purchaseId: string): Promise<Purchase> {
+  try {
+    const r = await httpsCallable<object, Purchase>(functions(), "confirmCreditPurchase")({ purchaseId });
+    if (r.data.credited || r.data.status === "paid") announce(r.data.balance);
+    return r.data;
+  } catch (e) {
+    throw wrap(e);
+  }
+}

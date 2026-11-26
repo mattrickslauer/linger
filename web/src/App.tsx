@@ -12,6 +12,7 @@ const Record = lazy(() => import("./pages/Record"));
 const Me = lazy(() => import("./pages/Me"));
 const Embed = lazy(() => import("./pages/Embed"));
 const ClaimSheet = lazy(() => import("./components/ClaimSheet"));
+const PurchaseReturn = lazy(() => import("./components/BuyCredits").then((m) => ({ default: m.PurchaseReturn })));
 
 type Theme = "system" | "light" | "dark";
 function useTheme(): [Theme, () => void] {
@@ -118,6 +119,7 @@ export default function App() {
       {configured && (
         <Suspense fallback={null}>
           <ClaimSheet user={user} />
+          <PurchaseReturn user={user} ready={ready} />
         </Suspense>
       )}
       <main id="main">

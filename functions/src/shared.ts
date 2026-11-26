@@ -40,7 +40,16 @@ export interface LadderCatalog {
   version: number;
   freeCredits: number;
   passConfidence: number;
+  /** Credit packs sold through pay (functions/src/purchases.ts). */
+  creditPacks: CreditPack[];
   modules: ModuleDef[];
+}
+
+export interface CreditPack {
+  id: string;
+  credits: number;
+  priceCents: number;
+  label: string;
 }
 
 let prompts: Record<string, PromptDef> | null = null;

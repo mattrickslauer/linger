@@ -234,6 +234,16 @@ describe("v3: credits", () => {
     await assertFails(deleteDoc(doc(alice(), "credits/alice/ledger/e1")));
     await assertFails(setDoc(doc(alice(), "credits/bob"), { balance: 10 }));
   });
+  it("credit purchases (pay): owner reads, nobody writes (only the functions mark a pack paid)", async () => {
+    await admin("credits/alice/purchases/p1", { pack: "pack_10", credits: 10, amountCents: 500, checkoutId: "co_1", status: "open" });
+    await assertSucceeds(getDoc(doc(alice(), "credits/alice/purchases/p1")));
+    await assertSucceeds(getDocs(collection(alice(), "credits/alice/purchases")));
+    await assertFails(getDoc(doc(bob(), "credits/alice/purchases/p1")));
+    await assertFails(getDoc(doc(anon(), "credits/alice/purchases/p1")));
+    await assertFails(updateDoc(doc(alice(), "credits/alice/purchases/p1"), { status: "paid" }));
+    await assertFails(setDoc(doc(alice(), "credits/alice/purchases/p2"), { pack: "pack_100", credits: 100, amountCents: 1, status: "open" }));
+    await assertFails(deleteDoc(doc(alice(), "credits/alice/purchases/p1")));
+  });
   it("barLeases (server-only bar-agent lease): no client reads or writes, guests included", async () => {
     await admin("barLeases/m1", { at: 1 });
     await assertFails(getDoc(doc(alice(), "barLeases/m1")));

@@ -3,6 +3,11 @@
   "note": "Verification ladder catalog (docs/ARCHITECTURE.md v3.6 + v4.6). v4: every module lists the claim kinds it `backs`; it is offered for a claim only if it backs that claim's kind and its `needs` are met, and it moves only those claims' scores (witness_review with backsTargetedOnly: only claims whose requirements an answered witness request targeted). Clients show these offers and previews; only the runLadderModule Cloud Function runs a module, spends credits and recomputes the score. Pass: p' = p + s*(1-p). Fail: p' = p*(1-s). Each module runs at most once per Moment, in any order. Credits are spent whether it passes or fails.",
   "freeCredits": 10,
   "passConfidence": 0.6,
+  "creditPacks": [
+    { "id": "pack_10", "credits": 10, "priceCents": 500, "label": "10 credits" },
+    { "id": "pack_30", "credits": 30, "priceCents": 1200, "label": "30 credits" },
+    { "id": "pack_100", "credits": 100, "priceCents": 3500, "label": "100 credits" }
+  ],
   "modules": [
     {
       "id": "second_look",

@@ -23,6 +23,15 @@ export interface ModuleSpec {
 
 export const MODULES = catalog.modules as ModuleSpec[];
 export const FREE_CREDITS = catalog.freeCredits;
+export interface CreditPack {
+  id: string;
+  credits: number;
+  priceCents: number;
+  label: string;
+}
+/** Packs sold through pay; the buyCredits function charges the catalog price, never a client-sent one. */
+export const CREDIT_PACKS = catalog.creditPacks as CreditPack[];
+export const fmtPrice = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
 export const PASS_CONFIDENCE = catalog.passConfidence;
 export const moduleSpec = (id: ModuleId) => MODULES.find((m) => m.id === id) ?? null;
 
@@ -188,6 +197,15 @@ export function reasonText(reason: string | undefined, details?: { balance?: num
       return "The check couldn't run right now. Your credits were refunded.";
     case "moment_missing":
       return "This Moment no longer exists.";
+    case "bad_pack":
+    case "bad_return_url":
+      return "The app sent a purchase the server didn't accept. Reload the page and try again.";
+    case "payments_unconfigured":
+      return "Buying credits isn't switched on for this deployment yet.";
+    case "pay_unavailable":
+      return "The payment service couldn't be reached. Try again in a moment; you haven't been charged.";
+    case "unknown_purchase":
+      return "That purchase isn't on this account. Sign in with the account that bought it.";
     default:
       return "The check couldn't run. Try again.";
   }
