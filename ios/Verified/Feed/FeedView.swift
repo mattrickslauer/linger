@@ -194,7 +194,7 @@ struct WaypointDot: View {
   var fill: Color = FeedInk.ink
 
   var body: some View {
-    let line = muted ? FeedInk.muted : FeedInk.orange
+    let line = muted ? FeedInk.muted : Theme.track
     let c = pending ? FeedInk.muted : muted ? FeedInk.bad : FeedInk.gold
     ZStack {
       switch kind {
