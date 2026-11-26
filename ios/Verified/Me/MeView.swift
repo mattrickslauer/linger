@@ -1,154 +1,71 @@
 import SwiftUI
 import VerifiedCore
 
-/// Me tab: profile, my Moments (any status, with sync state), cloud judge status, developer switches.
+/// Me tab: profile header (credits pill, verified / not / pending tiles, raw-vault state), then Moments as a
+/// two-column grid of proof-photo thumbnails with status badges. Hybrid AI info, developer switches and sign-out live
+/// in Settings (gear). Guests get one sign-in card and their on-device Moments.
 struct MeView: View {
   @Environment(AppModel.self) private var app
-  @AppStorage("useEmulator") private var useEmulator = false
-  @AppStorage("emulatorHost") private var emulatorHost = "127.0.0.1"
+  @Environment(\.dynamicTypeSize) private var typeSize
   /// The Moment waiting for delete confirmation.
   @State private var pendingDelete: MomentCardData?
   @State private var deleteError: String?
+  @State private var showingSettings = false
 
   var body: some View {
     NavigationStack {
-      List {
-        if let user = app.auth.user {
-          Section {
-            HStack(spacing: 14) {
-              Avatar(url: user.photoURL, name: user.name, size: 52)
-              VStack(alignment: .leading, spacing: 4) {
-                Text(user.name).font(.headline)
-                Text(stats).font(.subheadline).foregroundStyle(.secondary)
-              }
-            }
-            .padding(.vertical, 4)
-            Text(rawData).font(.footnote).foregroundStyle(app.vault.held.isEmpty ? Theme.accent : Theme.warn)
-            if let c = app.credits.credits {
-              HStack {
-                Label("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits")", systemImage: "circle.hexagongrid.fill")
-                  .foregroundStyle(Theme.accent)
-                Spacer()
-                Text(c.justGranted ? "\(c.granted) free to start" : "free demo · \(c.spent) spent")
-                  .font(.caption).foregroundStyle(.secondary)
-              }
-              .font(.subheadline.weight(.semibold))
-            }
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          if let user = app.auth.user {
+            profile(user)
+          } else {
+            guestCard
           }
-        } else {
-          Section {
-            HStack(spacing: 14) {
-              Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.system(size: 44)).foregroundStyle(.secondary)
-              VStack(alignment: .leading, spacing: 4) {
-                Text("Guest").font(.headline)
-                Text("Browse and record freely. Sign in to upload, verify and climb the ladder.")
-                  .font(.subheadline).foregroundStyle(.secondary)
-              }
-            }
-            .padding(.vertical, 4)
-            Button {
-              app.signIn()
-            } label: {
-              Label("Sign in", systemImage: "person.badge.key.fill").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-          }
-        }
 
-        if !app.vault.guestMoments.isEmpty {
-          Section {
-            ForEach(app.vault.guestMoments) { m in
-              NavigationLink {
-                MomentDetailView(initial: m, fromMyMoments: true)
-              } label: {
-                MyMomentRow(item: m, judging: false)
-              }
-              .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if app.canDelete(m, fromMyMoments: true) {
-                  Button { pendingDelete = m } label: { Label("Delete", systemImage: "trash") }
-                    .tint(Theme.bad)
-                }
-                if m.status == "submitted" {
-                  Button { app.upload(m) } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
-                    .tint(Theme.accent)
-                }
-              }
-            }
-          } header: {
-            Text("On this device")
-          } footer: {
-            Text("Recorded as a guest and kept only on this phone. Swipe to upload one, or sign in to upload them all.")
-          }
-        }
-
-        if app.auth.user != nil {
-        Section {
-          if app.mine.items.isEmpty {
-            Text("No Moments yet. Start one in Record.").foregroundStyle(.secondary)
-          }
-          ForEach(app.mine.items) { m in
-            NavigationLink {
-              MomentDetailView(initial: m, fromMyMoments: true)
-            } label: {
-              MyMomentRow(item: m, judging: app.judge.running.contains(m.id))
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-              if app.canDelete(m, fromMyMoments: true) {
-                // No destructive role here: that animates the row away before the user has confirmed.
-                Button { pendingDelete = m } label: { Label("Delete", systemImage: "trash") }
-                  .tint(Theme.bad)
-              }
-            }
-            .contextMenu {
-              if app.canDelete(m, fromMyMoments: true) {
-                Button(role: .destructive) { pendingDelete = m } label: { Label("Delete Moment", systemImage: "trash") }
-              }
-            }
-          }
-        } header: {
-          Text("My Moments")
-        } footer: {
           if let err = app.judge.lastError {
-            VStack(alignment: .leading, spacing: 6) {
-              Text(err).foregroundStyle(Theme.bad)
-              Button("Retry cloud judge") { app.judge.retry() }
+            HStack(spacing: 10) {
+              Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.bad)
+              Text(err).font(.footnote).lineLimit(2)
+              Spacer(minLength: 4)
+              Button("Retry") { app.judge.retry() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            }
+            .surfaceCard(padding: 12)
+          }
+
+          if !app.vault.guestMoments.isEmpty {
+            section(title: "On this device", icon: Glyph.onDevice, count: app.vault.guestMoments.count,
+                    note: "Hold one to upload or delete") {
+              grid(app.vault.guestMoments, guest: true)
+            }
+          }
+
+          if app.auth.user != nil {
+            section(title: "My Moments", icon: "square.grid.2x2", count: app.mine.items.count, note: nil) {
+              if app.mine.items.isEmpty {
+                ContentUnavailableView {
+                  Label("No Moments yet", systemImage: Glyph.proof)
+                } description: {
+                  Text("Your recordings show up here.")
+                } actions: {
+                  Button { app.tab = .record } label: { Label("Record a Moment", systemImage: "record.circle.fill") }
+                    .buttonStyle(.borderedProminent).tint(Theme.lake)
+                }
+              } else {
+                grid(app.mine.items, guest: false)
+              }
             }
           }
         }
-        }
-
-        Section("Hybrid AI") {
-          LabeledContent("Live coach", value: LiveCoach.onDeviceAvailable ? "On-device first" : "Cloud fallback")
-          Text(LiveCoach.availabilityNote).font(.footnote).foregroundStyle(.secondary)
-          LabeledContent("Judge, skeptic, scorer", value: FirebaseSetup.cloudModel)
-          LabeledContent("Network", value: app.network.isOnline ? "Online" : "Offline")
-        }
-
-        Section {
-          Toggle("Use Firebase Emulator", isOn: $useEmulator)
-          if useEmulator {
-            TextField("Emulator host (your Mac's IP)", text: $emulatorHost)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-              .keyboardType(.numbersAndPunctuation)
-          }
-          LabeledContent("Now using", value: AppConfig.useEmulator ? "Emulator · \(AppConfig.emulatorHost)" : "Production")
-        } header: {
-          Text("Developer")
-        } footer: {
-          Text("Emulator settings take effect the next time the app launches. Version \(AppConfig.appVersion).")
-        }
-
-        if app.auth.user != nil {
-          Section {
-            Button("Sign out", role: .destructive) { app.auth.signOut() }
-          } footer: {
-            Text("Signing out never touches Moments kept on this phone.")
-          }
+        .padding(16)
+      }
+      .background(Theme.paper)
+      .navigationTitle("Me")
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button { showingSettings = true } label: { Label("Settings", systemImage: "gearshape") }
         }
       }
-      .navigationTitle("Me")
+      .sheet(isPresented: $showingSettings) { MeSettings().presentationDetents([.medium, .large]) }
       .confirmationDialog(
         MomentDeletion.confirmTitle,
         isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -172,49 +89,256 @@ struct MeView: View {
     do { try app.deleteMoment(m) } catch { deleteError = error.localizedDescription }
   }
 
-  private var stats: String {
+  // MARK: Header
+
+  private func profile(_ user: SignedInUser) -> some View {
     let items = app.mine.items
     let sealed = items.filter { $0.status == "sealed" }.count
-    return "\(items.count) \(items.count == 1 ? "Moment" : "Moments") · \(sealed) verified"
+    let rejected = items.filter { $0.status == "rejected" }.count
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 14) {
+        Avatar(url: user.photoURL, name: user.name, size: 56)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(user.name).font(.title3.weight(.bold)).lineLimit(1)
+          vaultLine
+        }
+        Spacer(minLength: 4)
+        if let c = app.credits.credits {
+          Label("\(c.balance)", systemImage: Glyph.credits)
+            .font(.headline.monospacedDigit())
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .foregroundStyle(Color(hex: 0x10242B))
+            .background(Theme.gold, in: Capsule())
+            .accessibilityLabel("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits"), "
+                                + (c.justGranted ? "\(c.granted) free to start" : "free demo, \(c.spent) spent"))
+        }
+      }
+      AdaptiveStack(spacing: 8) {
+        StatTile(icon: "checkmark.seal.fill", value: "\(sealed)", label: "verified", tint: Theme.ok)
+        StatTile(icon: "xmark.seal", value: "\(rejected)", label: "not", tint: Theme.bad)
+        StatTile(icon: "hourglass", value: "\(items.count - sealed - rejected)", label: "pending", tint: Theme.ink2)
+      }
+    }
   }
 
-  /// Raw vault state (same wording as Android).
-  private var rawData: String {
+  /// Raw vault state: one glyph line (the full sentence for VoiceOver).
+  private var vaultLine: some View {
     let held = app.vault.held
     let conflicts = held.values.filter { $0 == .conflict }.count
-    if held.isEmpty { return "Raw data: all safely stored on the server ✓" }
-    if conflicts > 0 { return "Raw data: \(conflicts) Moment(s) differ from the server — kept on this phone" }
-    return "Raw data: \(held.count) Moment(s) kept on this phone until the server confirms every chunk"
+    let (icon, text, tint, full): (String, String, Color, String) =
+      if held.isEmpty { ("checkmark.shield.fill", "Raw data on server", Theme.ok, "Raw data: all safely stored on the server") }
+      else if conflicts > 0 {
+        ("exclamationmark.triangle.fill", "\(conflicts) differ · kept here", Theme.bad,
+         "Raw data: \(conflicts) Moment(s) differ from the server, kept on this phone")
+      } else {
+        (Glyph.onDevice, "\(held.count) kept on phone", Theme.warn,
+         "Raw data: \(held.count) Moment(s) kept on this phone until the server confirms every chunk")
+      }
+    return Label(text, systemImage: icon)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(tint)
+      .lineLimit(1)
+      .accessibilityLabel(full)
+  }
+
+  private var guestCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(spacing: 12) {
+        Image(systemName: "person.crop.circle.badge.questionmark")
+          .font(.system(size: 40)).foregroundStyle(Theme.lake)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Guest").font(.title3.weight(.bold))
+          Text("Sign in to verify and climb the ladder").font(.subheadline).foregroundStyle(.secondary)
+        }
+      }
+      Button { app.signIn() } label: {
+        Label("Sign in", systemImage: "person.badge.key.fill").font(.headline).frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent).tint(Theme.lake).controlSize(.large)
+    }
+    .surfaceCard(padding: 16, radius: 22)
+  }
+
+  // MARK: Grid
+
+  private func section<Content: View>(title: String, icon: String, count: Int, note: String?,
+                                      @ViewBuilder _ content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Label(title, systemImage: icon).font(.headline)
+        Text("\(count)").font(.subheadline.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
+        Spacer(minLength: 0)
+        if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityAddTraits(.isHeader)
+      content()
+    }
+  }
+
+  private func grid(_ items: [MomentCardData], guest: Bool) -> some View {
+    let columns = typeSize.isAccessibilitySize
+      ? [GridItem(.flexible())]
+      : [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+    return LazyVGrid(columns: columns, spacing: 10) {
+      ForEach(items) { m in
+        let canDelete = app.canDelete(m, fromMyMoments: true)
+        NavigationLink {
+          MomentDetailView(initial: m, fromMyMoments: true)
+        } label: {
+          MomentTile(item: m, judging: !guest && app.judge.running.contains(m.id))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+          if guest && m.status == "submitted" {
+            Button { app.upload(m) } label: { Label("Upload & verify", systemImage: "icloud.and.arrow.up") }
+          }
+          if canDelete {
+            Button(role: .destructive) { pendingDelete = m } label: { Label("Delete Moment", systemImage: "trash") }
+          }
+        }
+        .accessibilityActions {
+          if guest && m.status == "submitted" {
+            Button("Upload & verify") { app.upload(m) }
+          }
+          if canDelete {
+            Button("Delete Moment") { pendingDelete = m }
+          }
+        }
+      }
+    }
   }
 }
 
-private struct MyMomentRow: View {
+/// A Moment thumbnail: the proof photo with its status badge, score ring, intention and stats overlaid.
+private struct MomentTile: View {
   let item: MomentCardData
   let judging: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .top) {
-        Text(item.intention).font(.subheadline.weight(.semibold)).lineLimit(2)
-        Spacer()
-        VerdictBadge(status: item.badgeStatus).scaleEffect(0.85)
+    HeroImage(b64: item.heroJpegB64, category: item.category)
+      .frame(height: 210).frame(maxWidth: .infinity).clipped()
+      .saturation(item.status == "rejected" ? 0.2 : 1)
+      .overlay {
+        LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: Theme.media.opacity(0.92), location: 1)],
+                       startPoint: .top, endPoint: .bottom)
       }
-      HStack(spacing: 6) {
-        if let s = item.summary {
-          Text("\(formatDuration(ms: s.durationMs)) · \(formatDistance(s.distanceM)) · \(s.frameCount) frames")
-            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+      .overlay(alignment: .topLeading) {
+        StatusBadge(status: item.badgeStatus, compact: true).padding(8)
+      }
+      .overlay(alignment: .topTrailing) {
+        HStack(spacing: 4) {
+          if item.hasPendingWrites {
+            Image(systemName: "icloud.slash").font(.caption.weight(.bold))
+              .padding(6).background(.ultraThinMaterial, in: Circle())
+          } else if judging {
+            Image(systemName: Glyph.ai).font(.caption.weight(.bold))
+              .symbolEffect(.pulse, options: .repeating)
+              .padding(6).background(.ultraThinMaterial, in: Circle())
+          }
+          if let p = item.displayScore {
+            ScoreRing(p: p, bar: item.bar?.value, size: 38, caption: nil)
+              .background(Circle().fill(.ultraThinMaterial))
+          }
         }
-        Spacer()
-        if item.hasPendingWrites {
-          Chip(text: "queued", systemImage: "icloud.slash", color: Theme.warn)
-        } else if judging {
-          Chip(text: "judging", systemImage: "brain", color: .blue)
+        .padding(8)
+      }
+      .overlay(alignment: .bottomLeading) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(item.intention).font(.footnote.weight(.bold)).lineLimit(2).multilineTextAlignment(.leading)
+          if let s = item.summary {
+            HStack(spacing: 8) {
+              Label(formatDuration(ms: s.durationMs), systemImage: Glyph.timing)
+              Label(formatDistance(s.distanceM), systemImage: Glyph.gps)
+            }
+            .font(.caption2.weight(.semibold).monospacedDigit())
+            .labelStyle(CompactLabelStyle())
+            .opacity(0.85)
+          }
         }
+        .padding(10)
       }
-      if let reason = item.sealReason, !reason.isEmpty {
-        Text(reason).font(.caption2).foregroundStyle(item.isVerified ? Theme.accent : Theme.bad).lineLimit(2)
-      }
+      .foregroundStyle(.white)
+      .environment(\.colorScheme, .dark)
+      .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("\(item.intention), \(StatusBadge.style(item.badgeStatus).text)"
+                          + (item.displayScore.map { ", \(Int(($0 * 100).rounded())) percent likely true" } ?? "")
+                          + (item.hasPendingWrites ? ", queued" : judging ? ", judging" : ""))
+      .accessibilityAddTraits(.isButton)
+  }
+}
+
+/// Glyph and title with a tight gap (tile stats).
+private struct CompactLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 3) {
+      configuration.icon
+      configuration.title
     }
-    .padding(.vertical, 2)
+  }
+}
+
+/// Settings: hybrid AI status, developer switches, sign-out. Standard list style.
+private struct MeSettings: View {
+  @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
+  @AppStorage("useEmulator") private var useEmulator = false
+  @AppStorage("emulatorHost") private var emulatorHost = "127.0.0.1"
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Section("Hybrid AI") {
+          LabeledContent {
+            HybridBadge(onDevice: LiveCoach.onDeviceAvailable,
+                        text: LiveCoach.onDeviceAvailable ? "on device first" : "cloud fallback")
+          } label: {
+            Label("Live coach", systemImage: Glyph.shots)
+          }
+          Text(LiveCoach.availabilityNote).font(.footnote).foregroundStyle(.secondary)
+          LabeledContent {
+            Text(FirebaseSetup.cloudModel)
+          } label: {
+            Label("Judge, skeptic, scorer", systemImage: Glyph.cloud)
+          }
+          LabeledContent {
+            Text(app.network.isOnline ? "Online" : "Offline")
+          } label: {
+            Label("Network", systemImage: app.network.isOnline ? "wifi" : "wifi.slash")
+          }
+        }
+
+        Section {
+          Toggle("Use Firebase Emulator", isOn: $useEmulator)
+          if useEmulator {
+            TextField("Emulator host (your Mac's IP)", text: $emulatorHost)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .keyboardType(.numbersAndPunctuation)
+          }
+          LabeledContent("Now using", value: AppConfig.useEmulator ? "Emulator · \(AppConfig.emulatorHost)" : "Production")
+        } header: {
+          Text("Developer")
+        } footer: {
+          Text("Emulator settings take effect the next time the app launches. Version \(AppConfig.appVersion).")
+        }
+
+        if app.auth.user != nil {
+          Section {
+            Button("Sign out", role: .destructive) {
+              app.auth.signOut()
+              dismiss()
+            }
+          } footer: {
+            Text("Signing out never touches Moments kept on this phone.")
+          }
+        }
+      }
+      .navigationTitle("Settings")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
   }
 }
