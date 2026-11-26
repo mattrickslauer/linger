@@ -162,7 +162,7 @@ fun SharedVideoSection(d: MomentDetail) {
                         Spacer(Modifier.weight(1f))
                         Text(
                             when (c.hashOk) { true -> "hash ✓"; false -> "Hash does not match the chain"; null -> "uploaded" },
-                            color = when (c.hashOk) { true -> Green; false -> Red; null -> Color.Gray }, fontSize = 12.sp,
+                            color = when (c.hashOk) { true -> Ok; false -> Bad; null -> Color.Gray }, fontSize = 12.sp,
                         )
                     }
                 }

@@ -124,7 +124,7 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
             d != null -> DetailBody(d, Modifier.padding(pad)) {
                 com.mattricks.verified.auth.Gate.require("run a verification module") { ladderOpen = true }
             }
-            error != null -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text(error ?: "", color = Red) }
+            error != null -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text(error ?: "", color = Bad) }
             else -> Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
     }
@@ -190,7 +190,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
             f.check?.let { c ->
                 Text(
                     (if (c.ok) "Keep going" else "Retake: ${c.reason}") + (if (c.label.isNotBlank()) " · ${c.label}" else "") + " · " + onDeviceLabel(c.mode),
-                    style = MaterialTheme.typography.bodySmall, color = if (c.ok) Green else Red,
+                    style = MaterialTheme.typography.bodySmall, color = if (c.ok) Ok else Bad,
                 )
             }
             f.witnessAsk?.let { Pill("Witness asked: $it", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) }
@@ -202,7 +202,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
                         Card(onClick = { selected = i }) { B64Image(fr.jpegB64, Modifier.size(width = 84.dp, height = 64.dp)) }
                         Text(
                             if (d.startedAt > 0 && fr.t > 0) "+${(fr.t - d.startedAt) / 1000}s" else "#${fr.seq}",
-                            fontSize = 11.sp, color = if (fr.check?.ok == false) Red else Color.Gray,
+                            fontSize = 11.sp, color = if (fr.check?.ok == false) Bad else Color.Gray,
                             fontWeight = if (i == selected) FontWeight.Bold else FontWeight.Normal,
                         )
                     }
@@ -229,7 +229,7 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
                     d.chainOk == false -> "${d.chunkCount} chunks · the chain does not verify on this phone ✗"
                     else -> "${d.chunkCount} chunks"
                 },
-                style = MaterialTheme.typography.bodySmall, color = if (d.chainOk == false) Red else Color.Gray,
+                style = MaterialTheme.typography.bodySmall, color = if (d.chainOk == false) Bad else Color.Gray,
             )
         }
     }
@@ -306,12 +306,13 @@ private fun DetailBody(d: MomentDetail, modifier: Modifier, onOpenLadder: () -> 
 private fun RoomRow(kind: Wp, ok: Boolean, header: Boolean, content: @Composable ColumnScope.() -> Unit) {
     val muted = MaterialTheme.colorScheme.outline
     val hole = MaterialTheme.colorScheme.background
+    val badC = Bad
     Row(
         Modifier.fillMaxWidth().drawBehind {
             val x = 16.dp.toPx() + 7.dp.toPx()
             val dotY = 22.dp.toPx()
             if (kind != Wp.Result) dashedTrack(x, if (header) dotY + 14.dp.toPx() else 0f, size.height, if (ok) TrackOrange else muted)
-            if (header) waypointDot(kind, ok, Offset(x, dotY), hole = hole, muted = muted, bad = Red)
+            if (header) waypointDot(kind, ok, Offset(x, dotY), hole = hole, muted = muted, bad = badC)
         }.padding(start = 16.dp + 28.dp, end = 16.dp),
     ) {
         Column(Modifier.weight(1f).padding(top = if (header) 8.dp else 7.dp, bottom = 7.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
@@ -328,7 +329,7 @@ private fun RoomVerdict(d: MomentDetail, ok: Boolean, checks: Map<String, Boolea
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (decided) SealStamp(ok, Modifier.padding(vertical = 4.dp).graphicsLayer { rotationZ = -4f }, big = false)
             else StatusBadge(d.card.status, d.local)
-            if (d.card.cheating) d.v4?.cheatingSignals?.firstOrNull()?.let { Text(it, color = Red, style = MaterialTheme.typography.bodyMedium) }
+            if (d.card.cheating) d.v4?.cheatingSignals?.firstOrNull()?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodyMedium) }
             (d.seal?.reason ?: d.feedReason)?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             Text(
                 buildString {
@@ -338,9 +339,7 @@ private fun RoomVerdict(d: MomentDetail, ok: Boolean, checks: Map<String, Boolea
                 },
                 style = MaterialTheme.typography.bodySmall, color = Color.Gray,
             )
-            if (checks.isNotEmpty()) CheckPips(
-                checks, ok = Green, bad = Red, ink = MaterialTheme.colorScheme.onSurface, bg = MaterialTheme.colorScheme.surfaceVariant,
-            )
+            if (checks.isNotEmpty()) CheckPips(checks)
         }
     }
 }
@@ -383,7 +382,7 @@ private fun LocalBanner(d: MomentDetail) {
     val guest = remember(d.card.id, uploading) { com.mattricks.verified.data.Vault.isGuest(d.card.id) }
     if (!guest) {
         // A signed-in Moment the server doesn't have yet: the raw vault uploads it by itself, no claim needed.
-        Pill("Kept on this phone · syncs when online", Amber)
+        Pill("Kept on this phone · syncs when online", Warn)
         return
     }
     Card(Modifier.fillMaxWidth(), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -394,7 +393,7 @@ private fun LocalBanner(d: MomentDetail) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             when {
-                d.card.id in uploading -> Text("Uploading…", color = Green)
+                d.card.id in uploading -> Text("Uploading…", color = Ok)
                 d.card.status == "submitted" -> androidx.compose.material3.Button(onClick = {
                     com.mattricks.verified.auth.Gate.require("verify this Moment") { com.mattricks.verified.data.Claims.claim(listOf(d.card.id)) }
                 }) { Text("Upload & verify") }
@@ -415,8 +414,8 @@ private fun WitnessSection(d: MomentDetail) {
                 Row(verticalAlignment = Alignment.Top) {
                     val (mark, color) = when (w.outcome) {
                         null -> "…" to Color.Gray
-                        "skipped" -> "–" to Amber
-                        else -> "✓" to Green
+                        "skipped" -> "–" to Warn
+                        else -> "✓" to Ok
                     }
                     Text(mark, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
                     Column(Modifier.weight(1f)) {
@@ -455,7 +454,7 @@ private fun IntentionSection(i: com.mattricks.verified.data.Intention, distanceM
                 i.expectedMinutes?.let { "~${it.toInt()} min" },
             ).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
             i.quantities.forEach { q -> Text("• ${q.metric}: ${fmtNum(q.value)} ${q.unit} (by ${q.measuredBy})", style = MaterialTheme.typography.bodyMedium) }
-            measuredHint(i, distanceM)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
+            measuredHint(i, distanceM)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Ok) }
             if (i.conditions.isNotEmpty()) Text("Conditions: " + i.conditions.joinToString(", "), style = MaterialTheme.typography.bodySmall)
             if (i.assumptions.isNotEmpty()) Text("Assumed: " + i.assumptions.joinToString("; "), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Text("Interview: ${i.interviewTurns} answer(s) · ${modeChip(i.interviewMode)}", fontSize = 11.sp, color = Color.Gray)
@@ -499,7 +498,7 @@ private fun BarCard(d: MomentDetail) {
                 bar != null -> {
                     Row(verticalAlignment = Alignment.Bottom) {
                         if (score != null) {
-                            Text(com.mattricks.verified.data.V3Math.fmt(score), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = if (score >= bar.value) Green else Amber)
+                            Text(com.mattricks.verified.data.V3Math.fmt(score), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = if (score >= bar.value) Ok else Warn)
                             Text("  score", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
                             Spacer(Modifier.width(16.dp))
                         }
@@ -533,7 +532,7 @@ private fun Section(t: String) = Text(t, style = MaterialTheme.typography.titleM
 
 @Composable
 private fun CheckRow(label: String, ok: Boolean) = Row(verticalAlignment = Alignment.CenterVertically) {
-    Text(if (ok) "✓" else "✗", color = if (ok) Green else Red, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
+    Text(if (ok) "✓" else "✗", color = if (ok) Ok else Bad, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
     Text(label)
 }
 
@@ -545,7 +544,7 @@ private fun OpinionCard(title: String, o: Opinion?, fallbackReasons: List<String
                 Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (o != null) Pill(
                     "${o.verdict} · ${(o.confidence * 100).toInt()}%",
-                    when (o.verdict) { "consistent" -> Green; "inconsistent" -> Red; else -> Amber },
+                    when (o.verdict) { "consistent" -> Ok; "inconsistent" -> Bad; else -> Warn },
                 )
             }
             val reasons = o?.reasons ?: fallbackReasons
@@ -566,7 +565,7 @@ private fun ScoreCard(s: Score?, bar: Double, baseline: Boolean) {
             } else {
                 Text(
                     "${(s.probability * 100).toInt()}%", fontSize = 36.sp, fontWeight = FontWeight.Bold,
-                    color = if (s.probability >= bar) Green else Red,
+                    color = if (s.probability >= bar) Ok else Bad,
                 )
                 Text(
                     "Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%).",

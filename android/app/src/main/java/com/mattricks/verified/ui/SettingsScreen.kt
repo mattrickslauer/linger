@@ -80,7 +80,7 @@ fun SettingsScreen() {
                             )
                         }
                         dev.bpm?.let {
-                            Icon(Icons.Filled.Favorite, null, tint = Red, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Filled.Favorite, null, tint = Bad, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("$it", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         }
@@ -102,7 +102,7 @@ fun SettingsScreen() {
             if (dev.scanning) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White); Spacer(Modifier.width(8.dp)); Text("Scanning…") }
             else Text(if (dev.savedName == null) "Scan for devices" else "Scan for another device")
         }
-        dev.error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
+        dev.error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
         if (dev.found.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
             dev.found.forEachIndexed { i, f ->
                 if (i > 0) HorizontalDivider()
@@ -111,7 +111,7 @@ fun SettingsScreen() {
                         Text(f.name, fontWeight = FontWeight.SemiBold)
                         Text(
                             (if (f.heartRate) "Heart rate · " else "") + "${f.rssi} dBm",
-                            style = MaterialTheme.typography.bodySmall, color = if (f.heartRate) Green else Color.Gray,
+                            style = MaterialTheme.typography.bodySmall, color = if (f.heartRate) Ok else Color.Gray,
                         )
                     }
                     val current = f.address == dev.savedAddress && dev.link != Devices.Link.Off

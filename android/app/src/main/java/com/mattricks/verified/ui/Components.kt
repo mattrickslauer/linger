@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -48,23 +48,6 @@ import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.max
 
-val Green = Color(0xFF0F7A4A)
-val GreenDark = Color(0xFF0B5133)
-val Amber = Color(0xFFB26A00)
-val Red = Color(0xFFB3261E)
-val GridLine = Color(0xFFE3E8E5)
-
-val VerifiedLight = lightColorScheme(
-    primary = Green, onPrimary = Color.White, primaryContainer = Color(0xFFD4F0E1), onPrimaryContainer = GreenDark,
-    secondary = Color(0xFF3D5A4C), background = Color(0xFFF7F9F8), surface = Color.White,
-    surfaceVariant = Color(0xFFEFF3F1),
-)
-val VerifiedDark = darkColorScheme(primary = Color(0xFF6FD3A0), primaryContainer = GreenDark)
-
-@Composable
-fun VerifiedTheme(dark: Boolean, content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = if (dark) VerifiedDark else VerifiedLight, content = content)
-
 fun decodeB64(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let {
     runCatching { Base64.decode(it, Base64.DEFAULT).let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) } }.getOrNull()
 }
@@ -74,7 +57,7 @@ fun B64Image(b64: String?, modifier: Modifier = Modifier) {
     val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
     if (bmp != null) Image(bmp, null, modifier, contentScale = ContentScale.Crop)
     else Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        Text("No frame", color = Color.Gray, fontSize = 12.sp)
+        Icon(Glyph.Frames, "No frame", tint = MaterialTheme.colorScheme.outline)
     }
 }
 
@@ -87,25 +70,10 @@ fun fmtDuration(ms: Long): String {
 fun fmtDistance(m: Double): String = if (m >= 1000) String.format(Locale.US, "%.2f km", m / 1000) else "${m.toInt()} m"
 
 @Composable
-fun Pill(text: String, bg: Color, fg: Color = Color.White, modifier: Modifier = Modifier) {
+fun Pill(text: String, bg: Color, fg: Color = contentOn(bg), modifier: Modifier = Modifier) {
     Surface(modifier, color = bg, shape = RoundedCornerShape(50)) {
         Text(text, color = fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
     }
-}
-
-@Composable
-fun StatusBadge(status: String, local: Boolean = false) = when {
-    local && status == "recording" -> Pill("Recording · on this phone", Color.DarkGray)
-    local -> Pill("On this device", Color(0xFF3D5A4C))
-    else -> StatusBadgeServer(status)
-}
-
-@Composable
-private fun StatusBadgeServer(status: String) = when (status) {
-    "sealed" -> Pill("Verified ✓", Green)
-    "rejected" -> Pill("Not verified", Red)
-    "submitted" -> Pill("Sealing…", Amber)
-    else -> Pill("Recording", Color.DarkGray)
 }
 
 fun onDeviceLabel(mode: String) = when (mode) {
@@ -114,75 +82,16 @@ fun onDeviceLabel(mode: String) = when (mode) {
     else -> "not checked live"
 }
 
-@Composable
-fun MomentCardView(c: MomentCard, onDelete: (() -> Unit)? = null, onUpload: (() -> Unit)? = null, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        if (c.heroJpegB64 != null) B64Image(c.heroJpegB64, Modifier.fillMaxWidth().aspectRatio(16f / 10f))
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.intention, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                StatusBadge(c.status, c.local)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(c.ownerName.ifBlank { "Someone" } + " · " + c.category, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${fmtDuration(c.summary.durationMs)} · ${fmtDistance(c.summary.distanceM)} · ${c.summary.frameCount} frames",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            ScoreBarLine(c)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (c.local) Pill("sign in to verify", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                else {
-                    Pill(c.platform.ifBlank { "android" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                    Pill(onDeviceLabel(c.onDeviceMode), MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-                if (c.pendingWrites) Pill("Offline · queued", Amber)
-                if (onDelete != null || onUpload != null) Spacer(Modifier.weight(1f))
-                if (onUpload != null) TextButton(onClick = onUpload) { Text("Upload") }
-                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", color = Red) }
-            }
-        }
-    }
-}
-
-/** v3.8 card line: "score 0.83 · bar 0.80" over the meter, a ladder chip, or the client's bar preview for local Moments. */
-@Composable
-private fun ScoreBarLine(c: MomentCard) {
-    val bar = c.bar ?: c.previewBar ?: return
-    val preview = c.bar == null
-    Spacer(Modifier.height(8.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            buildString {
-                if (!preview && c.score != null) append("score ${com.mattricks.verified.data.V3Math.fmt(c.score)} · ")
-                append(if (preview) "bar ≈ ${com.mattricks.verified.data.V3Math.fmt(bar)} (preview)" else "bar ${com.mattricks.verified.data.V3Math.fmt(bar)}")
-            },
-            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
-        )
-        // v4.8: badge unchanged + "2/2 claims backed"; cheating → "Not verified · cheating detected".
-        if (c.cheating) { Pill("Not verified · cheating detected", Red); Spacer(Modifier.width(6.dp)) }
-        else if (c.claimsTotal != null && c.claimsTotal > 0 && c.claimsBacked != null) {
-            Pill("${c.claimsBacked}/${c.claimsTotal} claims backed", if (c.claimsBacked == c.claimsTotal) Green else MaterialTheme.colorScheme.surfaceVariant,
-                if (c.claimsBacked == c.claimsTotal) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(6.dp))
-        }
-        if (c.ladderCount > 0) Pill("+${c.ladderCount} check${if (c.ladderCount == 1) "" else "s"}", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-        if (c.witnessAsked > 0) { Spacer(Modifier.width(6.dp)); Pill("witness ${c.witnessAsked}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant) }
-    }
-    Spacer(Modifier.height(4.dp))
-    BarMeter(if (preview) null else c.score, bar, Modifier.fillMaxWidth(), height = 8.dp)
-}
-
 /** GPS track on a light grid, equirectangular projection fitted to the box. No Maps API key needed. */
 @Composable
 fun TrackCanvas(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolean = false) {
-    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF4F7F5))) {
+    val v = LocalV.current
+    val gridLine = v.ink.copy(alpha = 0.07f)
+    val ground = if (v.dark) Color(0xFF132A31) else v.sheet
+    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(ground)) {
         val step = 24.dp.toPx()
-        var x = 0f; while (x < size.width) { drawLine(GridLine, Offset(x, 0f), Offset(x, size.height)); x += step }
-        var y = 0f; while (y < size.height) { drawLine(GridLine, Offset(0f, y), Offset(size.width, y)); y += step }
+        var x = 0f; while (x < size.width) { drawLine(gridLine, Offset(x, 0f), Offset(x, size.height)); x += step }
+        var y = 0f; while (y < size.height) { drawLine(gridLine, Offset(0f, y), Offset(size.width, y)); y += step }
         if (track.isEmpty()) return@Canvas
         val k = cos(Math.toRadians(track.first().lat))
         val xs = track.map { it.lng * k }; val ys = track.map { it.lat }
@@ -194,17 +103,17 @@ fun TrackCanvas(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolea
         fun p(i: Int) = Offset((size.width / 2 + (xs[i] - cx) * scale).toFloat(), (size.height / 2 - (ys[i] - cy) * scale).toFloat())
         if (track.size > 1) {
             val path = Path().apply { moveTo(p(0).x, p(0).y); for (i in 1 until track.size) lineTo(p(i).x, p(i).y) }
-            drawPath(path, Green, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(path, v.track, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 6.dp.toPx()))))
         }
-        drawCircle(Color.White, 7.dp.toPx(), p(0)); drawCircle(GreenDark, 5.dp.toPx(), p(0))
+        drawCircle(ground, 7.dp.toPx(), p(0)); drawCircle(v.track, 5.dp.toPx(), p(0), style = Stroke(2.5.dp.toPx()))
         val last = p(track.size - 1)
         if (live) drawCircle(Color(0x332E7DF6), 14.dp.toPx(), last)
-        drawCircle(Color.White, 7.dp.toPx(), last); drawCircle(if (live) Color(0xFF2E7DF6) else Red, 5.dp.toPx(), last)
+        drawCircle(Color.White, 7.dp.toPx(), last); drawCircle(if (live) Color(0xFF2E7DF6) else SealGold, 5.dp.toPx(), last)
     }
 }
 
 @Composable
-fun Sparkline(values: List<Float>, modifier: Modifier = Modifier, color: Color = Green) {
+fun Sparkline(values: List<Float>, modifier: Modifier = Modifier, color: Color = TrackOrange) {
     Canvas(modifier) {
         if (values.size < 2) return@Canvas
         val mn = values.min(); val mx = max(values.max(), mn + 0.5f)
@@ -221,8 +130,10 @@ fun Sparkline(values: List<Float>, modifier: Modifier = Modifier, color: Color =
 /** Motion magnitude over time with frame markers. */
 @Composable
 fun MotionChart(motion: List<Pair<Long, Float>>, frameTimes: List<Long>, modifier: Modifier = Modifier) {
-    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF4F7F5))) {
-        for (i in 1..3) { val y = size.height * i / 4; drawLine(GridLine, Offset(0f, y), Offset(size.width, y)) }
+    val v = LocalV.current
+    val gridLine = v.ink.copy(alpha = 0.07f)
+    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(if (v.dark) Color(0xFF132A31) else v.sheet)) {
+        for (i in 1..3) { val y = size.height * i / 4; drawLine(gridLine, Offset(0f, y), Offset(size.width, y)) }
         if (motion.size < 2) return@Canvas
         val t0 = motion.first().first; val t1 = max(motion.last().first, t0 + 1)
         // downsample to ~2 points per px column
@@ -230,13 +141,13 @@ fun MotionChart(motion: List<Pair<Long, Float>>, frameTimes: List<Long>, modifie
         val pts = motion.filterIndexed { i, _ -> i % stride == 0 }
         val mn = pts.minOf { it.second }; val mx = max(pts.maxOf { it.second }, mn + 0.5f)
         fun x(t: Long) = ((t - t0).toFloat() / (t1 - t0)) * size.width
-        frameTimes.forEach { ft -> if (ft in t0..t1) drawLine(Amber, Offset(x(ft), 0f), Offset(x(ft), size.height), strokeWidth = 2.dp.toPx()) }
+        frameTimes.forEach { ft -> if (ft in t0..t1) drawLine(v.gold, Offset(x(ft), 0f), Offset(x(ft), size.height), strokeWidth = 2.dp.toPx()) }
         val path = Path()
         pts.forEachIndexed { i, (t, v) ->
             val px = x(t); val py = size.height - 6f - (v - mn) / (mx - mn) * (size.height - 12f)
             if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
         }
-        drawPath(path, Green, style = Stroke(width = 1.5.dp.toPx()))
+        drawPath(path, v.lake, style = Stroke(width = 1.5.dp.toPx()))
     }
 }
 
@@ -247,7 +158,7 @@ fun DeleteMomentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Delete this Moment?") },
         text = { Text("Its recording, proof shots and feed entry are removed for good.") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = Red) } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = Bad) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -265,11 +176,12 @@ fun BarMeter(score: Double?, bar: Double, modifier: Modifier = Modifier, height:
     val track = MaterialTheme.colorScheme.outlineVariant
     val tick = MaterialTheme.colorScheme.onSurface // readable in light and dark themes
     val ok = score != null && score >= bar
+    val v = LocalV.current
     Canvas(modifier.height(height + 6.dp)) {
         val h = height.toPx(); val y = (size.height - h) / 2
         drawRoundRect(track, Offset(0f, y), androidx.compose.ui.geometry.Size(size.width, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
         if (score != null) drawRoundRect(
-            if (ok) Green else Amber, Offset(0f, y),
+            if (ok) v.gold else v.bad, Offset(0f, y),
             androidx.compose.ui.geometry.Size((size.width * score.coerceIn(0.0, 1.0)).toFloat().coerceAtLeast(h), h),
             androidx.compose.ui.geometry.CornerRadius(h / 2),
         )

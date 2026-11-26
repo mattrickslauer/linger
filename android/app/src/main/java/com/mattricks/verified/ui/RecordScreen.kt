@@ -158,7 +158,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SyncBadge(ui)
-                ui.heartRate?.let { Pill("♥ $it bpm", Red) }
+                ui.heartRate?.let { Pill("♥ $it bpm", Bad) }
             }
         }
         ui.plan?.let { EvidenceChecklist(it, ui.captured, Modifier.padding(horizontal = 12.dp).padding(bottom = 6.dp)) }
@@ -183,7 +183,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             }
             cam.recordingSince?.let { since ->
                 Pill(
-                    "● REC ${fmtDuration(max(0L, ui.elapsedMs - (since - ui.startedAt)))}", Red,
+                    "● REC ${fmtDuration(max(0L, ui.elapsedMs - (since - ui.startedAt)))}", Bad,
                     modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 56.dp).zIndex(4f),
                 )
             }
@@ -255,21 +255,21 @@ private fun EvidenceChecklist(plan: com.mattricks.verified.data.Plan, captured: 
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("To get this verified", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Text("$done/${plan.requirements.size} captured", fontSize = 12.sp, color = if (next == null) Green else Color.Gray, fontWeight = FontWeight.SemiBold)
+                Text("$done/${plan.requirements.size} captured", fontSize = 12.sp, color = if (next == null) Ok else Color.Gray, fontWeight = FontWeight.SemiBold)
                 Text(if (open) "  ▴" else "  ▾", fontSize = 12.sp, color = Color.Gray)
             }
             val rows = if (open) plan.requirements else listOfNotNull(next)
             rows.forEach { r ->
                 val ok = captured[r.id] == true
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (ok) "●" else "○", color = if (ok) Green else Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
+                    Text(if (ok) "●" else "○", color = if (ok) Ok else Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
                     Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp), tint = Color.Gray)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         r.ask + (r.minSeconds?.let { " (≥ ${fmtNum(it)} s)" } ?: ""), fontSize = 13.sp, maxLines = if (open) 2 else 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    if (ok) Text(" captured", fontSize = 11.sp, color = Green, fontWeight = FontWeight.SemiBold)
+                    if (ok) Text(" captured", fontSize = 11.sp, color = Ok, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -381,8 +381,8 @@ private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, 
     ) {
         when {
             busy -> CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp)
-            recording -> Box(Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(Red))
-            mode == Prefs.CaptureMode.Video -> Box(Modifier.size(58.dp).clip(CircleShape).background(Red))
+            recording -> Box(Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(Bad))
+            mode == Prefs.CaptureMode.Video -> Box(Modifier.size(58.dp).clip(CircleShape).background(Bad))
             else -> Box(Modifier.size(58.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.CameraAlt, "Proof shot", tint = Color.White)
             }
@@ -394,8 +394,8 @@ private fun Shutter(mode: Prefs.CaptureMode, recording: Boolean, busy: Boolean, 
 private fun SyncBadge(ui: RecUi) {
     val (text, color) = when {
         ui.guest -> "On this phone · ${ui.chunksTotal} chunks" to Color(0xFF3D5A4C)
-        ui.chunksPending > 0 -> "Offline · ${ui.chunksPending} chunks queued" to Amber
-        ui.chunksTotal > 0 -> "Synced · ${ui.chunksTotal} chunks" to Green
+        ui.chunksPending > 0 -> "Offline · ${ui.chunksPending} chunks queued" to Warn
+        ui.chunksTotal > 0 -> "Synced · ${ui.chunksTotal} chunks" to Ok
         else -> "Recording · first chunk in 5 s" to Color.DarkGray
     }
     Pill(text, color)
@@ -408,9 +408,9 @@ private fun CoachBanner(ui: RecUi, modifier: Modifier) {
         ui.checking -> "Checking frame…" to Color(0xCC333333)
         c == null -> "Take a proof shot of your progress" to Color(0x99333333)
         c.mode == "none" -> "Frame saved · ${c.reason}" to Color(0xCC555555)
-        !c.ok -> "Retake: ${c.reason}" to Red.copy(alpha = 0.9f)
-        c.mode == "on_device" -> "On-device: keep going" to Green.copy(alpha = 0.92f)
-        else -> "Keep going · checked in the cloud (no on-device model)" to Green.copy(alpha = 0.92f)
+        !c.ok -> "Retake: ${c.reason}" to Bad.copy(alpha = 0.9f)
+        c.mode == "on_device" -> "On-device: keep going" to Ok.copy(alpha = 0.92f)
+        else -> "Keep going · checked in the cloud (no on-device model)" to Ok.copy(alpha = 0.92f)
     }
     Surface(modifier, color = color, shape = RoundedCornerShape(12.dp)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -595,10 +595,10 @@ fun VideoUploadLine(momentId: String?) {
     val u = momentId?.let { uploads[it] }
     val mb = { b: Long -> "${(b + 512 * 1024) / (1024 * 1024)} MB" }
     val (text, color) = when {
-        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection") to Amber
-        u.finished -> "Video uploaded" to Green
-        u.error != null -> "Video upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Amber
-        else -> "Uploading video · ${mb(u.totalBytes)}" to Green
+        u == null -> (if (Judging.online()) "Uploading video…" else "Video waits for a connection") to Warn
+        u.finished -> "Video uploaded" to Ok
+        u.error != null -> "Video upload paused · retrying · ${mb(u.totalBytes - u.sentBytes)} left" to Warn
+        else -> "Uploading video · ${mb(u.totalBytes)}" to Ok
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Pill(text, color)

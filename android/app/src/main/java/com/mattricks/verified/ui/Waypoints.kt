@@ -136,31 +136,6 @@ fun SealStamp(ok: Boolean, modifier: Modifier = Modifier, big: Boolean = true) {
     }
 }
 
-/** Five pips Chain / Timing / Physics / Frames / AI: green dot = passed, red outline = failed. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun CheckPips(checks: Map<String, Boolean>, modifier: Modifier = Modifier, ok: Color = TokOk, bad: Color = TokBad, ink: Color = TokInk, bg: Color = TokBg.copy(alpha = 0.6f)) {
-    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        CHECK_ORDER.forEach { (k, name) ->
-            val passed = checks[k] == true
-            Row(
-                Modifier.clip(RoundedCornerShape(50)).background(bg)
-                    .border(1.dp, if (passed) TokLine else bad.copy(alpha = 0.5f), RoundedCornerShape(50))
-                    .padding(start = 6.dp, end = 8.dp, top = 3.dp, bottom = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier.size(8.dp).clip(CircleShape).then(
-                        if (passed) Modifier.background(ok) else Modifier.border(1.5.dp, bad, CircleShape),
-                    ),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(name, color = if (passed) ink else bad, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
 /** The recorded track as a tiny sketch (orange line, gold end dot) in a dark box. */
 @Composable
 fun TrackSketch(track: List<LatLng>, modifier: Modifier = Modifier) {

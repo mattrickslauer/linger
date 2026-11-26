@@ -162,7 +162,7 @@ private fun InterviewView(vm: RecordViewModel, start: () -> Unit, onTyped: () ->
             )
             s.turns.forEach { Bubble(it.me, it.text, it.mode) }
             if (s.phase == InterviewUi.Phase.Listening && partial.isNotBlank()) Bubble(true, partial, null, live = true)
-            s.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Amber) }
+            s.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
             val i = s.intention
             if (s.phase == InterviewUi.Phase.Ready && i != null) {
                 IntentionCard(i, s.previewBusy, ivm)
@@ -212,10 +212,10 @@ private fun MicButton(phase: InterviewUi.Phase, level: Float, onClick: () -> Uni
     val busy = phase == InterviewUi.Phase.Thinking || phase == InterviewUi.Phase.Structuring
     val pulse by animateFloatAsState(if (phase == InterviewUi.Phase.Listening) 1f + level * 0.25f else 1f, label = "mic")
     Box(contentAlignment = Alignment.Center) {
-        if (phase == InterviewUi.Phase.Listening) Box(Modifier.size(96.dp).scale(pulse * 1.08f).clip(CircleShape).background(Green.copy(alpha = 0.18f)))
+        if (phase == InterviewUi.Phase.Listening) Box(Modifier.size(96.dp).scale(pulse * 1.08f).clip(CircleShape).background(Ok.copy(alpha = 0.18f)))
         Box(
             Modifier.size(80.dp).scale(pulse).clip(CircleShape)
-                .background(if (phase == InterviewUi.Phase.Listening) Red else Green)
+                .background(if (phase == InterviewUi.Phase.Listening) Bad else Ok)
                 .clickable(enabled = !busy, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {

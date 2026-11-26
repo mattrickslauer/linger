@@ -51,9 +51,9 @@ fun VerdictHeader(d: MomentDetail) {
     val backed = v4.claimsBacked ?: bar?.let { b -> v4.claimScores.count { it.p >= b } }
     val total = v4.claims.size
     val (title, color) = when {
-        sealed -> "Verified ✓" to Green
-        rejected -> "Not verified" to Red
-        else -> "Sealing…" to Amber
+        sealed -> "Verified ✓" to Ok
+        rejected -> "Not verified" to Bad
+        else -> "Sealing…" to Warn
     }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.10f))) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -86,7 +86,7 @@ fun sealingWords(d: MomentDetail): String {
 
 @Composable
 fun CheatingBanner(signals: List<String>) {
-    Surface(shape = RoundedCornerShape(12.dp), color = Red) {
+    Surface(shape = RoundedCornerShape(12.dp), color = Bad) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Warning, null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -106,12 +106,12 @@ fun VideoReviewCard(d: MomentDetail) {
     if (vr?.status == "none") return
     val (line, color) = when (vr?.status) {
         // No review state yet: still uploading (Moment `recording`), else submitted after the upload, review not started.
-        null -> (if (d.card.status == "recording") "Uploading video" else "Video uploaded") to Amber
-        "waiting" -> "Waiting for video upload" to Amber
-        "running" -> "Reviewing video" to Amber
-        "done" -> "Video reviewed" to Green
-        "failed" -> "The video review failed · sealed without it" to Amber
-        "expired" -> "Video never arrived · sealed without it" to Amber
+        null -> (if (d.card.status == "recording") "Uploading video" else "Video uploaded") to Warn
+        "waiting" -> "Waiting for video upload" to Warn
+        "running" -> "Reviewing video" to Warn
+        "done" -> "Video reviewed" to Ok
+        "failed" -> "The video review failed · sealed without it" to Warn
+        "expired" -> "Video never arrived · sealed without it" to Warn
         else -> vr.status to Color.Gray
     }
     Card(Modifier.fillMaxWidth()) {
@@ -179,9 +179,9 @@ private fun ClaimRow(c: Claim, s: ClaimScore?, bar: Double?, v4: V4Detail, extra
                 s == null -> Text("· pending", color = Color.Gray)
                 backed -> Text(
                     "✓ backed by " + s.backedBy.map { sourceLabel(it, ::moduleTitle) }.ifEmpty { listOf("the minimum evidence") }.joinToString(" · "),
-                    color = Green, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    color = Ok, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
                 )
-                else -> Text("· ${V3Math.fmt(s.p)} / bar ${bar?.let(V3Math::fmt) ?: "–"}", color = Amber, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                else -> Text("· ${V3Math.fmt(s.p)} / bar ${bar?.let(V3Math::fmt) ?: "–"}", color = Warn, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             }
         }
         Text(c.kind, fontSize = 11.sp, color = Color.Gray)
@@ -205,7 +205,7 @@ private fun RequirementLine(r: Requirement, met: Boolean?) {
     Row(verticalAlignment = Alignment.Top) {
         Text(
             when (met) { true -> "✓"; false -> "○"; null -> "·" },
-            color = when (met) { true -> Green; false -> Amber; null -> Color.Gray }, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp),
+            color = when (met) { true -> Ok; false -> Warn; null -> Color.Gray }, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp),
         )
         Icon(evidenceIcon(r.evidence), null, Modifier.size(14.dp).padding(top = 2.dp), tint = Color.Gray)
         Spacer(Modifier.width(6.dp))

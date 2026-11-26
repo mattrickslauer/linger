@@ -65,7 +65,7 @@ fun FeedHero(user: FirebaseUser?, onRecord: () -> Unit) {
     Surface(
         Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = Color.Transparent,
     ) {
-        Box(Modifier.background(Brush.linearGradient(listOf(GreenDark, Green, Color(0xFF2FA36B))))) {
+        Box(Modifier.background(Brush.linearGradient(listOf(Ok, Ok, Color(0xFF2FA36B))))) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Verified, null, tint = Color.White, modifier = Modifier.size(26.dp))
@@ -77,9 +77,9 @@ fun FeedHero(user: FirebaseUser?, onRecord: () -> Unit) {
                 Text(PITCH, color = Color.White, fontSize = 17.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium)
                 Button(
                     onClick = onRecord, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = GreenDark),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Ok),
                 ) {
-                    Icon(Icons.Filled.FiberManualRecord, null, tint = Red, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.FiberManualRecord, null, tint = Bad, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Record a Moment", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
@@ -108,7 +108,7 @@ fun SignInSheet(ask: Gate.Ask) {
             Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp).navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(Icons.Filled.Verified, null, tint = Green, modifier = Modifier.size(48.dp))
+            Icon(Icons.Filled.Verified, null, tint = Ok, modifier = Modifier.size(48.dp))
             Text("Sign in to ${ask.action}", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
             Text(
                 "Browsing and recording work without an account. Signing in lets Verified store your Moments on the " +
@@ -129,7 +129,7 @@ fun SignInSheet(ask: Gate.Ask) {
                 Spacer(Modifier.width(8.dp))
                 Text(if (state == Auth.SignIn.Finishing) "Signing you in…" else "Finish in the browser…", color = Color.Gray)
             }
-            (error ?: (state as? Auth.SignIn.Failed)?.message)?.let { Text(it, color = Red, textAlign = TextAlign.Center) }
+            (error ?: (state as? Auth.SignIn.Failed)?.message)?.let { Text(it, color = Bad, textAlign = TextAlign.Center) }
             TextButton(onClick = { Gate.dismiss() }) { Text("Not now") }
         }
     }
@@ -152,7 +152,7 @@ fun ClaimSheet() {
     ModalBottomSheet(onDismissRequest = { Claims.dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.CloudUpload, null, tint = Green)
+                Icon(Icons.Filled.CloudUpload, null, tint = Ok)
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "You recorded ${shown.size} Moment${if (shown.size == 1) "" else "s"} as a guest",
@@ -170,7 +170,7 @@ fun ClaimSheet() {
                             Text("${fmtDuration(m.summary.durationMs)} · ${m.summary.frameCount} frames", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                         TextButton(onClick = { kept = kept + m.id }) { Text("Keep here", fontSize = 12.sp) }
-                        TextButton(onClick = { confirmDelete = m.id }) { Text("Delete", color = Red, fontSize = 12.sp) }
+                        TextButton(onClick = { confirmDelete = m.id }) { Text("Delete", color = Bad, fontSize = 12.sp) }
                     }
                 }
             }
