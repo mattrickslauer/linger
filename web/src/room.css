@@ -1,161 +1,623 @@
-/* Evidence room: the feed slide's thread, unrolled. Same three waypoints (intent, proof, result),
-   each now a section holding the full evidence. Follows the page theme. */
+/* Evidence room: the feed slide's thread, unrolled. The proof photo with the verdict laid over it answers
+   "did it happen?" at a glance; Proof and Result hold the evidence. Follows the page theme. */
 
 .room {
-  --dot: 16px;
   --wp-ink: var(--track);
 }
 .room-no {
   --wp-ink: var(--ink-3);
 }
+.room.detail {
+  gap: 0;
+  padding-top: 0;
+}
+
+/* -------- sticky bar: back, Intent / Proof / Result jump, delete */
 
 .room .detail-bar {
   position: sticky;
-  top: 59px;
+  top: calc(61px + var(--safe-t));
   z-index: 5;
-  gap: 12px;
-  padding: 10px 0;
-  background: color-mix(in srgb, var(--paper) 92%, transparent);
-  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 8px var(--gutter);
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.room .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 8px 0 2px;
+  font-weight: 650;
+  text-decoration: none;
+  color: var(--ink-2);
+}
+.room .back .glyph {
+  width: 22px;
+  height: 22px;
 }
 .room-nav {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   margin: 0 auto;
-}
-.room-nav a {
-  padding: 5px 12px;
+  padding: 3px;
   border-radius: 999px;
-  text-decoration: none;
-  font-weight: 650;
-  font-size: 0.92rem;
-  color: var(--ink-2);
-  border: 1px solid var(--rule);
-}
-.room-nav a:hover {
-  color: var(--ink);
-  border-color: var(--ink-3);
-}
-.room-title {
-  margin: 18px 0 6px;
-  color: var(--ink-3);
-  font-weight: 600;
-}
-
-.room-wp {
-  position: relative;
-  padding: 8px 0 44px calc(var(--dot) + 22px);
-  scroll-margin-top: 120px;
-}
-/* The dashed track running from one waypoint to the next. */
-.room-wp::before {
-  content: "";
-  position: absolute;
-  left: calc(var(--dot) / 2 - 1px);
-  top: 26px;
-  bottom: 0;
-  width: 2px;
-  background: repeating-linear-gradient(var(--wp-ink) 0 7px, transparent 7px 12px);
-  opacity: 0.7;
-}
-.room-result::before {
-  display: none;
-}
-.room-wp::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 12px;
-  width: var(--dot);
-  height: var(--dot);
-  border-radius: 50%;
-  border: 2.5px solid var(--wp-ink);
-  background: var(--paper);
-}
-.room-proof::after {
-  background: var(--wp-ink);
-}
-.room-result::after {
-  border-color: var(--gold);
-  background: var(--gold);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--gold) 30%, transparent);
-}
-.room-no .room-result::after {
-  border-color: var(--bad);
-  background: var(--bad);
-  box-shadow: 0 0 0 5px var(--bad-soft);
-}
-
-.room-label {
-  font-size: 1.25rem;
-  font-weight: 760;
-  margin: 0 0 14px;
-}
-.room-label span {
-  display: block;
-  margin-top: 3px;
-  font-size: 0.92rem;
-  font-weight: 450;
-  color: var(--ink-3);
-  letter-spacing: 0;
-}
-.room-exhibit {
-  font-size: 1.02rem;
-  font-weight: 700;
-  margin: 26px 0 10px;
-}
-.room .detail-head {
-  margin: 0;
-}
-.room-intent-text {
-  font-size: clamp(1.9rem, 4.6vw, 3rem);
-}
-.room-intent-text::before {
-  content: "\201C";
-  color: var(--wp-ink);
-}
-.room-intent-text::after {
-  content: "\201D";
-  color: var(--wp-ink);
-}
-.room-verdict {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  flex-wrap: wrap;
-  padding: 18px 20px;
-  border-radius: var(--r);
   background: var(--sheet);
   border: 1px solid var(--rule);
 }
-.room-verdict .seal-reason {
-  margin: 0 0 4px;
+.room-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 650;
+  font-size: 0.88rem;
+  color: var(--ink-2);
 }
-.room .review,
-.room .seal {
-  margin-top: 0;
+.room-nav a:hover {
+  color: var(--ink);
+}
+.room-nav a.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.room-nav .wpdot {
+  width: 10px;
+  height: 10px;
+  border-width: 2px;
+}
+.room-nav .wpdot-result {
+  box-shadow: none;
+}
+.room-delete {
+  min-height: 44px;
+}
+.btn .glyph {
+  width: 18px;
+  height: 18px;
 }
 
-@media (max-width: 600px) {
-  .room {
-    --dot: 12px;
+/* -------- hero: the proof photo, intent and verdict overlaid */
+
+.room-wp {
+  position: relative;
+  scroll-margin-top: calc(124px + var(--safe-t));
+  padding-bottom: 36px;
+}
+.room-hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: min(68vh, 540px);
+  margin: 0;
+  padding: 14px;
+  border-radius: 20px;
+  overflow: hidden;
+  background:
+    repeating-radial-gradient(circle at 30% 40%, #1f6f7833 0 2px, transparent 2px 26px),
+    linear-gradient(160deg, #10343b, #071419);
+  color: #e8ece4;
+}
+.room-hero .hero-img {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+}
+.room-no .room-hero .hero-img {
+  filter: grayscale(0.65);
+}
+.room-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(#071419b3 0%, #07141900 22%, #07141900 32%, #071419cc 58%, #071419f5 100%);
+}
+.hero-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hero-top .gchip {
+  text-transform: capitalize;
+}
+.hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-shadow: 0 1px 3px #0009;
+}
+.hero-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #e8ece4c2;
+}
+.room .room-intent-text {
+  font-size: clamp(1.8rem, 5.2vw, 3.1rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  max-width: 20ch;
+}
+.room-intent-text::before {
+  content: "\201C";
+  color: #ff8a4c;
+}
+.room-intent-text::after {
+  content: "\201D";
+  color: #ff8a4c;
+}
+.room-no .room-intent-text::before,
+.room-no .room-intent-text::after {
+  color: #e8ece499;
+}
+.hero-meta {
+  font-size: 0.82rem;
+  color: #e8ece4a6;
+}
+.hero-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 4px;
+  text-shadow: none;
+}
+.hero-verdict .stamp {
+  margin: 0;
+}
+.hero-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hero-chips:empty {
+  display: none;
+}
+.hero-stats {
+  padding-top: 12px;
+  border-top: 1px solid #e8ece426;
+  text-shadow: none;
+}
+.on-media .stamp-no {
+  background: #071419cc;
+  color: #ff9a85;
+  border-color: #ff9a85;
+}
+
+/* -------- section labels */
+
+.room-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 14px;
+}
+.room-label h2 {
+  font-size: 1.4rem;
+  font-weight: 780;
+}
+.room-label .wpdot {
+  width: 14px;
+  height: 14px;
+}
+.room-no .room-label .wpdot-proof {
+  --wp: var(--ink-3);
+}
+.room-hint {
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}
+
+/* -------- proof viewer: frame, filmstrip, scrubber, motion, map */
+
+.room .viewer {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 18px;
+}
+.room .viewer-main {
+  gap: 10px;
+}
+.room .viewer-side {
+  top: calc(124px + var(--safe-t));
+}
+.room .frame-stage {
+  border-radius: 16px;
+  aspect-ratio: 4 / 3;
+}
+.room .frame-cap {
+  align-items: center;
+}
+.room .frame-cap > span:not(.hybrid) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.room .frame-cap .glyph {
+  width: 14px;
+  height: 14px;
+}
+.frame-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+}
+.frame-empty .glyph {
+  width: 36px;
+  height: 36px;
+}
+/* Filmstrip: every proof shot, in order, scrolls sideways. */
+.room .thumbs {
+  position: static;
+  height: auto;
+  margin: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  padding: 3px 3px 6px;
+}
+.room .thumb {
+  position: relative;
+  top: auto;
+  translate: none;
+  flex: none;
+  width: 88px;
+  height: 66px;
+  border: 0;
+  border-radius: 10px;
+  scroll-snap-align: start;
+  box-shadow: 0 0 0 1px var(--rule);
+}
+.room .thumb-on {
+  box-shadow: 0 0 0 3px var(--track);
+}
+.thumb-t {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #071419c7;
+  color: #e8ece4;
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.scrub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.scrub-row span:first-child {
+  min-width: 3.2em;
+  font-weight: 750;
+  color: var(--ink);
+}
+.scrub-row .scrub {
+  flex: 1;
+  min-width: 0;
+}
+.room .motion svg {
+  height: 72px;
+}
+.room .motion figcaption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.room .motion figcaption .glyph {
+  width: 14px;
+  height: 14px;
+}
+.map-wrap {
+  position: relative;
+}
+.map-wrap .map {
+  border-radius: 16px;
+}
+.map-stats {
+  position: absolute;
+  z-index: 500;
+  left: 8px;
+  right: 8px;
+  bottom: 22px;
+  pointer-events: none;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #071419c7;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  gap: 4px 16px;
+}
+.map-stats dd {
+  font-size: 1rem;
+}
+
+/* -------- hash chain */
+
+.room .chain {
+  margin-top: 22px;
+  padding: 14px 16px 4px;
+  border-radius: 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.chain-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.chain-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chain-title h2 {
+  font-size: 1.1rem;
+}
+.chain-n {
+  font-size: 0.82rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.room .chain .btn {
+  margin: 0;
+}
+.room .blocks {
+  margin-bottom: 8px;
+}
+.chain-more {
+  margin-top: 4px;
+}
+
+/* -------- result: verdict card */
+
+.room-verdict {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px 22px;
+  padding: 18px 18px 4px;
+  border-radius: 20px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.room-verdict.rv-ok {
+  border-color: color-mix(in srgb, var(--gold) 70%, var(--rule));
+  box-shadow: inset 0 4px 0 var(--gold);
+}
+.room-verdict.rv-bad {
+  box-shadow: inset 0 4px 0 var(--bad);
+}
+.rv-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.rv-top .stamp {
+  margin: 0;
+}
+.rv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rv-body .seal-reason {
+  margin: 0;
+  font-size: 1.02rem;
+}
+.rv-more {
+  grid-column: 1 / -1;
+}
+.room .checklist .mark .glyph {
+  width: 16px;
+  height: 16px;
+}
+
+/* -------- result: the three AI opinions side by side */
+
+.room .review {
+  margin-top: 24px;
+}
+.room .review .section-head {
+  align-items: center;
+}
+.room .review h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.room .opinions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.room .opinion {
+  gap: 10px;
+  padding: 14px 14px 2px;
+  border-top: 0;
+  border-radius: 16px;
+  border: 1px solid var(--rule);
+}
+.room .opinion header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.op-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+.op-who h3 {
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.op-verdict {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+.op-verdict .glyph {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.6;
+}
+.op-ok {
+  background: var(--ok);
+  color: var(--sheet);
+}
+.op-bad {
+  background: var(--bad);
+  color: var(--sheet);
+}
+.op-meh {
+  background: var(--gold);
+  color: #10242b;
+}
+.op-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 52px;
+}
+.room .opinion .verdict {
+  font-size: 1.08rem;
+  font-weight: 720;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.room .conf {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 6px;
+  overflow: visible;
+  background: var(--paper-2);
+}
+.room .conf span {
+  border-radius: 3px;
+  background: var(--ink-2);
+}
+.room .opinion-ok .conf span {
+  background: var(--ok);
+}
+.room .opinion-bad .conf span {
+  background: var(--bad);
+}
+.room .conf em {
+  position: absolute;
+  right: 0;
+  top: -18px;
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--ink-3);
+}
+.room .opinion .more {
+  margin-top: 2px;
+}
+.room .opinion ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 0.9rem;
+}
+.room .ladder,
+.room .claims-panel {
+  margin-top: 24px;
+}
+
+/* -------- phone */
+
+@media (max-width: 900px) {
+  .room .opinions {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0 calc(var(--gutter) * -1);
+    padding: 2px var(--gutter) 6px;
+    scroll-padding: 0 var(--gutter);
   }
-  .room-wp {
-    padding-left: calc(var(--dot) + 14px);
+  .room .opinion {
+    flex: 0 0 min(78%, 300px);
+    scroll-snap-align: start;
+  }
+  .room .viewer {
+    grid-template-columns: 1fr;
+  }
+  .room .viewer-side {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  .room .detail-bar {
+    top: calc(61px + var(--safe-t));
+    gap: 4px;
+  }
+  .room .back span {
+    display: none;
   }
   .room-nav a {
-    padding: 4px 9px;
-    font-size: 0.85rem;
+    padding: 0 10px;
+    font-size: 0.84rem;
+    gap: 5px;
   }
-  .room .detail-bar {
-    top: 55px;
+  .room-delete span {
+    display: none;
+  }
+  .room-delete {
+    width: 44px;
+    padding: 0;
+  }
+  .room-hero {
+    margin: 0 calc(var(--gutter) * -1 + 6px);
+    min-height: min(80vh, 600px);
+    border-radius: 18px;
+  }
+  .room-verdict {
+    grid-template-columns: 1fr;
+    padding: 16px 14px 2px;
+  }
+  .room .frame-stage {
+    margin: 0 calc(var(--gutter) * -1 + 6px);
   }
 }
-
-.room.detail {
-  gap: 0;
-}
-.room-verdict > div {
-  flex: 1;
-  min-width: 240px;
+.room-hero > .hero-top {
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: wrap;
 }

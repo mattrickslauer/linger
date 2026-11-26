@@ -2,6 +2,7 @@
 // checklist (interview end card, record screen, detail) and the evidence icons. Same words on every platform.
 import type { Claim, EvidenceKind, Plan, Requirement } from "../v4";
 import { EVIDENCE_LABEL, minText } from "../v4";
+import { Glyph, KIND_GLYPH } from "../kit";
 
 export function EvidenceIcon({ kind }: { kind: EvidenceKind }) {
   return (
@@ -42,11 +43,14 @@ export function ClaimChips({ claims, onRemove, label = "Claims" }: { claims: Pic
     <ul className="claim-chips" aria-label={label}>
       {claims.map((c) => (
         <li key={c.id} className={`claim-chip kind-${c.kind}`}>
-          <span className="claim-kind">{c.kind}</span>
+          <span className="claim-kind" title={c.kind}>
+            <Glyph name={KIND_GLYPH[c.kind] ?? "intent"} />
+            <span className="sr-only">{c.kind}</span>
+          </span>
           <span>{c.text}</span>
           {onRemove && claims.length > 1 && (
             <button type="button" aria-label={`Remove ${c.text}`} onClick={() => onRemove(c.id)}>
-              ×
+              <Glyph name="close" />
             </button>
           )}
         </li>
@@ -81,7 +85,7 @@ export function PlanList({
         return (
           <li key={r.id} className={`plan-row plan-${s}`}>
             <span className="plan-mark" aria-hidden="true">
-              {done ? "●" : "○"}
+              {done ? <Glyph name="check" /> : s === "unmet" ? <Glyph name="close" /> : null}
             </span>
             <EvidenceIcon kind={r.evidence} />
             <span className="plan-ask">
@@ -120,9 +124,11 @@ export function PlanCard({ claims, plan, onRemoveClaim }: { claims: Claim[]; pla
       )}
       {plan?.note && <p className="small plan-note">{plan.note}</p>}
       {plan && (
-        <p className="muted small">
-          Capture exactly this and, if nothing looks faked, the Moment is Verified for free. Records in{" "}
-          <strong>{plan.recordMode === "video" ? "Video" : "Photo"}</strong> mode.
+        <p className="plan-mode small">
+          <Glyph name={plan.recordMode === "video" ? "video" : "camera"} />
+          <span>
+            Records in <strong>{plan.recordMode === "video" ? "Video" : "Photo"}</strong> · free if nothing looks faked
+          </span>
         </p>
       )}
     </section>

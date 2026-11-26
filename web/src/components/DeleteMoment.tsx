@@ -4,6 +4,7 @@ import { DELETE_CONFIRM } from "../canDelete";
 import { deleteMoment } from "../recorder";
 import { navigate } from "../router";
 import { ConfirmDialog } from "../ui";
+import { Glyph } from "../kit";
 
 export default function DeleteMoment({ id, label, className = "btn btn-small btn-quiet btn-danger-quiet" }: { id: string; label: string; className?: string }) {
   const [open, setOpen] = useState(false);
@@ -12,7 +13,8 @@ export default function DeleteMoment({ id, label, className = "btn btn-small btn
   return (
     <>
       <button className={className} onClick={() => (setErr(null), setOpen(true))} aria-label={`Delete Moment: ${label}`}>
-        Delete
+        <Glyph name="trash" />
+        <span>Delete</span>
       </button>
       <ConfirmDialog
         open={open}

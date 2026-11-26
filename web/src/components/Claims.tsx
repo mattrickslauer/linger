@@ -6,6 +6,7 @@ import { moduleSpec } from "../ladder";
 import type { ModuleId } from "../types";
 import { SOURCE_LABEL, type ClaimView } from "../v4";
 import { ClaimChips, PlanList } from "./Plan";
+import { Glyph } from "../kit";
 
 export const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? moduleSpec(s as ModuleId)?.title ?? s;
 
@@ -44,6 +45,9 @@ export default function ClaimsPanel({
   return (
     <section className="claims-panel" aria-labelledby="claims-h">
       <header className={`cp-head ${!sealed ? "cp-wait" : verified ? "cp-ok" : "cp-bad"}`}>
+        <span className="cp-glyph" aria-hidden="true">
+          <Glyph name="intent" />
+        </span>
         <div>
           <h2 id="claims-h" className="cp-verdict">
             {!sealed ? "Waiting for the seal" : verified ? "Verified ✓" : "Not verified"}
@@ -62,11 +66,18 @@ export default function ClaimsPanel({
             {!sealed && bar != null && <span>bar {bar.toFixed(2)}</span>}
           </p>
         </div>
-        {videoStatus && <span className={`chip cp-video ${videoStatus.startsWith("Video reviewed") ? "chip-device" : ""}`}>{videoStatus}</span>}
+        {videoStatus && (
+          <span className={`gchip cp-video ${videoStatus.startsWith("Video reviewed") ? "gchip-ok" : ""}`}>
+            <Glyph name="video" />
+            {videoStatus}
+          </span>
+        )}
       </header>
       {cheating && cheating.length > 0 && (
         <div className="cheat-banner" role="alert">
-          <strong>Cheating detected</strong>
+          <strong>
+            <Glyph name="cheating" /> Cheating detected
+          </strong>
           <ul>
             {cheating.map((s, i) => (
               <li key={i}>{s}</li>
@@ -74,7 +85,11 @@ export default function ClaimsPanel({
           </ul>
         </div>
       )}
-      {videoSummary && <p className="small cp-summary">Video review: {videoSummary}</p>}
+      {videoSummary && (
+        <p className="small cp-summary">
+          <Glyph name="video" /> {videoSummary}
+        </p>
+      )}
       <ol className="claim-rows">
         {views.map((c) => {
           const state = c.p == null ? "wait" : c.backed ? "ok" : "bad";
@@ -88,7 +103,7 @@ export default function ClaimsPanel({
                   ) : c.backed ? (
                     <>
                       <span className="cr-mark" aria-hidden="true">
-                        ✓
+                        <Glyph name="check" />
                       </span>{" "}
                       {backedByText(c.backedBy) || "backed"}
                       <span className="muted"> · {c.p.toFixed(2)}</span>

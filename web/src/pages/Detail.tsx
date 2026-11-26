@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useUser } from "../auth";
 import { cameFromMe, canDeleteMoment } from "../canDelete";
 import ChainViewer from "../components/ChainViewer";
@@ -18,7 +18,8 @@ import { localChunks, localMoment } from "../vault";
 import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
-import { ago, Chips, jpegSrc, Link, Stamp } from "../ui";
+import { ago, jpegSrc, Link, Stamp } from "../ui";
+import { CheckPips, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
 import "../room.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoStatusText } from "../v4";
@@ -49,6 +50,64 @@ const CHECKS_V4: typeof CHECKS = [
   { key: "bar", name: "Every claim clears the bar", ok: "The minimum evidence for every claim arrived, or extra checks lifted it to the bar.", bad: "At least one claim is still below the bar." },
 ];
 
+type Tone = "ok" | "bad" | "meh";
+const VERDICT_GLYPH: Record<Tone, GlyphName> = { ok: "check", bad: "close", meh: "info" };
+
+/** One AI opinion as a compact card: who, a verdict glyph, one line, confidence; the reasons behind "Why?". */
+function OpinionCard({
+  who,
+  glyph,
+  tone,
+  line,
+  conf,
+  aside,
+  children,
+}: {
+  who: string;
+  glyph: GlyphName;
+  tone: Tone;
+  line: string;
+  conf?: number | null;
+  aside?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <article className={`opinion opinion-${tone}`}>
+      <header>
+        <span className="op-who">
+          <Glyph name={glyph} />
+          <h3>{who}</h3>
+        </span>
+        <span className={`op-verdict op-${tone}`} aria-hidden="true">
+          <Glyph name={VERDICT_GLYPH[tone]} />
+        </span>
+      </header>
+      <div className="op-main">
+        <p className="verdict">{line}</p>
+        {aside}
+      </div>
+      {conf != null && (
+        <span className="conf" role="img" aria-label={`confidence ${Math.round(conf * 100)} percent`}>
+          <span style={{ width: `${Math.round(conf * 100)}%` }} />
+          <em>{Math.round(conf * 100)}%</em>
+        </span>
+      )}
+      {children && <More summary="Why?">{children}</More>}
+    </article>
+  );
+}
+
+const Reasons = ({ reasons }: { reasons: string[] }) =>
+  reasons.length ? (
+    <ul>
+      {reasons.map((r, i) => (
+        <li key={i}>{r}</li>
+      ))}
+    </ul>
+  ) : (
+    <p className="muted small">No reasons recorded.</p>
+  );
+
 /**
  * v3: the final score against the AI-set bar (docs/ARCHITECTURE.md v3.3/v3.5). The bar is public: how hard the claim
  * is, why, and the line the evidence had to clear. The score is the scorer's baseline after any ladder checks.
@@ -75,23 +134,15 @@ function ScoreVsBar({
   difficulty: number | null;
 }) {
   const clears = score != null && score >= bar;
-  const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
+  const moved = baseline != null && score != null && Math.abs(baseline - score) > 0.004;
   return (
-    <article className={`opinion scorebar opinion-${score == null ? "meh" : clears ? "ok" : "bad"}`}>
-      <header>
-        <h3>Verification score vs the bar</h3>
-        <p className="verdict">
-          {score == null ? "not scored" : score.toFixed(2)}
-          <span className="muted small"> needs {bar.toFixed(2)}</span>
-        </p>
-      </header>
-      <div className="sb-meter" role="img" aria-label={`score ${score?.toFixed(2) ?? "none"}, bar ${bar.toFixed(2)}`}>
-        {score != null && <span className="sb-fill" style={{ width: pct(score) }} />}
-        {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && <span className="sb-base" style={{ left: pct(baseline) }} title={`baseline ${baseline.toFixed(2)}`} />}
-        <span className="sb-bar" style={{ left: pct(bar) }}>
-          <span>bar</span>
-        </span>
-      </div>
+    <OpinionCard
+      who="Score vs bar"
+      glyph="bar"
+      tone={score == null ? "meh" : clears ? "ok" : "bad"}
+      line={score == null ? "not scored" : `${score.toFixed(2)} ${clears ? "clears" : "below"} ${bar.toFixed(2)}`}
+      aside={<ScoreRing value={score} bar={bar} size={52} />}
+    >
       <p className="small">
         {source === "default" ? "Standard bar: no claim-specific bar was set." : rationale || "Set by AI from the structured claim."}
         {difficulty != null && source !== "default" && <span className="muted"> Difficulty {difficulty.toFixed(2)}.</span>}
@@ -105,98 +156,57 @@ function ScoreVsBar({
           ))}
         </ul>
       )}
-      {baseline != null && score != null && Math.abs(baseline - score) > 0.004 && (
+      {moved && (
         <p className="muted small">
-          Baseline {baseline.toFixed(2)} from the scorer, {score > baseline ? "raised" : "lowered"} by the extra checks below.
+          Baseline {baseline!.toFixed(2)} from the scorer, {score! > baseline! ? "raised" : "lowered"} by the extra checks.
         </p>
       )}
-      {reasons.length > 0 && (
-        <ul>
-          {reasons.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-      )}
+      <Reasons reasons={reasons} />
       <p className="muted small">
         Score: P(claim true | evidence), assuming most submissions cheat (prior 0.2).{" "}
         {source === "ai" && model ? `Bar set by ${model} in a Cloud Function; code maps difficulty to 0.50–0.95.` : ""}
       </p>
-    </article>
+    </OpinionCard>
   );
 }
 
 /** The scorer: P(claim true | evidence), starting from the assumption that most submissions cheat. */
 function ScoreCard({ probability, reasons }: { probability: number | null; reasons: string[] }) {
   const pct = probability == null ? null : Math.round(probability * 100);
-  const tone = pct == null ? "meh" : pct >= 50 ? "ok" : pct >= 30 ? "meh" : "bad";
+  const tone: Tone = pct == null ? "meh" : pct >= 50 ? "ok" : pct >= 30 ? "meh" : "bad";
   return (
-    <article className={`opinion opinion-${tone}`}>
-      <header>
-        <h3>Verification score</h3>
-        {pct != null && (
-          <p className="verdict">
-            {pct}% likely true
-            <span className="conf" aria-label={`probability ${pct} percent`}>
-              <span style={{ width: `${pct}%` }} />
-            </span>
-          </p>
-        )}
-      </header>
+    <OpinionCard who="Score" glyph="bar" tone={tone} line={pct == null ? "not scored" : `${pct}% likely true`} aside={<ScoreRing value={probability} size={52} />}>
       <p className="muted small">Chance the claim is true given the evidence, assuming most submissions are cheating (prior 20%). Needs 50% to seal.</p>
-      {pct == null ? (
-        <p className="muted small">Not scored (recorded before the scorer existed).</p>
-      ) : reasons.length ? (
-        <ul>
-          {reasons.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-      ) : null}
-    </article>
+      {pct == null ? <p className="muted small">Not scored (recorded before the scorer existed).</p> : <Reasons reasons={reasons} />}
+    </OpinionCard>
   );
 }
 
 function Opinion({ who, o, fallback }: { who: "Judge" | "Skeptic"; o: AiOpinion | null; fallback?: string[] }) {
   const verdict = o?.verdict;
-  const tone = who === "Skeptic" ? (verdict === "inconsistent" ? "bad" : "ok") : verdict === "consistent" ? "ok" : verdict === "inconsistent" ? "bad" : "meh";
+  const tone: Tone = who === "Skeptic" ? (verdict === "inconsistent" ? "bad" : "ok") : verdict === "consistent" ? "ok" : verdict === "inconsistent" ? "bad" : "meh";
   const label =
     who === "Skeptic"
       ? verdict === "inconsistent"
-        ? "found a fake signal"
+        ? "Found a fake signal"
         : verdict === "consistent"
-          ? "found nothing fake"
-          : "not sure"
+          ? "Found nothing fake"
+          : "Not sure"
       : verdict === "consistent"
-        ? "consistent with the intention"
+        ? "Matches the intention"
         : verdict === "inconsistent"
-          ? "not consistent"
-          : "uncertain";
+          ? "Doesn't match"
+          : "Uncertain";
   const reasons = o?.reasons ?? fallback ?? [];
   return (
-    <article className={`opinion opinion-${tone}`}>
-      <header>
-        <h3>{who}</h3>
-        {o && (
-          <p className="verdict">
-            {label}
-            <span className="conf" aria-label={`confidence ${Math.round(o.confidence * 100)} percent`}>
-              <span style={{ width: `${Math.round(o.confidence * 100)}%` }} />
-            </span>
-            <span className="muted small">{Math.round(o.confidence * 100)}%</span>
-          </p>
-        )}
-      </header>
-      {reasons.length ? (
-        <ul>
-          {reasons.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="muted">No reasons recorded.</p>
+    <OpinionCard who={who} glyph={who === "Judge" ? "ai" : "witness"} tone={o || reasons.length ? tone : "meh"} line={o ? label : reasons.length ? "Reasons only" : "No opinion"} conf={o?.confidence}>
+      <Reasons reasons={reasons} />
+      {o && (
+        <p className="muted small">
+          <Hybrid mode="cloud" /> {o.model}, via Firebase AI Logic
+        </p>
       )}
-      {o && <p className="muted small">{o.model}, in the cloud via Firebase AI Logic</p>}
-    </article>
+    </OpinionCard>
   );
 }
 
@@ -206,13 +216,10 @@ function LocalBanner({ id, guest, finished, onUploaded }: { id: string; guest: b
   const [err, setErr] = useState<string | null>(null);
   return (
     <div className="local-banner" role="status">
+      <Glyph name={guest ? "device" : "upload"} className="local-glyph" />
       <div>
         <strong>{guest ? "On this device · sign in to verify" : "On this device · waiting to sync"}</strong>
-        <p className="muted small">
-          {guest
-            ? "Recorded as a guest. Nobody else can see it until you upload it; then the cloud review and the seal run as usual."
-            : "This browser keeps the raw copy until the server confirms every chunk."}
-        </p>
+        <p className="muted small">{guest ? "Only you can see it until you upload it." : "Kept here until the server confirms every chunk."}</p>
         {err && <p className="notice notice-bad small">{err}</p>}
       </div>
       {guest && finished && configured && (
@@ -233,7 +240,7 @@ function LocalBanner({ id, guest, finished, onUploaded }: { id: string; guest: b
             }
           }}
         >
-          {busy ?? "Upload and verify"}
+          <Glyph name="upload" /> {busy ?? "Upload and verify"}
         </button>
       )}
     </div>
@@ -325,6 +332,24 @@ export default function Detail({ id }: { id: string }) {
   );
   const activeSeq = pickedSeq ?? chunks?.find((c) => c.t0 <= abs && abs <= c.t1)?.seq ?? null;
 
+  // The jump bar follows the section on screen.
+  const [onSection, setOnSection] = useState("intent");
+  const roomRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const root = roomRef.current;
+    if (!root) return;
+    const io = new IntersectionObserver(
+      (items) => {
+        for (const it of items) if (it.isIntersecting) setOnSection(it.target.id);
+      },
+      { rootMargin: "-40% 0px -55% 0px" },
+    );
+    root.querySelectorAll("section.room-wp").forEach((n) => io.observe(n));
+    return () => io.disconnect();
+  }, [bundle]);
+  // The filmstrip keeps the current shot in view.
+  const strip = useRef<HTMLDivElement>(null);
+
   if (err) return <p className="notice notice-bad page">Couldn't load this Moment: {err}</p>;
   if (!bundle) return <div className="page detail-skeleton" aria-busy="true" />;
   if (!feed && !moment)
@@ -383,18 +408,35 @@ export default function Detail({ id }: { id: string }) {
   const passedChecks = checks ? checkList.filter((c) => checks[c.key]).length : 0;
   const shownScore = finalScore ?? moment?.score?.probability ?? feed?.verificationScore ?? null;
 
+  const heroFrame = decoded.frames.find((f) => f.seq === summary?.heroFrameSeq) ?? decoded.frames[decoded.frames.length - 1] ?? null;
+  const heroSrc = feed?.heroJpegB64 ? jpegSrc(feed.heroJpegB64) : heroFrame ? jpegSrc(heroFrame.jpegB64) : null;
+  const pipKeys: CheckKey[] = sealV4 ? ["chain", "timing", "physics", "frames", "ai", "cheating", "bar"] : sealV3 ? ["chain", "timing", "physics", "frames", "ai", "bar"] : ["chain", "timing", "physics", "frames", "ai"];
+  const claimsTotal = views.length || feed?.claimsTotal || 0;
+  const claimsBacked = ver?.claimsBacked ?? feed?.claimsBacked ?? views.filter((v) => v.backed).length;
+  const witness = moment?.witness ?? feed?.witness ?? null;
+  const tone = pending ? undefined : sealed ? "ok" : "bad";
+  const jump = (k: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    document.getElementById(k)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    history.replaceState(history.state, "", `#${k}`);
+  };
+
   return (
-    <article className={`page detail room ${pending ? "" : sealed ? "room-ok" : "room-no"}`}>
+    <article ref={roomRef} className={`page detail room ${pending ? "" : sealed ? "room-ok" : "room-no"}`}>
       <div className="detail-bar">
-        <Link to={fromMe ? "/me" : "/"} className="back">
-          {fromMe ? "← My Moments" : "← Feed"}
+        <Link to={fromMe ? "/me" : "/"} className="back" aria-label={fromMe ? "Back to my Moments" : "Back to the feed"}>
+          <Glyph name="back" />
+          <span>{fromMe ? "Mine" : "Feed"}</span>
         </Link>
         <nav className="room-nav" aria-label="Evidence room">
-          <a href="#intent">Intent</a>
-          <a href="#proof">Proof</a>
-          <a href="#result">Result</a>
+          {(["intent", "proof", "result"] as const).map((k) => (
+            <a key={k} href={`#${k}`} onClick={jump(k)} aria-current={onSection === k ? "true" : undefined} className={onSection === k ? "on" : ""}>
+              <span className={`wpdot wpdot-${k} ${tone === "bad" ? "wpdot-bad" : ""}`} aria-hidden="true" />
+              {k === "intent" ? "Intent" : k === "proof" ? "Proof" : "Result"}
+            </a>
+          ))}
         </nav>
-        {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet" />}
+        {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet room-delete" />}
       </div>
       {local && (
         <LocalBanner
@@ -404,126 +446,145 @@ export default function Detail({ id }: { id: string }) {
           onUploaded={() => setReload((n) => n + 1)}
         />
       )}
-      <p className="room-title">Evidence room</p>
 
+      {/* Intent, and the whole Moment at a glance: the proof photo with the verdict laid over it. */}
       <section id="intent" className="room-wp room-intent" aria-labelledby="intent-h">
-        <h2 id="intent-h" className="room-label">
-          Intent <span>what {owner?.name ?? "they"} said they would do, before starting</span>
+        <h2 id="intent-h" className="sr-only">
+          Intent
         </h2>
-        <header className="detail-head">
-          <div>
-            <p className="cat">{intention.category}</p>
-            <h1 className="room-intent-text">{intention.text}</h1>
-            <p className="muted">
-              {owner?.name ?? "You, as a guest"}, {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)}
-              {moment?.device ? `, ${moment.device.model}` : ""}
+        <header className={`detail-head room-hero on-media ${heroSrc ? "" : "room-hero-nophoto"}`}>
+          {heroSrc && <img className="hero-img" src={heroSrc} alt={`Proof shot: ${intention.text}`} decoding="async" />}
+          <div className="hero-top">
+            <span className="gchip">
+              <Glyph name="intent" />
+              {intention.category}
+            </span>
+            <Hybrid mode={mode} />
+          </div>
+          <div className="hero-body">
+            <p className="hero-who">
+              <span className={`wpdot wpdot-intent`} aria-hidden="true" /> {owner?.name ?? "You, as a guest"} set out to
             </p>
-            <Chips platform={platform} mode={mode} />
+            <h1 className="room-intent-text">{intention.text}</h1>
+            <p className="hero-meta">
+              {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)} · {platform === "ios" ? "iOS" : platform === "android" ? "Android" : "Web"}
+              {moment?.device ? ` · ${moment.device.model}` : ""}
+            </p>
+            <div className="hero-verdict">
+              {!pending && <Stamp sealed={sealed} size="lg" />}
+              <ScoreRing value={shownScore} bar={barValue} sealed={pending ? null : sealed} size={76} />
+              <div className="hero-checks">
+                <CheckPips checks={checks} keys={pipKeys} size="sm" />
+                <span className="hero-chips">
+                  {claimsTotal > 0 && (
+                    <GlyphChip glyph="intent" tone={!pending && claimsBacked >= claimsTotal ? "ok" : undefined}>
+                      {claimsBacked}/{claimsTotal} claims
+                    </GlyphChip>
+                  )}
+                  {witness && witness.asked > 0 && (
+                    <GlyphChip glyph="witness">
+                      {witness.answered}/{witness.asked}
+                    </GlyphChip>
+                  )}
+                  {cheatingSignals && cheatingSignals.length > 0 && (
+                    <GlyphChip glyph="cheating" tone="bad">
+                      cheating
+                    </GlyphChip>
+                  )}
+                </span>
+              </div>
+            </div>
+            {summary && (
+              <Stats
+                overlay
+                className="hero-stats"
+                items={[
+                  { glyph: "timing", value: fmtDuration(summary.durationMs), label: "time" },
+                  { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
+                  { glyph: "frames", value: summary.frameCount, label: "shots" },
+                  ...(moment ? [{ glyph: "device" as const, value: moment.onDevice.retakes ? `${moment.onDevice.checks} · ${moment.onDevice.retakes}↻` : moment.onDevice.checks, label: "live checks" }] : []),
+                ]}
+              />
+            )}
           </div>
         </header>
       </section>
 
       <section id="proof" className="room-wp room-proof" aria-labelledby="proof-h">
-        <h2 id="proof-h" className="room-label">
-          Proof <span>captured on the phone as it happened, hashed chunk by chunk</span>
-        </h2>
-        {summary && (
-          <dl className="stats stats-wide">
-            <div>
-              <dt>time</dt>
-              <dd>{fmtDuration(summary.durationMs)}</dd>
-            </div>
-            <div>
-              <dt>distance</dt>
-              <dd>{fmtDistance(summary.distanceM)}</dd>
-            </div>
-            <div>
-              <dt>proof frames</dt>
-              <dd>{summary.frameCount}</dd>
-            </div>
-            <div>
-              <dt>GPS fixes</dt>
-              <dd>{summary.gpsCount.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>motion samples</dt>
-              <dd>{summary.motionCount.toLocaleString()}</dd>
-            </div>
-            {barValue != null && finalScore != null && (
-              <div>
-                <dt>score / bar</dt>
-                <dd>
-                  {finalScore.toFixed(2)}
-                  <span className="dd-sub"> / {barValue.toFixed(2)}</span>
-                </dd>
-              </div>
-            )}
-            {moment && (
-              <div>
-                <dt>live checks</dt>
-                <dd>
-                  {moment.onDevice.checks}
-                  {moment.onDevice.retakes ? <span className="dd-sub"> ({moment.onDevice.retakes} retake{moment.onDevice.retakes > 1 ? "s" : ""})</span> : null}
-                </dd>
-              </div>
-            )}
-          </dl>
-        )}
-
-        <h3 className="room-exhibit">Proof shots, track and motion</h3>
-        <section className="viewer">
+        <div className="room-label">
+          <span className="wpdot wpdot-proof" aria-hidden="true" />
+          <h2 id="proof-h">Proof</h2>
+          <span className="room-hint">captured live, hashed every 5 s</span>
+        </div>
+        <section className="viewer" aria-label="Proof shots, track and motion">
           <div className="viewer-main">
-            <div className="frame-stage">
+            <div className="frame-stage on-media">
               {frame ? (
                 <>
-                  <img src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} />
+                  <img src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} decoding="async" />
                   <p className="frame-cap">
-                    <span>{fmtDuration(frame.t - start)}</span>
+                    <span>
+                      <Glyph name="timing" /> {fmtDuration(frame.t - start)}
+                    </span>
                     {frame.label && <span>{frame.label}</span>}
-                    {frame.ok === false ? <span className="coach coach-bad">coach: retake</span> : frame.ok ? <span className="coach">coach: keep going</span> : null}
-                    {frame.mode !== "none" && <span className="muted">{frame.mode === "on_device" ? "on-device" : "cloud"}</span>}
+                    {frame.ok === false ? (
+                      <span className="coach coach-bad">
+                        <Glyph name="close" /> retake
+                      </span>
+                    ) : frame.ok ? (
+                      <span className="coach">
+                        <Glyph name="check" /> keep going
+                      </span>
+                    ) : null}
+                    {frame.mode !== "none" && <Hybrid mode={frame.mode === "on_device" ? "on_device" : "cloud"} />}
                   </p>
                 </>
               ) : feed?.heroJpegB64 ? (
                 <img src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
               ) : (
-                <div className="frame-empty">{chunks ? "No proof frames available." : "Loading frames…"}</div>
+                <div className="frame-empty">
+                  <Glyph name="frames" />
+                  {chunks ? "No proof frames" : "Loading frames…"}
+                </div>
               )}
             </div>
             <div className="timeline">
-              <div className="thumbs">
-                {decoded.frames.map((f) => (
-                  <button
-                    key={f.seq}
-                    className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
-                    style={{ left: `${((f.t - start) / duration) * 100}%` }}
-                    onClick={() => {
-                      setT(f.t - start);
-                      setPickedSeq(null);
-                    }}
-                    aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
-                  >
-                    <img src={jpegSrc(f.jpegB64)} alt="" />
-                  </button>
-                ))}
-              </div>
-              <input
-                type="range"
-                className="scrub"
-                min={0}
-                max={duration}
-                step={100}
-                value={t}
-                onChange={(e) => {
-                  setT(Number(e.target.value));
-                  setPickedSeq(null);
-                }}
-                aria-label="Scrub through the session"
-                aria-valuetext={fmtDuration(t)}
-              />
-              <div className="scrub-scale">
-                <span>0:00</span>
+              {decoded.frames.length > 0 && (
+                <div className="thumbs" ref={strip} role="group" aria-label="Proof shots">
+                  {decoded.frames.map((f) => (
+                    <button
+                      key={f.seq}
+                      className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
+                      aria-pressed={frame?.seq === f.seq}
+                      onClick={(e) => {
+                        setT(f.t - start);
+                        setPickedSeq(null);
+                        e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+                      }}
+                      aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
+                    >
+                      <img src={jpegSrc(f.jpegB64)} alt="" loading="lazy" decoding="async" width={88} height={66} />
+                      <span className="thumb-t">{fmtDuration(f.t - start)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="scrub-row">
                 <span>{fmtDuration(t)}</span>
+                <input
+                  type="range"
+                  className="scrub"
+                  min={0}
+                  max={duration}
+                  step={100}
+                  value={t}
+                  onChange={(e) => {
+                    setT(Number(e.target.value));
+                    setPickedSeq(null);
+                  }}
+                  aria-label="Scrub through the session"
+                  aria-valuetext={fmtDuration(t)}
+                />
                 <span>{fmtDuration(duration)}</span>
               </div>
             </div>
@@ -540,9 +601,22 @@ export default function Detail({ id }: { id: string }) {
             />
           </div>
           <aside className="viewer-side">
-            <Suspense fallback={<div className="map" />}>
-              <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
-            </Suspense>
+            <div className="map-wrap">
+              <Suspense fallback={<div className="map skel" />}>
+                <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
+              </Suspense>
+              {summary && (
+                <Stats
+                  overlay
+                  className="map-stats on-media"
+                  items={[
+                    { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
+                    { glyph: "gps", value: summary.gpsCount.toLocaleString(), label: "GPS fixes" },
+                    { glyph: "motion", value: summary.motionCount.toLocaleString(), label: "motion" },
+                  ]}
+                />
+              )}
+            </div>
           </aside>
         </section>
 
@@ -567,20 +641,38 @@ export default function Detail({ id }: { id: string }) {
       </section>
 
       <section id="result" className="room-wp room-result" aria-labelledby="result-h">
-        <h2 id="result-h" className="room-label">
-          Result <span>AIs propose, a Cloud Function decides</span>
-        </h2>
-        <div className="room-verdict">
-          {!pending && <Stamp sealed={sealed} size="lg" />}
-          <div>
-            <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
-            {checks && (
-              <p className="muted small">
-                {passedChecks} of {checkList.length} seal checks passed
-                {shownScore != null ? `, ${Math.round(shownScore * 100)}% likely true` : ""}.
-              </p>
-            )}
+        <div className="room-label">
+          <span className={`wpdot wpdot-result ${tone === "bad" ? "wpdot-bad" : ""}`} aria-hidden="true" />
+          <h2 id="result-h">Result</h2>
+          <span className="room-hint">AI proposes, code decides</span>
+        </div>
+        <div className={`room-verdict seal ${pending ? "" : sealed ? "rv-ok" : "rv-bad"}`}>
+          <div className="rv-top">
+            {!pending && <Stamp sealed={sealed} size="lg" />}
+            <ScoreRing value={shownScore} bar={barValue} sealed={pending ? null : sealed} size={92} caption="likely true" />
           </div>
+          <div className="rv-body">
+            <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
+            <CheckPips checks={checks} keys={pipKeys} labels size="md" />
+          </div>
+          <More summary={checks ? `Seal checks · ${passedChecks} of ${checkList.length} passed` : "Seal checks · not sealed yet"} className="rv-more">
+            {checks ? (
+              <ul className="checklist">
+                {checkList.map((c) => (
+                  <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
+                    <span className="mark" aria-hidden="true">
+                      <Glyph name={checks[c.key] ? "check" : "close"} />
+                    </span>
+                    <strong>{c.name}</strong>
+                    <span>{checks[c.key] ? c.ok : c.bad}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">Not sealed yet.</p>
+            )}
+            <p className="muted small">Written only by a Cloud Function. AI proposes; code decides.</p>
+          </More>
         </div>
         {showClaims && (
           <ClaimsPanel
@@ -604,11 +696,12 @@ export default function Detail({ id }: { id: string }) {
                       <ul className="claim-offers" aria-label="Checks that can still back this claim">
                         {rows.map(({ o, c }) => (
                           <li key={o.module.id} className="claim-offer">
-                            <span>
-                              <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
-                              <span className="down">{c.fail.toFixed(2)}</span>
-                              {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
+                            <span className="co-title">
+                              <Glyph name={MODULE_GLYPH[o.module.id]} />
+                              <strong>{o.module.title}</strong>
+                              {o.state === "blocked" && o.reason && <span className="claim-offer-why">{o.reason}</span>}
                             </span>
+                            <Preview from={c.p} pass={c.pass} fail={c.fail} bar={barValue} />
                             {o.state === "ready" && (
                               <button
                                 type="button"
@@ -617,7 +710,7 @@ export default function Detail({ id }: { id: string }) {
                                   setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
                                 }}
                               >
-                                Run · {o.module.cost} cr
+                                Run <Glyph name="credits" /> {o.module.cost}
                               </button>
                             )}
                           </li>
@@ -631,7 +724,10 @@ export default function Detail({ id }: { id: string }) {
         )}
 
         <section className="review" aria-labelledby="ai-h">
-          <h2 id="ai-h">What the AIs said</h2>
+          <div className="section-head">
+            <h2 id="ai-h">What the AIs said</h2>
+            <Hybrid mode="cloud" />
+          </div>
           <div className="opinions">
             <Opinion who="Judge" o={moment?.judge ?? null} fallback={feed?.judgeReasons} />
             <Opinion who="Skeptic" o={moment?.skeptic ?? null} />
@@ -675,28 +771,6 @@ export default function Detail({ id }: { id: string }) {
           />
         )}
 
-        <section className="seal" aria-labelledby="seal-h">
-          <div className="section-head">
-            <h2 id="seal-h">Seal</h2>
-            <p className="muted small">Written only by a Cloud Function. AI proposes; code decides.</p>
-          </div>
-          <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
-          {checks ? (
-            <ul className="checklist">
-              {(sealV4 ? CHECKS_V4 : sealV3 ? CHECKS_V3 : CHECKS).map((c) => (
-                <li key={c.key} className={checks[c.key] ? "pass" : "fail"}>
-                  <span className="mark" aria-hidden="true">
-                    {checks[c.key] ? "✓" : "✗"}
-                  </span>
-                  <strong>{c.name}</strong>
-                  <span>{checks[c.key] ? c.ok : c.bad}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">Not sealed yet.</p>
-          )}
-        </section>
       </section>
     </article>
   );

@@ -1,7 +1,10 @@
 // /embed: "Embed Verified into your app". A public, coming-soon page that lays out the SDK plan in the open,
 // so partners can push on it before anything ships. The plan of record is docs/SDK.md; keep the two in step.
-import { useState } from "react";
-import { Link } from "../ui";
+import { useEffect, useState } from "react";
+import { subscribeFeed } from "../data";
+import { CheckPips, Glyph, More, ScoreRing, type GlyphName } from "../kit";
+import type { FeedEntry } from "../types";
+import { jpegSrc, Link, Stamp } from "../ui";
 
 const REPO = "https://github.com/mattrickslauer/linger";
 const PARTNER_URL =
@@ -22,10 +25,11 @@ const PARTNER_URL =
     ].join("\n"),
   }).toString();
 
-type Layer = { n: string; name: string; pkg: string; what: string; who: string };
+type Layer = { n: string; glyph: GlyphName; name: string; pkg: string; what: string; who: string };
 const LAYERS: Layer[] = [
   {
     n: "1",
+    glyph: "seal",
     name: "Badge & verify",
     pkg: "<verified-badge> · GET /v1/moments/{id}",
     what: "Show a sealed Moment inside your app, and check any Moment id server-side: status, score, bar, every seal check and ladder result.",
@@ -33,6 +37,7 @@ const LAYERS: Layer[] = [
   },
   {
     n: "2",
+    glyph: "record",
     name: "Drop-in capture",
     pkg: "@verified/web · VerifiedKit (Swift) · verified-android",
     what: "One call opens the full Verified flow (interview, live recording, on-device coach, witness, upload) on top of your app and hands back a Moment id.",
@@ -40,6 +45,7 @@ const LAYERS: Layer[] = [
   },
   {
     n: "3",
+    glyph: "code",
     name: "Headless core",
     pkg: "@verified/core",
     what: "The hash chain, sensor recorder, raw vault and hybrid coach as plain APIs. You draw every pixel; the chain and the seal rules stay ours.",
@@ -109,6 +115,46 @@ Verified-Signature: t=…,v1=…   // HMAC, check before trusting
 } as const;
 type SnippetKey = keyof typeof SNIPPETS;
 
+/** Stage 1, live: what a sealed Moment looks like embedded in another app (the first sealed post in the feed). */
+function BadgePreview() {
+  const [e, setE] = useState<FeedEntry | null>(null);
+  useEffect(() => subscribeFeed((es) => setE(es.find((x) => x.status === "sealed") ?? es[0] ?? null), () => {}), []);
+  if (!e) return <div className="vbadge skel" aria-hidden="true" />;
+  const sealed = e.status === "sealed";
+  return (
+    <figure className="vbadge-wrap">
+      <a className="vbadge" href={`/m/${e.momentId}`} aria-label={`Example badge: ${e.intention.text}, ${sealed ? "verified" : "not verified"}. Open the evidence room.`}>
+        <span className="vbadge-media on-media">
+          {e.heroJpegB64 && <img src={jpegSrc(e.heroJpegB64)} alt="" loading="lazy" width={96} height={120} />}
+        </span>
+        <span className="vbadge-body">
+          <span className="vbadge-top">
+            <Stamp sealed={sealed} />
+            <ScoreRing value={e.verificationScore} bar={e.bar} sealed={sealed} size={46} />
+          </span>
+          <strong className="vbadge-text">{e.intention.text}</strong>
+          <CheckPips checks={e.checks} size="sm" />
+          <span className="vbadge-link">
+            <Glyph name="search" /> Evidence on Verified
+          </span>
+        </span>
+      </a>
+      <figcaption className="muted small">
+        <code>&lt;verified-badge&gt;</code> preview, from the live feed
+      </figcaption>
+    </figure>
+  );
+}
+
+const FLOW: { glyph: GlyphName; who: string; what: string }[] = [
+  { glyph: "code", who: "Your app", what: "calls capture() with an intention and, optionally, a template." },
+  { glyph: "device", who: "The SDK", what: "runs the interview, records GPS, motion and proof shots, chains every 5 s chunk with SHA-256. The coach runs on the device." },
+  { glyph: "cloud", who: "Firestore", what: "syncs it, offline-first. Nothing is lost at a lake with no signal." },
+  { glyph: "seal", who: "Cloud Functions", what: "recompute the chain, physics and timing, read the judge, skeptic and scorer, apply the bar and write the seal." },
+  { glyph: "upload", who: "Your server", what: "gets a signed webhook and decides what a seal means for you: a prize, a badge, a payout." },
+];
+const RULE_GLYPH: GlyphName[] = ["ai", "chain", "bar", "credits", "device"];
+
 const STAGES = [
   { tag: "Now", title: "Plan in the open", body: "This page and docs/SDK.md. We pick three to five design partners and shape the API with them." },
   { tag: "Stage 1", title: "Badge & verify API", body: "Read-only. Public Moments are already public; this adds an embeddable badge, oEmbed and a signed verify endpoint." },
@@ -138,40 +184,58 @@ export default function Embed() {
   return (
     <div className="page embed">
       <section className="embed-hero" aria-labelledby="embed-h">
-        <p className="embed-kicker">
-          <span className="chip chip-warn">Coming soon</span>
-          <span className="muted small">SDK plan, written in public</span>
-        </p>
-        <h1 id="embed-h">Embed Verified into your app.</h1>
-        <p className="lede">
-          Your users already say “trust me, it happened.” Give them a button that records it, chains it and gets it sealed, without
-          leaving your app. Fishing derbies, fitness challenges, outdoor badges, bounties: anywhere a payout or a ranking hangs on a
-          photo.
-        </p>
-        <div className="embed-cta">
-          <a className="btn btn-primary" href={PARTNER_URL} target="_blank" rel="noopener noreferrer">
-            Become a design partner
-          </a>
-          <a className="btn btn-quiet" href={`${REPO}/blob/main/docs/SDK.md`} target="_blank" rel="noopener noreferrer">
-            Read the full plan
-          </a>
+        <div className="embed-hero-copy">
+          <p className="embed-kicker">
+            <span className="chip chip-warn">Coming soon</span>
+            <span className="muted small">SDK plan, written in public</span>
+          </p>
+          <h1 id="embed-h">Embed Verified into your app.</h1>
+          <p className="lede">A button that records it, chains it and gets it sealed, without leaving your app.</p>
+          <ul className="uses embed-uses" aria-label="For">
+            <li>
+              <Glyph name="gps" /> fishing derbies
+            </li>
+            <li>
+              <Glyph name="motion" /> fitness challenges
+            </li>
+            <li>
+              <Glyph name="seal" /> outdoor badges
+            </li>
+            <li>
+              <Glyph name="credits" /> bounties
+            </li>
+          </ul>
+          <div className="embed-cta">
+            <a className="btn btn-primary" href={PARTNER_URL} target="_blank" rel="noopener noreferrer">
+              Become a design partner
+            </a>
+            <a className="btn btn-quiet" href={`${REPO}/blob/main/docs/SDK.md`} target="_blank" rel="noopener noreferrer">
+              Read the full plan
+            </a>
+          </div>
+          <p className="muted small">Nothing is installable yet. Names below are the proposal we want to argue about with you.</p>
         </div>
-        <p className="muted small">Nothing here is installable yet. Names and shapes below are the proposal we want to argue about with you.</p>
+        <BadgePreview />
       </section>
 
       <section className="embed-sec" aria-labelledby="layers-h">
-        <h2 id="layers-h">Three ways in, from lightest to deepest</h2>
+        <h2 id="layers-h">Three ways in, lightest to deepest</h2>
         <ol className="embed-layers">
           {LAYERS.map((l) => (
             <li key={l.n} className="embed-layer">
               <span className="embed-num" aria-hidden="true">
-                {l.n}
+                <Glyph name={l.glyph} />
               </span>
               <div>
-                <h3>{l.name}</h3>
+                <h3>
+                  <span className="sr-only">{l.n}. </span>
+                  {l.name}
+                </h3>
                 <p className="mono embed-pkg">{l.pkg}</p>
-                <p>{l.what}</p>
-                <p className="muted small">For: {l.who}</p>
+                <p className="small">{l.what}</p>
+                <More summary="Who it's for">
+                  <p className="muted small">{l.who}</p>
+                </More>
               </div>
             </li>
           ))}
@@ -180,7 +244,6 @@ export default function Embed() {
 
       <section className="embed-sec" aria-labelledby="code-h">
         <h2 id="code-h">What it could look like</h2>
-        <p className="muted">Planned API. It will change once partners use it.</p>
         <div className="embed-tabs" role="tablist" aria-label="Platform">
           {(Object.keys(SNIPPETS) as SnippetKey[]).map((k) => (
             <button
@@ -199,38 +262,33 @@ export default function Embed() {
         <pre id="embed-code" className="embed-code" role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
           <code>{SNIPPETS[tab].code}</code>
         </pre>
+        <p className="muted small">Planned API. It will change once partners use it.</p>
       </section>
 
       <section className="embed-sec" aria-labelledby="flow-h">
-        <h2 id="flow-h">What happens between your app and the seal</h2>
+        <h2 id="flow-h">From your app to the seal</h2>
         <ol className="embed-flow">
-          <li>
-            <b>Your app</b> calls <span className="mono">capture()</span> with an intention and, optionally, a template.
-          </li>
-          <li>
-            <b>The SDK</b> runs the interview, records GPS, motion and proof shots, and chains every 5 s chunk with SHA-256. The coach
-            runs on the device.
-          </li>
-          <li>
-            <b>Firestore</b> syncs it, offline-first. Nothing is lost at a lake with no signal.
-          </li>
-          <li>
-            <b>Cloud Functions</b> recompute the chain, physics and timing, read the judge, skeptic and scorer, apply the bar and
-            write the seal.
-          </li>
-          <li>
-            <b>Your server</b> gets a signed webhook and decides what a seal means for you: a prize, a badge, a payout.
-          </li>
+          {FLOW.map((s) => (
+            <li key={s.who}>
+              <span className="flow-glyph" aria-hidden="true">
+                <Glyph name={s.glyph} />
+              </span>
+              <b>{s.who}</b>
+              <span className="small">{s.what}</span>
+            </li>
+          ))}
         </ol>
       </section>
 
       <section className="embed-sec" aria-labelledby="rules-h">
         <h2 id="rules-h">What does not change when you embed it</h2>
         <dl className="embed-rules">
-          {RULES.map(([t, d]) => (
+          {RULES.map(([t, d], i) => (
             <div key={t}>
-              <dt>{t}</dt>
-              <dd>{d}</dd>
+              <dt>
+                <Glyph name={RULE_GLYPH[i] ?? "check"} /> {t}
+              </dt>
+              <dd className="small">{d}</dd>
             </div>
           ))}
         </dl>
@@ -250,18 +308,20 @@ export default function Embed() {
       </section>
 
       <section className="embed-sec" aria-labelledby="q-h">
-        <h2 id="q-h">Open questions we want to answer with you</h2>
-        <ul className="embed-q">
-          {QUESTIONS.map((q) => (
-            <li key={q}>{q}</li>
-          ))}
-        </ul>
+        <h2 id="q-h">Open questions</h2>
+        <More summary={`${QUESTIONS.length} questions we want to answer with you`}>
+          <ul className="embed-q">
+            {QUESTIONS.map((q) => (
+              <li key={q}>{q}</li>
+            ))}
+          </ul>
+        </More>
         <div className="embed-cta">
           <a className="btn btn-primary" href={PARTNER_URL} target="_blank" rel="noopener noreferrer">
             Tell us what you'd build
           </a>
           <Link to="/record" className="btn">
-            Try a Moment first
+            <Glyph name="record" /> Try a Moment first
           </Link>
         </div>
       </section>
