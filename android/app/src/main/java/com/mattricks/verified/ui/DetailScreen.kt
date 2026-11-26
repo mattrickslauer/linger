@@ -2,7 +2,6 @@ package com.mattricks.verified.ui
 
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,7 +83,6 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -289,8 +287,8 @@ private fun Hero(d: MomentDetail, ok: Boolean, selected: Int) {
     val heroMin = minOf(440, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.8f).toInt()).dp
     Box(Modifier.fillMaxWidth().heightIn(min = heroMin).background(MediaBg)) {
         val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
-        if (bmp != null) Image(
-            bmp, "Proof shot", Modifier.matchParentSize(), contentScale = ContentScale.Crop,
+        if (bmp != null) FitImage(
+            bmp, "Proof shot", Modifier.matchParentSize(),
             colorFilter = if (d.card.status != "rejected" && !d.card.cheating) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
         ) else Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), MediaBg))), contentAlignment = Alignment.Center) {
             if (d.track.size > 1) TrackSketch(d.track, Modifier.size(180.dp, 130.dp))

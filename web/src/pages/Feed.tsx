@@ -11,7 +11,7 @@ import type { FeedEntry } from "../types";
 import { ago, jpegSrc, Link, TrackSketch } from "../ui";
 import "../feed.css";
 import { FeedVideo, feedClip } from "../components/SharedVideo";
-import { CheckPips, Glyph, GlyphChip, Hybrid, ScoreRing, Stats } from "../kit";
+import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, ScoreRing, Stats } from "../kit";
 
 type Filter = "all" | "sealed" | "rejected";
 const FILTERS: [Filter, string][] = [
@@ -124,7 +124,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
       </div>
       <div className="slide-frame">
         {e.heroJpegB64 ? (
-          <img className="slide-photo" src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} />
+          <FitImg className="slide-photo" src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} />
         ) : (
           <div className="slide-photo slide-nophoto" />
         )}

@@ -103,7 +103,6 @@ body.immersive .theme {
   width: 100%;
   height: 100%;
   max-width: none;
-  object-fit: cover;
   z-index: -2;
 }
 .slide-nophoto {
@@ -116,6 +115,8 @@ body.immersive .theme {
 }
 /* v4.12: the feed clip plays over the hero photo, which stays as the poster until the first frame renders. */
 .slide-video {
+  object-fit: contain;
+  background: #071419;
   opacity: 0;
   transition: opacity 0.25s ease;
 }

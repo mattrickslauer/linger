@@ -102,14 +102,15 @@ final class FeedClipPlayer {
   }
 }
 
-/// An `AVPlayerLayer` with no controls, filling its frame (aspect fill). `onReady` runs once a frame can show.
+/// An `AVPlayerLayer` with no controls, showing the whole clip in its frame (aspect fit, never cropped).
+/// `onReady` runs once a frame can show.
 struct PlayerLayerView: UIViewRepresentable {
   let player: AVPlayer
   let onReady: () -> Void
 
   func makeUIView(context: Context) -> PlayerLayerUIView {
     let view = PlayerLayerUIView()
-    view.playerLayer.videoGravity = .resizeAspectFill
+    view.playerLayer.videoGravity = .resizeAspect
     view.playerLayer.player = player
     view.onReady = onReady
     return view

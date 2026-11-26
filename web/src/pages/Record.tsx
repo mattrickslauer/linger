@@ -7,6 +7,7 @@ import { configured, db, loadCloudModel } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
+import { startOrientationTracking } from "../orientation";
 import type { Intention, Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip } from "../components/Interview";
@@ -122,6 +123,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamErr(null);
+    startOrientationTracking(); // proof frames auto-rotate when the phone is held sideways (portrait-locked PWA)
     const videoC = { facingMode: facing, width: { ideal: 1280 } };
     // Clips record sound (singing, counting aloud, speech are proven by ear). A denied or missing mic falls back to
     // video only; the <video> preview stays muted, so there is no feedback.

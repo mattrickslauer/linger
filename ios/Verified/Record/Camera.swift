@@ -24,6 +24,9 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
   private let queue = DispatchQueue(label: "verified.camera")
   private var configured = false
   private var input: AVCaptureDeviceInput?
+  /// Tracks how the phone is held (gravity, so it works with the portrait-locked UI): photos and clips are saved
+  /// upright even when the phone is turned landscape. Remade whenever the camera input changes.
+  private var rotation: AVCaptureDevice.RotationCoordinator?
   private var audioInput: AVCaptureDeviceInput?
   private var flashMode: AVCaptureDevice.FlashMode = .off
   private var videoMode = false
@@ -62,7 +65,25 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
         self.session.addInput(old)
       }
       self.session.commitConfiguration()
+      self.refreshRotation()
       self.applyTorch()
+    }
+  }
+
+  /// Must run on `queue`. A rotation coordinator for the current camera (horizon-level capture angle).
+  private func refreshRotation() {
+    rotation = input.map { AVCaptureDevice.RotationCoordinator(device: $0.device, previewLayer: nil) }
+  }
+
+  /// Must run on `queue`. Points `conn` so the saved photo / clip is upright for how the phone is held right now
+  /// (portrait when the coordinator is missing).
+  private func applyCaptureRotation(_ conn: AVCaptureConnection?) {
+    guard let conn else { return }
+    let angle = rotation?.videoRotationAngleForHorizonLevelCapture ?? 90
+    if conn.isVideoRotationAngleSupported(angle) {
+      conn.videoRotationAngle = angle
+    } else if conn.isVideoRotationAngleSupported(90) {
+      conn.videoRotationAngle = 90
     }
   }
 
@@ -155,10 +176,11 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     output.maxPhotoQualityPrioritization = .speed
     movie.maxRecordedDuration = CMTime(seconds: Self.maxClipSeconds, preferredTimescale: 600)
     session.commitConfiguration()
+    refreshRotation()
     configured = true
   }
 
-  /// Takes one JPEG photo (portrait orientation via EXIF; `ProofFrame` bakes it in).
+  /// Takes one JPEG photo, upright for how the phone is held (orientation via EXIF; `ProofFrame` bakes it in).
   func capture() async throws -> Data {
     try await withCheckedThrowingContinuation { cont in
       queue.async {
@@ -169,16 +191,14 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
         let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         settings.photoQualityPrioritization = .speed
         if self.output.supportedFlashModes.contains(self.flashMode) { settings.flashMode = self.flashMode }
-        if let conn = self.output.connection(with: .video), conn.isVideoRotationAngleSupported(90) {
-          conn.videoRotationAngle = 90
-        }
+        self.applyCaptureRotation(self.output.connection(with: .video))
         self.pending[settings.uniqueID] = cont
         self.output.capturePhoto(with: settings, delegate: self)
       }
     }
   }
 
-  /// Starts recording a QuickTime clip (portrait) to `url`. `done` runs (on the camera queue) once the file is
+  /// Starts recording a QuickTime clip to `url`, upright for how the phone is held at the start (track transform). `done` runs (on the camera queue) once the file is
   /// finished: after `stopRecording()`, the length cap, or an interruption; the message is nil if the file is usable.
   func startRecording(to url: URL, done: @escaping @Sendable (URL, String?) -> Void) async throws {
     try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -191,9 +211,7 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
           cont.resume(throwing: CameraError.busy)
           return
         }
-        if let conn = self.movie.connection(with: .video), conn.isVideoRotationAngleSupported(90) {
-          conn.videoRotationAngle = 90
-        }
+        self.applyCaptureRotation(self.movie.connection(with: .video))
         try? FileManager.default.removeItem(at: url)
         self.movieDone = done
         self.movie.startRecording(to: url, recordingDelegate: self)
@@ -240,7 +258,7 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
   }
 }
 
-/// Live camera preview layer.
+/// Live camera preview layer. Aspect fit (black letterbox) so the viewfinder shows exactly the frame that is saved.
 struct CameraPreview: UIViewRepresentable {
   let session: AVCaptureSession
 
@@ -252,7 +270,7 @@ struct CameraPreview: UIViewRepresentable {
   func makeUIView(context: Context) -> PreviewView {
     let v = PreviewView()
     v.previewLayer.session = session
-    v.previewLayer.videoGravity = .resizeAspectFill
+    v.previewLayer.videoGravity = .resizeAspect
     v.backgroundColor = .black
     return v
   }

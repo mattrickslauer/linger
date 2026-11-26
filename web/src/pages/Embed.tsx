@@ -2,7 +2,7 @@
 // so partners can push on it before anything ships. The plan of record is docs/SDK.md; keep the two in step.
 import { useEffect, useState } from "react";
 import { subscribeFeed } from "../data";
-import { CheckPips, Glyph, More, ScoreRing, type GlyphName } from "../kit";
+import { CheckPips, FitImg, Glyph, More, ScoreRing, type GlyphName } from "../kit";
 import type { FeedEntry } from "../types";
 import { jpegSrc, Link, Stamp } from "../ui";
 
@@ -125,7 +125,7 @@ function BadgePreview() {
     <figure className="vbadge-wrap">
       <a className="vbadge" href={`/m/${e.momentId}`} aria-label={`Example badge: ${e.intention.text}, ${sealed ? "verified" : "not verified"}. Open the evidence room.`}>
         <span className="vbadge-media on-media">
-          {e.heroJpegB64 && <img src={jpegSrc(e.heroJpegB64)} alt="" loading="lazy" width={96} height={120} />}
+          {e.heroJpegB64 && <FitImg className="vbadge-img" src={jpegSrc(e.heroJpegB64)} alt="" loading="lazy" />}
         </span>
         <span className="vbadge-body">
           <span className="vbadge-top">
