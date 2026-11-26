@@ -20,8 +20,9 @@ struct InterviewCard: View {
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Theme.card, in: RoundedRectangle(cornerRadius: 20))
-    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.accent.opacity(iv.active ? 0.5 : 0), lineWidth: 1.5))
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+      .stroke(Theme.lake.opacity(iv.active ? 0.6 : 0), lineWidth: 1.5))
     .animation(.snappy, value: iv.phase)
     .animation(.snappy, value: iv.lines)
   }
@@ -29,32 +30,34 @@ struct InterviewCard: View {
   // MARK: - Intro
 
   private var intro: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 14) {
-        Button { app.interview.begin() } label: {
+    VStack(spacing: 12) {
+      Button { app.interview.begin() } label: {
+        ZStack {
+          Circle().fill(Theme.lake.opacity(0.14)).frame(width: 112, height: 112)
           Image(systemName: "mic.fill")
-            .font(.system(size: 26, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 64, height: 64)
-            .background(LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.75)],
-                                       startPoint: .top, endPoint: .bottom), in: Circle())
-            .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 4)
-        }
-        .accessibilityLabel("Talk it through")
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Talk it through").font(.title3.bold())
-          Text("Say what you're about to do. Your witness asks up to 3 quick questions, splits it into claims and tells you the minimum evidence to get it verified.")
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(.system(size: 34, weight: .semibold))
+            .foregroundStyle(Theme.onFill)
+            .frame(width: 84, height: 84)
+            .background(Theme.lake, in: Circle())
+            .shadow(color: Theme.lake.opacity(0.35), radius: 12, y: 5)
         }
       }
-      HStack(spacing: 8) {
-        Chip(text: HybridAI.onDeviceAvailable ? "questions on-device" : "questions in the cloud",
-             systemImage: HybridAI.onDeviceAvailable ? "cpu" : "cloud", color: HybridAI.onDeviceAvailable ? Theme.accent : .blue)
-        Chip(text: "structured in the cloud", systemImage: "cloud", color: .blue)
-        Spacer(minLength: 0)
+      .buttonStyle(.plain)
+      .accessibilityLabel("Talk it through")
+      .accessibilityHint("Your witness asks a few questions and plans the evidence")
+      Text("Talk it through").font(.title3.bold())
+      Text("Say what you'll do. Your witness plans the proof.")
+        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+      HStack(spacing: 6) {
+        HybridBadge(onDevice: HybridAI.onDeviceAvailable,
+                    text: HybridAI.onDeviceAvailable ? "questions on device" : "questions in cloud")
+        HybridBadge(onDevice: false, text: "plan in cloud")
       }
-      Button("Skip — just type it", action: typeInstead).font(.subheadline.weight(.semibold))
+      Button("Type instead", action: typeInstead)
+        .font(.subheadline.weight(.semibold))
+        .frame(minHeight: 44)
     }
+    .frame(maxWidth: .infinity)
   }
 
   // MARK: - Conversation
@@ -63,14 +66,15 @@ struct InterviewCard: View {
     @Bindable var iv = iv
     let voice = VoiceIO.shared
     return VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        Label("Witness interview", systemImage: "waveform").font(.headline)
+      HStack(spacing: 4) {
+        Label("Witness", systemImage: Glyph.witness).font(.headline)
         Spacer()
         Button { voice.muted.toggle() } label: {
           Image(systemName: voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            .frame(width: 44, height: 44).contentShape(Rectangle())
         }
         .accessibilityLabel(voice.muted ? "Unmute voice" : "Mute voice")
-        Button("Cancel") { iv.cancel() }.font(.subheadline)
+        Button("Cancel") { iv.cancel() }.font(.subheadline).frame(minHeight: 44)
       }
       if let place = iv.placeLabel {
         Label(place, systemImage: "location.fill").font(.caption).foregroundStyle(.secondary)
@@ -88,21 +92,25 @@ struct InterviewCard: View {
           Button { if voice.listening { voice.stopListening() } else { iv.listen() } } label: {
             Image(systemName: voice.listening ? "stop.fill" : "mic.fill")
               .font(.title3.weight(.semibold))
-              .foregroundStyle(.white)
-              .frame(width: 46, height: 46)
-              .background(voice.listening ? Theme.bad : Theme.accent, in: Circle())
+              .foregroundStyle(Theme.onFill)
+              .frame(width: 56, height: 56)
+              .background(voice.listening ? Theme.bad : Theme.lake, in: Circle())
               .symbolEffect(.pulse, options: .repeating, isActive: voice.listening)
           }
           .accessibilityLabel(voice.listening ? "Stop listening" : "Speak")
           TextField("Or type your answer", text: $iv.typed)
             .textFieldStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .background(Color(.tertiarySystemGroupedBackground), in: Capsule())
+            .frame(minHeight: 44)
+            .background(Theme.raised, in: Capsule())
             .focused($answerFocused)
             .submitLabel(.send)
             .onSubmit { iv.submitTyped() }
           if !iv.typed.isEmpty {
-            Button { iv.submitTyped() } label: { Image(systemName: "arrow.up.circle.fill").font(.title) }
+            Button { iv.submitTyped() } label: {
+              Image(systemName: "arrow.up.circle.fill").font(.title).frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Send")
           }
         }
         Button { iv.finishNow() } label: {
@@ -141,13 +149,14 @@ private struct Bubble: View {
       VStack(alignment: line.role == .me ? .trailing : .leading, spacing: 4) {
         Text(line.text)
           .font(.subheadline)
-          .foregroundStyle(line.role == .me ? .white : .primary)
+          .foregroundStyle(line.role == .me ? Theme.onFill : .primary)
           .padding(.horizontal, 12).padding(.vertical, 8)
-          .background(line.role == .me ? AnyShapeStyle(Theme.accent.opacity(live ? 0.6 : 1)) : AnyShapeStyle(Color(.tertiarySystemGroupedBackground)),
-                      in: RoundedRectangle(cornerRadius: 16))
+          .background(line.role == .me ? AnyShapeStyle(Theme.lake.opacity(live ? 0.6 : 1)) : AnyShapeStyle(Theme.raised),
+                      in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         if let mode = line.mode {
-          Label(mode == "on_device" ? "on-device" : "cloud", systemImage: mode == "on_device" ? "cpu" : "cloud")
+          Image(systemName: mode == "on_device" ? Glyph.onDevice : Glyph.cloud)
             .font(.caption2).foregroundStyle(.secondary)
+            .accessibilityLabel(mode == "on_device" ? "on device" : "cloud")
         }
       }
       if line.role == .ai { Spacer(minLength: 40) }
@@ -166,8 +175,9 @@ struct IntentionSummary: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 4) {
-          Text(result.activity.isEmpty ? result.category.label.uppercased() : result.activity.uppercased())
-            .font(.caption.weight(.bold)).kerning(1).foregroundStyle(Theme.accent)
+          Label(result.activity.isEmpty ? result.category.label : result.activity.capitalized,
+                systemImage: result.category.icon)
+            .font(.caption.weight(.bold)).foregroundStyle(Theme.track)
           Text(result.goal.isEmpty ? result.text : result.goal).font(.title3.bold())
         }
         Spacer()
@@ -181,8 +191,9 @@ struct IntentionSummary: View {
             iv.cancel()
           }
         } label: {
-          Image(systemName: "ellipsis.circle").font(.title3)
+          Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44).contentShape(Rectangle())
         }
+        .accessibilityLabel("Interview options")
       }
       if let place = result.place?.label {
         Label(place, systemImage: "mappin.and.ellipse").font(.subheadline).foregroundStyle(.secondary)
@@ -195,7 +206,7 @@ struct IntentionSummary: View {
         FlowChips {
           ForEach(result.quantities) { q in
             Button { iv.removeQuantity(q) } label: {
-              Chip(text: "\(q.label) · \(q.measuredBy)", systemImage: "ruler", color: Theme.accent)
+              Chip(text: "\(q.label) · \(q.measuredBy)", systemImage: "ruler", color: Theme.lake)
             }
             .buttonStyle(.plain)
           }
@@ -211,13 +222,13 @@ struct IntentionSummary: View {
       }
       if !result.assumptions.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
-          Text("The AI assumed (tap × if wrong)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-          ForEach(result.assumptions, id: \.self) { a in
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-              Text(a).font(.footnote)
-              Spacer()
-              Button { iv.removeAssumption(a) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                .accessibilityLabel("Remove assumption")
+          Label("AI assumed · tap to remove", systemImage: "lightbulb")
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+          FlowChips {
+            ForEach(result.assumptions, id: \.self) { a in
+              Button { iv.removeAssumption(a) } label: { Chip(text: a, systemImage: "xmark.circle.fill", color: Theme.warn) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove assumption: \(a)")
             }
           }
         }
@@ -225,8 +236,11 @@ struct IntentionSummary: View {
       BarPreviewRow(preview: result.preview, recheck: { Task { await iv.previewBar() } })
       HStack(spacing: 6) {
         Chip(text: "\(result.turns) \(result.turns == 1 ? "answer" : "answers")", systemImage: "waveform")
-        Chip(text: modeLabel(result.mode), systemImage: result.mode == "on_device" ? "cpu" : "cloud",
-             color: result.mode == "on_device" ? Theme.accent : .blue)
+        if result.mode == "typed" {
+          Chip(text: modeLabel(result.mode), systemImage: "keyboard")
+        } else {
+          HybridBadge(onDevice: result.mode != "cloud", text: modeLabel(result.mode))
+        }
       }
     }
   }
@@ -241,36 +255,39 @@ struct IntentionSummary: View {
   }
 }
 
-/// "Bar ≈ 0.73 (preview)": the score this Moment will likely have to reach. Binding bar: set server-side at submit.
+/// "Bar ≈ 0.73 (preview)" as a ring with the bar tick: the score this Moment will likely have to reach. Binding bar:
+/// set server-side at submit. The rationale sits behind the info button.
 struct BarPreviewRow: View {
   let preview: StructuredIntention.Preview?
   let recheck: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 10) {
-        Image(systemName: "flag.checkered").foregroundStyle(Theme.warn)
+    HStack(spacing: 14) {
+      if let p = preview {
+        ScoreRing(p: nil, bar: p.bar, size: 64)
+      } else {
+        Image(systemName: Glyph.bar).font(.title2).foregroundStyle(.secondary)
+          .frame(width: 64, height: 64)
+          .background(Circle().stroke(Color.primary.opacity(0.14), lineWidth: 6))
+          .accessibilityHidden(true)
+      }
+      VStack(alignment: .leading, spacing: 6) {
+        Label("Bar preview", systemImage: Glyph.bar).font(.subheadline.bold())
         if let p = preview {
-          Text("Bar ≈ \(String(format: "%.2f", p.bar))").font(.headline.monospacedDigit())
-          Text("(preview)").font(.caption).foregroundStyle(.secondary)
-          Spacer()
-          Chip(text: p.mode == "on_device" ? "on-device" : "cloud", systemImage: p.mode == "on_device" ? "cpu" : "cloud",
-               color: p.mode == "on_device" ? Theme.accent : .blue)
+          HybridBadge(onDevice: p.mode == "on_device")
         } else {
-          Text("Bar preview unavailable").font(.subheadline).foregroundStyle(.secondary)
-          Spacer()
-          Button("Retry", action: recheck).font(.caption)
+          Button("Retry", action: recheck).font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }
       }
-      if let p = preview {
-        BarGauge(score: nil, bar: p.bar).frame(height: 10)
-        if !p.rationale.isEmpty { Text(p.rationale).font(.caption).foregroundStyle(.secondary) }
-      }
-      Text("The binding bar is set in the cloud when you submit. Harder or more tempting claims need more evidence.")
-        .font(.caption2).foregroundStyle(.tertiary)
+      Spacer(minLength: 0)
+      InfoButton(title: "Bar preview",
+                 text: [preview?.rationale ?? "",
+                        "The binding bar is set in the cloud when you submit. Harder or more tempting claims need more evidence."]
+                   .filter { !$0.isEmpty }.joined(separator: "\n\n"))
     }
     .padding(12)
-    .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .accessibilityElement(children: .contain)
   }
 }
 
@@ -284,7 +301,7 @@ struct BarGauge: View {
       ZStack(alignment: .leading) {
         Capsule().fill(Color(.tertiarySystemFill))
         if let score {
-          Capsule().fill(score >= bar ? Theme.accent : Theme.bad)
+          Capsule().fill(score >= bar ? Theme.ok : Theme.bad)
             .frame(width: max(6, g.size.width * min(1, max(0, score))))
         }
         Rectangle().fill(Theme.warn).frame(width: 3, height: g.size.height + 8)

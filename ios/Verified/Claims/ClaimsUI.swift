@@ -70,7 +70,7 @@ enum V4Words {
 struct ClaimChip: View {
   let claim: Claim
   var removable = false
-  var tint: Color = Theme.accent
+  var tint: Color = Theme.lake
 
   var body: some View {
     HStack(spacing: 5) {
@@ -122,10 +122,10 @@ struct RequirementRow: View {
   @ViewBuilder private var marker: some View {
     switch state {
     case .plan:
-      Image(systemName: requirement.evidence.icon).font(.footnote).foregroundStyle(Theme.accent).frame(width: 18)
+      Image(systemName: requirement.evidence.icon).font(.footnote).foregroundStyle(Theme.lake).frame(width: 18)
     case .captured, .met:
       Image(systemName: state == .met ? "checkmark.circle.fill" : "circle.inset.filled")
-        .foregroundStyle(Theme.accent).frame(width: 18)
+        .foregroundStyle(Theme.ok).frame(width: 18)
         .transition(.scale.combined(with: .opacity))
     case .missing, .unmet:
       Image(systemName: "circle").foregroundStyle(.secondary).frame(width: 18)
@@ -134,8 +134,8 @@ struct RequirementRow: View {
 
   @ViewBuilder private var trailing: some View {
     switch state {
-    case .captured: Text("captured").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
-    case .met: Text("✓ met").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+    case .captured: Text("captured").font(.caption2.weight(.bold)).foregroundStyle(Theme.ok)
+    case .met: Text("✓ met").font(.caption2.weight(.bold)).foregroundStyle(Theme.ok)
     case .unmet: Text("○ not met").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
     case .missing:
       if compact, let m = V4Words.minSeconds(requirement.minSeconds) {
@@ -170,19 +170,19 @@ struct PlanSummary: View {
       }
       if let plan, !plan.requirements.isEmpty {
         VStack(alignment: .leading, spacing: 10) {
-          HStack {
+          HStack(spacing: 6) {
             Label("To get this verified", systemImage: "checklist").font(.subheadline.bold())
-            Spacer()
+            Spacer(minLength: 4)
             Chip(text: plan.isVideo ? "Video" : "Photo", systemImage: plan.isVideo ? "video.fill" : "camera.fill",
-                 color: plan.isVideo ? Theme.bad : Theme.accent)
+                 color: plan.isVideo ? Theme.track : Theme.lake)
+            if !plan.note.isEmpty { InfoButton(title: "Evidence plan", text: plan.note).padding(.vertical, -10) }
           }
           ForEach(plan.requirements) { r in
             RequirementRow(requirement: r, claim: claims.first { $0.id == r.claimId })
           }
-          if !plan.note.isEmpty { Text(plan.note).font(.caption).foregroundStyle(.secondary) }
         }
         .padding(12)
-        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
       }
     }
   }
@@ -204,7 +204,7 @@ struct VideoStatusLine: View {
           Text(line).font(.footnote.weight(.semibold)).foregroundStyle(busy(upload) ? .primary : color)
           Spacer(minLength: 0)
         }
-        if let f = upload?.fraction { ProgressView(value: f).tint(Theme.accent) }
+        if let f = upload?.fraction { ProgressView(value: f).tint(Theme.lake) }
         if review?.status == "done", let s = review?.summary { Text(s).font(.caption).foregroundStyle(.secondary) }
       }
       .accessibilityElement(children: .combine)
@@ -239,9 +239,9 @@ struct VideoStatusLine: View {
 
   private var color: Color {
     switch review?.status {
-    case "done": Theme.accent
+    case "done": Theme.ok
     case "expired", "failed": Theme.warn
-    default: ClipUploader.shared.states[momentId] == .waiting ? Theme.warn : Theme.accent
+    default: ClipUploader.shared.states[momentId] == .waiting ? Theme.warn : Theme.lake
     }
   }
 }
