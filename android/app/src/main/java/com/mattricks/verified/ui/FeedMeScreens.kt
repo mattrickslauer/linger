@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -27,8 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -175,25 +177,30 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
                 }
             }
         }
-        // Filter: a compact segmented pill over the media. Each segment is a 48dp target.
-        Row(
-            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 6.dp)
-                .clip(RoundedCornerShape(50)).background(TokBg.copy(alpha = 0.55f)).border(1.dp, TokLine.copy(alpha = 0.4f), RoundedCornerShape(50))
-                .padding(horizontal = 4.dp),
-        ) {
-            FEED_FILTERS.forEach { (k, label) ->
-                val on = filter == k
-                Box(
-                    Modifier.heightIn(min = 48.dp).semantics { selected = on }
-                        .clickable(role = Role.Tab) { if (filter != k) { filter = k; lastId = null; scope.launch { pager.scrollToPage(0) } } },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        label, color = if (on) TokBg else TokInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) TokInk else Color.Transparent)
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    )
-                }
+        FeedFilters(filter, Modifier.align(Alignment.TopCenter)) { k -> filter = k; lastId = null; scope.launch { pager.scrollToPage(0) } }
+    }
+}
+
+/** Filter: a compact segmented pill over the media, clear of the status bar / cutout. Each segment is a 48dp target. */
+@Composable
+internal fun FeedFilters(filter: String, modifier: Modifier, onPick: (String) -> Unit) {
+    Row(
+        modifier.safeTopAndSides().padding(top = 6.dp)
+            .clip(RoundedCornerShape(50)).background(TokBg.copy(alpha = 0.55f)).border(1.dp, TokLine.copy(alpha = 0.4f), RoundedCornerShape(50))
+            .padding(horizontal = 4.dp),
+    ) {
+        FEED_FILTERS.forEach { (k, label) ->
+            val on = filter == k
+            Box(
+                Modifier.heightIn(min = 48.dp).semantics { selected = on }
+                    .clickable(role = Role.Tab) { if (filter != k) onPick(k) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label, color = if (on) TokBg else TokInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) TokInk else Color.Transparent)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                )
             }
         }
     }
@@ -203,7 +210,7 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
 @Composable
 private fun SlideSkeleton() {
     val block = TokInk.copy(alpha = 0.08f)
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 20.dp, end = 84.dp, top = 72.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxSize().safeTopAndSides().padding(start = 20.dp, end = 84.dp, top = 72.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Box(Modifier.fillMaxWidth(0.4f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(block))
         Box(Modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(8.dp)).background(block))
         Box(Modifier.fillMaxWidth(0.7f).height(34.dp).clip(RoundedCornerShape(8.dp)).background(block))
@@ -219,27 +226,33 @@ private fun SlideSkeleton() {
 /** Page 0: one hero line, the three waypoints as glyph tiles, live counts, Record a Moment. */
 @Composable
 internal fun FeedIntro(user: FirebaseUser?, all: List<MomentCard>?, onRecord: () -> Unit) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 20.dp), verticalArrangement = Arrangement.Center) {
-        Text("Proof it happened.", color = TokInk, fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
-        Spacer(Modifier.height(8.dp))
-        Text("Recorded live. Argued by AI. Sealed by code.", color = TokInk2, fontSize = 16.sp, lineHeight = 22.sp)
-        Spacer(Modifier.height(22.dp))
-        IntroStep(Wp.Intent, Glyph.Intent, "Intent", "Said before starting.")
-        IntroStep(Wp.Proof, Glyph.Proof, "Proof", "GPS, motion, shots. Hash-chained live.", badge = "on_device")
-        IntroStep(Wp.Result, Glyph.Result, "Result", "Judge, skeptic, scorer. Code seals.", badge = "cloud", last = true)
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val sealed = all?.count { it.status == "sealed" }
-            IntroCount(sealed?.toString() ?: "–", "verified", SealGold, Modifier.weight(1f))
-            IntroCount(all?.let { (it.size - (sealed ?: 0)).toString() } ?: "–", "not verified", TokBad, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(18.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RecordButton(onRecord)
-            Spacer(Modifier.width(8.dp))
-            if (user == null) TextButton(onClick = { Gate.signIn() }) { Text("Sign in", color = TokInk) }
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.Filled.KeyboardArrowUp, "Swipe up for Moments", tint = TokInk2, modifier = Modifier.size(32.dp))
+    // Centred when it fits; scrolls (inside the page) on short screens instead of clipping the Record button.
+    BoxWithConstraints(Modifier.fillMaxSize().safeTopAndSides()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Proof it happened.", color = TokInk, fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
+            Spacer(Modifier.height(8.dp))
+            Text("Recorded live. Argued by AI. Sealed by code.", color = TokInk2, fontSize = 16.sp, lineHeight = 22.sp)
+            Spacer(Modifier.height(22.dp))
+            IntroStep(Wp.Intent, Glyph.Intent, "Intent", "Said before starting.")
+            IntroStep(Wp.Proof, Glyph.Proof, "Proof", "GPS, motion, shots. Hash-chained live.", badge = "on_device")
+            IntroStep(Wp.Result, Glyph.Result, "Result", "Judge, skeptic, scorer. Code seals.", badge = "cloud", last = true)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val sealed = all?.count { it.status == "sealed" }
+                IntroCount(sealed?.toString() ?: "–", "verified", SealGold, Modifier.weight(1f))
+                IntroCount(all?.let { (it.size - (sealed ?: 0)).toString() } ?: "–", "not verified", TokBad, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(18.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RecordButton(onRecord)
+                Spacer(Modifier.width(8.dp))
+                if (user == null) TextButton(onClick = { Gate.signIn() }) { Text("Sign in", color = TokInk) }
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Filled.KeyboardArrowUp, "Swipe up for Moments", tint = TokInk2, modifier = Modifier.size(32.dp))
+            }
         }
     }
 }
@@ -274,7 +287,7 @@ private fun IntroCount(n: String, label: String, accent: Color, modifier: Modifi
 
 @Composable
 private fun FeedEnd(any: Boolean, onRecord: () -> Unit, onTop: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize().safeTopAndSides().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(84.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
             Icon(if (any) Glyph.Result else Glyph.Proof, null, tint = if (any) SealGold else TrackOrange, modifier = Modifier.size(40.dp))
         }
@@ -351,7 +364,10 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
     val ease = FastOutSlowInEasing
     val stampP = OvershootEasing.transform(seg(ms, 800f, 1220f))
 
-    Box(Modifier.fillMaxSize().clickable(onClickLabel = "Inspect the evidence", onClick = onOpen)) {
+    BoxWithConstraints(Modifier.fillMaxSize().clickable(onClickLabel = "Inspect the evidence", onClick = onOpen)) {
+        // Landscape / split screen: too short for the three blocks stacked to fit, so the text scrolls (inside the
+        // page; the pager takes over at either end) and the rail sits low.
+        val short = maxHeight < SHORT_SLIDE
         val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
         if (bmp != null) Image(
             bmp, "Proof shot: ${c.intention}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
@@ -370,9 +386,12 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
             ),
         )
 
-        Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 20.dp, end = 84.dp, top = 64.dp, bottom = 20.dp)) {
+        Column(
+            Modifier.fillMaxSize().safeTopAndSides().then(if (short) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                .padding(start = 20.dp, end = 84.dp, top = 64.dp, bottom = 20.dp),
+        ) {
             // 1. Intent: takes the slack, so the photo shows between it and the proof.
-            SlideWaypoint(Wp.Intent, ok, Modifier.weight(1f), line = ease.transform(seg(ms, 100f, 600f)), arrive = ease.transform(seg(ms, 0f, 450f))) {
+            SlideWaypoint(Wp.Intent, ok, if (short) Modifier else Modifier.weight(1f), line = ease.transform(seg(ms, 100f, 600f)), arrive = ease.transform(seg(ms, 0f, 450f))) {
                 WpLabel("Intent", c.ownerName.ifBlank { "Someone" })
                 Spacer(Modifier.height(6.dp))
                 val quote = if (ok) TrackOrange else TokInk2
@@ -449,7 +468,7 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
 
         // Right rail, lower third (thumb zone).
         Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 170.dp),
+            Modifier.align(Alignment.BottomEnd).safeSides().padding(end = 12.dp, bottom = if (short) 16.dp else 170.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (clip != null && player != null) MuteButton(muted) { muted = !muted }
@@ -467,6 +486,9 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
 
 /** Public web host for share links (`/m/{id}` opens the Moment's evidence room). */
 private const val SHARE_HOST = "https://verified-99e74.web.app"
+
+/** Below this the slide's blocks don't fit stacked (phone in landscape, split screen). */
+private val SHORT_SLIDE = 520.dp
 
 private val OvershootEasing = CubicBezierEasing(0.3f, 1.5f, 0.5f, 1f)
 

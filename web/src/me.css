@@ -22,13 +22,14 @@
 }
 .me-tally {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr)); /* never wider than the screen, even at 320 px */
   gap: 8px;
   margin: 0;
 }
 .me-tally div {
   display: flex;
   flex-direction: column-reverse;
+  justify-content: flex-end; /* numbers line up at the top when a label wraps */
   padding: 10px 12px;
   border-radius: 16px;
   background: var(--sheet);
@@ -46,12 +47,13 @@
   align-items: center;
   gap: 4px;
   font-size: 0.78rem;
+  line-height: 1.25;
   color: var(--ink-3);
-  white-space: nowrap;
 }
 .me-tally dt .glyph {
   width: 14px;
   height: 14px;
+  flex: none;
 }
 .me-tally .tally-ok dd {
   color: color-mix(in srgb, var(--gold) 70%, var(--ink));

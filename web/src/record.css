@@ -7,7 +7,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: calc(100dvh - 62px - var(--tabbar));
+  min-height: calc(100vh - var(--topbar) - var(--tabbar));
+  min-height: calc(100dvh - var(--topbar) - var(--tabbar));
   padding-top: 20px;
   padding-bottom: 12px;
 }
@@ -68,7 +69,7 @@
   align-items: stretch;
   gap: 12px;
   padding: 14px 0 8px;
-  bottom: var(--tabbar);
+  bottom: max(var(--tabbar), var(--safe-b));
   z-index: 2;
 }
 .talk-bar .mic {
@@ -252,14 +253,14 @@
 /* Start sits in the thumb zone on a phone. */
 .start-dock {
   position: sticky;
-  bottom: var(--tabbar);
+  bottom: max(var(--tabbar), var(--safe-b));
   z-index: 3;
   display: flex;
   flex-wrap: wrap-reverse;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 0 calc(8px + var(--safe-b) * 0);
+  padding: 12px 0 8px;
   background: linear-gradient(transparent, var(--paper) 28%);
 }
 .btn-start {
@@ -288,8 +289,10 @@ body.rec-live .foot {
 }
 .live .cam {
   position: relative;
-  height: calc(100dvh - 61px - var(--safe-t));
-  min-height: 520px;
+  /* exactly the screen under the top bar (the tab bar is hidden while live) */
+  height: calc(100vh - var(--topbar));
+  height: calc(100dvh - var(--topbar));
+  min-height: 420px;
   aspect-ratio: auto;
   border-radius: 0;
   display: flex;
@@ -303,7 +306,8 @@ body.rec-live .foot {
     padding: 16px var(--gutter) 24px;
   }
   .live .cam {
-    height: calc(100dvh - 61px - 40px);
+    height: calc(100vh - var(--topbar) - 40px - var(--safe-b));
+    height: calc(100dvh - var(--topbar) - 40px - var(--safe-b));
     border-radius: 20px;
   }
 }
@@ -475,6 +479,9 @@ body.rec-live .foot {
 
 .cam-mid {
   flex: 1;
+  min-height: 0; /* on a short screen the plan scrolls; the shutter row below always stays on screen */
+  overflow-y: auto;
+  scrollbar-width: none;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -905,5 +912,25 @@ body.rec-live .foot {
   }
   .btn-start {
     flex: 1;
+  }
+}
+
+/* A phone on its side: full-bleed again, and the camera never taller than the screen. */
+@media (max-height: 540px) {
+  .page.live {
+    padding: 0;
+  }
+  .live .cam {
+    height: calc(100vh - var(--topbar));
+    height: calc(100dvh - var(--topbar));
+    min-height: 0;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .live .mode-switch {
+    flex-direction: row;
+  }
+  .live .cam-side {
+    bottom: calc(136px + var(--safe-b));
   }
 }
