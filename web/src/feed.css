@@ -16,16 +16,26 @@ body.immersive .top {
   backdrop-filter: none;
   color: #e8ece4;
 }
-body.immersive .top nav a {
+body.immersive .top .tabs a {
   color: #e8ece4cc;
 }
-body.immersive .top nav a:hover {
+body.immersive .top .tabs a:hover {
   background: #ffffff1f;
   color: #fff;
 }
-body.immersive .top nav a.on {
+body.immersive .top .tabs a.on {
   background: #e8ece4;
   color: #071419;
+}
+body.immersive .signin-top {
+  color: #e8ece4;
+}
+@media (max-width: 719px) {
+  body.immersive .brand span,
+  body.immersive .modepill,
+  body.immersive .signin-top {
+    display: none;
+  }
 }
 body.immersive .theme {
   display: none;
@@ -133,7 +143,7 @@ body.immersive .theme {
 .thread {
   --dot: 14px;
   position: absolute;
-  inset: 116px 76px calc(28px + env(safe-area-inset-bottom)) 20px;
+  inset: calc(118px + var(--safe-t)) 76px calc(22px + max(var(--tabbar), var(--safe-b))) 20px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -249,60 +259,22 @@ body.immersive .theme {
   fill: var(--gold);
 }
 .proof-stats {
-  display: flex;
-  gap: 16px;
-  margin: 0;
+  gap: 4px 13px;
+  flex-wrap: nowrap;
 }
-.proof-stats div {
-  display: flex;
-  justify-content: flex-end;
-  flex-direction: column-reverse;
-}
-.proof-stats dt {
-  font-size: 0.75rem;
-  color: var(--t-ink-2);
+.proof-stats dt .glyph {
+  display: none;
 }
 .proof-stats dd {
-  margin: 0;
-  white-space: nowrap;
-  font-size: 1.15rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
 }
-.pips {
+.proof-checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-}
-.pip {
-  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px 3px 6px;
-  border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 650;
-  background: #07141999;
-  border: 1px solid var(--t-line);
+  gap: 8px 10px;
   text-shadow: none;
 }
-.pip i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--t-ok);
-}
-.pip-bad {
-  color: var(--t-bad);
-  border-color: #ff9a8580;
-}
-.pip-bad i {
-  background: none;
-  border: 1.5px solid var(--t-bad);
-  width: 8px;
-  height: 8px;
-}
-
 .result-row {
   display: flex;
   align-items: center;
@@ -334,14 +306,8 @@ body.immersive .theme {
   border: 2.5px dashed var(--t-bad);
   background: #071419cc;
 }
-.result-score {
-  font-size: 0.95rem;
-  color: var(--t-ink-2);
-}
-.result-score b {
-  font-size: 1.4rem;
-  color: var(--t-ink);
-  font-variant-numeric: tabular-nums;
+.result-ring {
+  text-shadow: none;
 }
 .result-why {
   margin: 10px 0 0;
@@ -407,7 +373,7 @@ body.immersive .theme {
 .rail {
   position: absolute;
   right: 12px;
-  bottom: calc(160px + env(safe-area-inset-bottom));
+  bottom: calc(170px + var(--tabbar));
   display: grid;
   gap: 18px;
   justify-items: center;
@@ -466,29 +432,57 @@ body.immersive .theme {
 .tok-tabs {
   position: fixed;
   z-index: 9;
-  top: 62px;
+  top: calc(66px + var(--safe-t));
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
-  gap: 4px;
   pointer-events: none;
 }
-.tok-tab {
+.tok-seg {
   pointer-events: auto;
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: #07141999;
+  border: 1px solid #e8ece426;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.tok-tab {
   border: 0;
   background: none;
-  color: #e8ece4a6;
+  color: #e8ece4bf;
   font: inherit;
   font-weight: 650;
-  font-size: 0.95rem;
-  padding: 6px 10px;
+  font-size: 0.86rem;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
   cursor: pointer;
-  text-shadow: 0 1px 2px #000a;
+  white-space: nowrap;
+}
+.tok-tab:hover {
+  color: #fff;
 }
 .tok-tab[aria-pressed="true"] {
-  color: #fff;
-  box-shadow: inset 0 -2px 0 #fff;
+  background: #e8ece4;
+  color: #071419;
+}
+@media (max-width: 719px) {
+  .tok-tabs {
+    top: calc(12px + var(--safe-t));
+    left: 56px;
+    right: 12px;
+  }
+  .tok-tab {
+    padding: 0 11px;
+    min-height: 34px;
+  }
+  .thread {
+    top: calc(74px + var(--safe-t));
+  }
 }
 .tok-nav {
   position: fixed;
@@ -502,6 +496,8 @@ body.immersive .theme {
 .tok-nav button {
   width: 46px;
   height: 46px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
   border: 0;
   background: #e8ece41f;
@@ -529,42 +525,126 @@ body.immersive .theme {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 110px 26px 40px;
+  gap: 18px;
+  padding: calc(96px + var(--safe-t)) 22px calc(28px + var(--tabbar));
 }
 .intro h1 {
-  font-size: clamp(2.4rem, calc(var(--col) * 0.12), 3.4rem);
-  letter-spacing: -0.035em;
-  line-height: 0.95;
+  font-size: clamp(2.5rem, calc(var(--col) * 0.13), 3.6rem);
+  letter-spacing: -0.04em;
+  line-height: 0.92;
 }
-.intro .lede {
+.intro-sub {
   color: var(--t-ink-2);
-  margin: 14px 0 22px;
-  max-width: 32ch;
+  max-width: 30ch;
+  margin-top: -6px;
 }
-.thread-static {
+.intro-tiles {
   position: relative;
-  inset: auto;
-  gap: 18px;
-  pointer-events: auto;
-}
-.thread-static .wp-intent {
-  flex: none;
-}
-.thread-static .wp {
-  padding-bottom: 18px;
-}
-.thread-static p {
+  list-style: none;
   margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+/* The dashed track joins the three waypoints, as on every slide. */
+.intro-tiles::before {
+  content: "";
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  top: 33px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--t-track) 0 7px, transparent 7px 12px);
+}
+.itile {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  text-align: center;
+  gap: 3px;
+  padding: 12px 6px 14px;
+  border-radius: 16px;
+  background: #e8ece40f;
+  border: 1px solid #e8ece41f;
+}
+.itile-glyph {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  margin-bottom: 6px;
+  background: var(--t-bg);
+  border: 2.5px solid var(--t-track);
+  color: var(--t-track);
+}
+.itile-glyph .glyph {
+  width: 24px;
+  height: 24px;
+}
+.itile-proof .itile-glyph {
+  background: var(--t-track);
+  color: var(--t-bg);
+}
+.itile-result .itile-glyph {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #10242b;
+  box-shadow: 0 0 0 5px #e7b42533;
+}
+.itile strong {
+  font-size: 1rem;
+  font-weight: 760;
+}
+.itile span:last-child {
+  font-size: 0.8rem;
+  line-height: 1.25;
   color: var(--t-ink-2);
-  font-size: 0.93rem;
-  max-width: 34ch;
 }
-.thread-static .wp-label {
-  color: var(--t-ink);
+.intro-hybrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 0.86rem;
+  color: var(--t-ink-2);
 }
-.intro-count {
-  margin: 22px 0 14px;
-  font-size: 0.9rem;
+.intro-tally {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+.intro-tally div {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: #e8ece40f;
+  border: 1px solid #e8ece41f;
+}
+.intro-tally dd {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.intro-tally dt {
+  font-size: 0.8rem;
+  color: var(--t-ink-2);
+}
+.tally-ok dd {
+  color: var(--gold);
+}
+.tally-no dd {
+  color: var(--t-bad);
+}
+.intro-count,
+.intro-note {
+  font-size: 0.86rem;
   color: var(--t-ink-2);
 }
 .intro-actions {
@@ -584,11 +664,18 @@ body.immersive .theme {
   background: var(--gold);
   border-color: var(--gold);
   color: #10242b;
+  min-height: 52px;
+  padding: 0 24px;
+  font-size: 1.05rem;
 }
 .tok .btn-primary:hover {
   background: #f2c94a;
   border-color: #f2c94a;
   color: #10242b;
+}
+.tok .btn .glyph {
+  width: 20px;
+  height: 20px;
 }
 .swipe-hint {
   color: var(--t-ink-2);
@@ -617,6 +704,20 @@ body.immersive .theme {
   color: var(--t-ink-2);
   margin: 10px 0 20px;
 }
+.end-glyph {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  margin-bottom: 16px;
+  background: var(--gold);
+  color: #10242b;
+}
+.end-glyph .glyph {
+  width: 32px;
+  height: 32px;
+}
 .slide-skeleton {
   background: linear-gradient(160deg, #10343b, #071419);
 }
@@ -624,7 +725,9 @@ body.immersive .theme {
   .intent-text {
     font-size: 1.35rem;
   }
-  .result-why {
+  .result-why,
+  .intro-sub,
+  .intro-hybrid {
     display: none;
   }
   .wp {
@@ -632,14 +735,19 @@ body.immersive .theme {
   }
 }
 .proof-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 8px 0 0;
-  font-size: 0.8rem;
-  color: var(--t-ink-2);
+  text-shadow: none;
 }
 .result-bar {
   margin-left: 2px;
 }
 .result-cheat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 10px 0 0;
   font-weight: 750;
   color: var(--t-bad);
