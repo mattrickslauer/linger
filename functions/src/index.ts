@@ -8,7 +8,7 @@ import { DocumentReference, FieldValue, Timestamp, getFirestore, Transaction } f
 import { getStorage } from "firebase-admin/storage";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
-import { CallableRequest, onCall } from "firebase-functions/v2/https";
+import { CallableRequest, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onObjectFinalized } from "firebase-functions/v2/storage";
 import { ModuleAnswer, ModuleContext, computeBarAndClaims, runModule } from "./agents";
@@ -39,6 +39,7 @@ import {
   verificationDocV4,
   videoWaitExpired,
 } from "./seal4";
+import { IMAGE_PATH, MOMENT_PATH, ShareFeed, buildShareMeta, heroJpeg, injectMeta } from "./share";
 import { ChecksV4, applyLadderV4, claimsBackedByModule, moduleOutcomes, reasonV4, recheck } from "./score4";
 import { ModuleDef, ModuleId, getLadder, getModule } from "./shared";
 import { Verification, eligibility, fail, isStaleRun, unmetNeedV4, validateRunRequest } from "./callable";
@@ -447,6 +448,57 @@ export const onMomentDeleted = onDocumentDeleted("moments/{momentId}", async (ev
       .catch((e) => logger.warn("clip cleanup failed", { momentId, error: String(e) }));
   }
   logger.info("moment deleted by owner", { momentId, ownerUid: before?.ownerUid });
+});
+
+// ───────────────────────────────── link previews (functions/src/share.ts)
+
+/** Canonical origin for preview URLs and the index.html template: the project's Hosting site, never a request header. */
+const SITE_ORIGIN = process.env.SHARE_ORIGIN || `https://${process.env.GCLOUD_PROJECT}.web.app`;
+const TEMPLATE_TTL_MS = 5 * 60_000;
+let template: { html: string; at: number } | null = null;
+
+/** The built index.html (hashed asset names change per deploy, so fetch it from Hosting and cache briefly). */
+async function indexTemplate(): Promise<string | null> {
+  if (template && Date.now() - template.at < TEMPLATE_TTL_MS) return template.html;
+  try {
+    const res = await fetch(`${SITE_ORIGIN}/index.html`, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    template = { html: await res.text(), at: Date.now() };
+  } catch (e) {
+    logger.warn("share: index.html fetch failed", { error: String(e) });
+  }
+  return template?.html ?? null;
+}
+
+/**
+ * Hosting rewrites `/m/:id` and `/og/:id.jpg` here. Reads only the public `feed` doc, so an unsealed or private
+ * Moment previews as the generic app. Any failure falls back to the plain SPA shell, never an error page.
+ */
+export const sharePage = onRequest({ memory: "256MiB", timeoutSeconds: 15, concurrency: 80 }, async (req, res) => {
+  const img = req.path.match(IMAGE_PATH);
+  const page = req.path.match(MOMENT_PATH);
+  const id = img?.[1] ?? page?.[1];
+  const snap = id ? await db.collection("feed").doc(id).get().catch(() => null) : null;
+  const feed = snap?.data() as ShareFeed | undefined;
+
+  if (img) {
+    const jpeg = heroJpeg(feed?.heroJpegB64);
+    if (!jpeg) {
+      res.redirect(302, "/icon-512.png");
+      return;
+    }
+    res.set("Cache-Control", "public, max-age=3600, s-maxage=86400").type("image/jpeg").send(jpeg);
+    return;
+  }
+
+  const html = await indexTemplate();
+  if (!html) {
+    // Hosting unreachable: hand the client the static shell, which the SPA still routes from location.pathname.
+    res.redirect(302, "/index.html");
+    return;
+  }
+  const out = page && feed ? injectMeta(html, buildShareMeta(feed, SITE_ORIGIN, page[1])) : html;
+  res.set("Cache-Control", "public, max-age=300, s-maxage=600").type("html").send(out);
 });
 
 // ───────────────────────────────── callables (v3.7)
