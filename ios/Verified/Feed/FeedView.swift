@@ -752,7 +752,12 @@ struct HeroImage: View {
 
   var body: some View {
     if let b64, let cg = ProofFrame.cgImage(fromBase64: b64) {
-      Image(decorative: cg, scale: 1).resizable().scaledToFill()
+      // Fill inside an overlay so the photo never reports its own (wider) fill size to the layout: a bare
+      // scaledToFill landscape photo at a fixed height pushed the Evidence page past the screen edge.
+      Color.clear.overlay {
+        Image(decorative: cg, scale: 1).resizable().scaledToFill()
+      }
+      .clipped()
     } else {
       ZStack {
         LinearGradient(colors: [Color(hex: 0x123540), Theme.media], startPoint: .top, endPoint: .bottom)
