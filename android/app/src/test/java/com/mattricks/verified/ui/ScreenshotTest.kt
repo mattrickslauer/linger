@@ -112,6 +112,18 @@ class ScreenshotTest {
         )
     } }
 
+    @Test fun liveClipSaved() { offlineMapsOnly = true; shot("live-clip-saved", dark = true) {
+        LiveHud(
+            liveUi.copy(witness = null), com.mattricks.verified.data.Prefs.CaptureMode.Video, null, false, false, {}, {},
+            WitnessActions({}, {}, {}, {}, {}), {}, {}, {},
+            media = { mini, full ->
+                B64Image(fakePhoto(1), full)
+                TrackMap(liveUi.track, mini, live = true, compact = true)
+            },
+            clipSaved = true,
+        )
+    } }
+
     @Test fun finished() = shot("finished") {
         FinishedContent(liveUi.copy(phase = com.mattricks.verified.record.RecUi.Phase.Finished, hasVideo = false), false, true, null, true, {}, {}, {})
     }

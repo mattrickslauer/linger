@@ -7,11 +7,13 @@ import VerifiedCore
 /// The live Moment screen: the camera (or the map) full-bleed, with a HUD over it. Top: the elapsed timer, sync
 /// state and live indicators (GPS, motion, shots, clips), the plan checklist, the coach toast; the mini map window on
 /// the right (tap it to swap camera and map) with the witness and flash buttons. Bottom, in the thumb zone: the
-/// witness card, Photo/Video, then Finish, the big shutter and flip.
+/// witness card, the "All done? End & verify" nudge, Photo/Video, then End & verify, the big shutter and flip.
 struct LiveRecordView: View {
   @Environment(AppModel.self) private var app
   @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
   @State private var mapBig = false
+  /// Set when a clip lands: the moment people most often don't realise they still need to end the session.
+  @State private var clipSaved = false
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -80,6 +82,8 @@ struct LiveRecordView: View {
     // Haptics: a tap per proof shot, start/stop for clips, a warning when the coach asks for a retake, a nudge
     // when the witness asks for something.
     .sensoryFeedback(.impact(weight: .medium), trigger: rec.frameCount)
+    .onChange(of: rec.videoCount) { old, new in if new > old { clipSaved = true } }
+    .onChange(of: rec.clipStartedAt) { _, new in if new != nil { clipSaved = false } }
     .sensoryFeedback(trigger: rec.clipStartedAt) { old, new in
       if old == nil && new != nil { return .start }
       if old != nil && new == nil { return .stop }
@@ -265,53 +269,98 @@ struct LiveRecordView: View {
       .background(.ultraThinMaterial, in: Circle())
   }
 
-  // MARK: - Thumb zone: Finish, shutter, flip
+  // MARK: - Thumb zone: End & verify, shutter, flip
+
+  private func finish(_ rec: RecorderModel) {
+    Task {
+      await rec.finish()
+      // A guest Moment finished while signed in (signed in mid-recording): offer it for upload now.
+      if rec.lastSubmitted?.guest == true { app.offerClaimIfNeeded(force: true) }
+    }
+  }
 
   private func controls(_ rec: RecorderModel) -> some View {
     TimelineView(.periodic(from: .now, by: 1)) { ctx in
       let elapsed = rec.elapsedMs(at: ctx.date)
-      HStack(alignment: .center) {
-        FinishButton(elapsed: elapsed, finishing: rec.phase == .finishing,
-                     enabled: rec.canFinish(at: ctx.date) && !rec.shooting) {
-          Task {
-            await rec.finish()
-            // A guest Moment finished while signed in (signed in mid-recording): offer it for upload now.
-            if rec.lastSubmitted?.guest == true { app.offerClaimIfNeeded(force: true) }
+      let canFinish = rec.canFinish(at: ctx.date) && !rec.shooting
+      let planComplete = rec.plan.map { p in !p.requirements.isEmpty && p.requirements.allSatisfy { rec.captured.contains($0.id) } } ?? false
+      // Nudge toward ending the session once there's something worth verifying and nothing in flight.
+      let ready = canFinish && rec.witness.open == nil && (clipSaved || planComplete)
+      VStack(spacing: 10) {
+        if ready {
+          FinishNudge(lead: clipSaved ? "Video saved." : "Everything on the plan is captured.") { finish(rec) }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        HStack(alignment: .center) {
+          FinishButton(elapsed: elapsed, finishing: rec.phase == .finishing, enabled: canFinish, ready: ready) { finish(rec) }
+            .frame(maxWidth: .infinity)
+
+          Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting,
+                  witness: rec.witness.armed != nil) {
+            if !rec.videoMode { rec.proofShot() }
+            else if rec.clipStartedAt == nil { rec.startVideo() }
+            else { rec.stopVideo() }
           }
-        }
-        .frame(maxWidth: .infinity)
+          .disabled(rec.phase != .recording)
 
-        Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting,
-                witness: rec.witness.armed != nil) {
-          if !rec.videoMode { rec.proofShot() }
-          else if rec.clipStartedAt == nil { rec.startVideo() }
-          else { rec.stopVideo() }
-        }
-        .disabled(rec.phase != .recording)
-
-        Group {
-          if CameraController.canFlip {
-            Button { rec.flip() } label: {
-              roundIcon("arrow.triangle.2.circlepath.camera.fill", enabled: !rec.cameraBusy, size: 56)
+          Group {
+            if CameraController.canFlip {
+              Button { rec.flip() } label: {
+                roundIcon("arrow.triangle.2.circlepath.camera.fill", enabled: !rec.cameraBusy, size: 56)
+              }
+              .accessibilityLabel(rec.front ? "Switch to back camera" : "Switch to front camera")
+              .disabled(rec.cameraBusy)
+            } else {
+              Color.clear.frame(width: 56, height: 56)
             }
-            .accessibilityLabel(rec.front ? "Switch to back camera" : "Switch to front camera")
-            .disabled(rec.cameraBusy)
-          } else {
-            Color.clear.frame(width: 56, height: 56)
           }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
       }
+      .animation(reduceMotion ? nil : .snappy, value: ready)
     }
   }
 }
 
-/// Finish: a stop button with a ring that fills over the 20 s minimum; until then it shows the seconds left.
+/// Shown once a clip lands (or the plan is fully captured): people otherwise don't realise they still need to end the session.
+private struct FinishNudge: View {
+  let lead: String
+  let action: () -> Void
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "checkmark").font(.headline)
+      Text("\(lead) \(Text("All done?").bold()) End the session to verify it.")
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+      Button(action: action) {
+        Text("End & verify").font(.subheadline.weight(.bold))
+          .padding(.horizontal, 14).padding(.vertical, 8)
+          .background(Color(hex: 0x10242B), in: Capsule())
+          .foregroundStyle(Theme.gold)
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 8)
+    .foregroundStyle(Color(hex: 0x10242B))
+    .background(Theme.gold, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.isButton)
+    .accessibilityAction { action() }
+  }
+}
+
+/// End & verify: a ring that fills over the 20 s minimum (showing the seconds left), then a gold check so it never
+/// reads as another capture button; it pulses while `ready`. with a ring that fills over the 20 s minimum; until then it shows the seconds left.
 private struct FinishButton: View {
   let elapsed: Int64
   let finishing: Bool
   let enabled: Bool
+  var ready = false
   let action: () -> Void
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var pulse = false
 
   var body: some View {
     let min = RecorderModel.minDurationMs
@@ -320,28 +369,43 @@ private struct FinishButton: View {
     Button(action: action) {
       VStack(spacing: 4) {
         ZStack {
-          Circle().fill(.ultraThinMaterial)
-          Circle().inset(by: 2).stroke(.white.opacity(0.2), lineWidth: 4)
-          Circle().inset(by: 2).trim(from: 0, to: progress)
-            .stroke(progress >= 1 ? Color(hex: 0xF05A4A) : .white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-            .rotationEffect(.degrees(-90))
+          if ready {
+            Circle().fill(Theme.gold)
+              .scaleEffect(pulse && !reduceMotion ? 1.5 : 1)
+              .opacity(reduceMotion ? 0.4 : pulse ? 0 : 0.8)
+              .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true }
+              }
+              .onDisappear { pulse = false }
+          }
+          if left > 0 {
+            Circle().fill(.ultraThinMaterial)
+            Circle().inset(by: 2).stroke(.white.opacity(0.2), lineWidth: 4)
+            Circle().inset(by: 2).trim(from: 0, to: progress)
+              .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+              .rotationEffect(.degrees(-90))
+          } else {
+            Circle().fill(Theme.gold)
+          }
           if finishing {
-            ProgressView().tint(.white)
+            ProgressView().tint(Color(hex: 0x10242B))
           } else if left > 0 {
             Text("\(left)").font(.headline.monospacedDigit())
           } else {
-            RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xF05A4A)).frame(width: 20, height: 20)
+            Image(systemName: "checkmark").font(.title2.weight(.bold)).foregroundStyle(Color(hex: 0x10242B))
           }
         }
         .frame(width: 60, height: 60)
-        Text("Finish").font(.caption.weight(.bold))
+        Text(finishing ? "Ending…" : "End & verify").font(.caption.weight(.bold))
+          .foregroundStyle(left > 0 ? Color.white : Theme.gold)
       }
       .opacity(enabled || finishing ? 1 : 0.7)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!enabled)
-    .accessibilityLabel("Finish Moment")
+    .accessibilityLabel("End session and verify")
     .accessibilityValue(left > 0 ? "Available in \(left) seconds" : "")
   }
 }
