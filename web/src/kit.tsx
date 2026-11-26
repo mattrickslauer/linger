@@ -1,7 +1,7 @@
 // The shared visual vocabulary (docs/superpowers/specs/2026-11-25-ui-overhaul-visual-first.md): one glyph per concept,
 // the score ring with the bar tick, the check pips, stat tiles and hybrid badges. Same meaning on every platform.
 import type { ReactNode } from "react";
-import type { CheckMode, SealChecks } from "./types";
+import type { CheckMode, ModuleId, SealChecks } from "./types";
 import "./kit.css";
 
 // ------------------------------------------------------------------ glyphs
@@ -347,3 +347,58 @@ export function More({ summary = "Why?", children, className, open }: { summary?
 export function Waypoint({ kind, tone }: { kind: "intent" | "proof" | "result"; tone?: "ok" | "bad" }) {
   return <span className={`wpdot wpdot-${kind} ${tone === "bad" ? "wpdot-bad" : ""}`} aria-hidden="true" />;
 }
+
+// ------------------------------------------------------------------ ladder preview
+
+const n2 = (x: number | null | undefined) => (x == null ? "–" : x.toFixed(2));
+const clamp01 = (x: number) => `${Math.round(Math.max(0, Math.min(1, x)) * 1000) / 10}%`;
+
+/**
+ * Current score → pass / fail outcomes on one track ("0.62 → 0.79 ↑ / 0.50 ↓"), with the bar ticked.
+ * The numbers stay as text beside the track.
+ */
+export function Preview({ from, pass, fail, bar, className }: { from: number | null; pass: number; fail: number; bar?: number | null; className?: string }) {
+  const lo = Math.min(pass, fail);
+  const hi = Math.max(pass, fail);
+  return (
+    <span
+      className={`pv ${className ?? ""}`}
+      role="img"
+      aria-label={`now ${n2(from)}; if it passes ${n2(pass)}, if it fails ${n2(fail)}${bar != null ? `; bar ${n2(bar)}` : ""}`}
+    >
+      <span className="pv-track" aria-hidden="true">
+        <span className="pv-range" style={{ left: clamp01(lo), width: clamp01(hi - lo) }} />
+        {bar != null && <span className="pv-bar" style={{ left: clamp01(bar) }} />}
+        <span className="pv-pt pv-fail" style={{ left: clamp01(fail) }} />
+        <span className="pv-pt pv-pass" style={{ left: clamp01(pass) }} />
+        {from != null && <span className="pv-pt pv-now" style={{ left: clamp01(from) }} />}
+      </span>
+      <span className="pv-nums" aria-hidden="true">
+        {from != null && (
+          <>
+            <b>{n2(from)}</b> →{" "}
+          </>
+        )}
+        <span className="up">{n2(pass)} ↑</span> / <span className="down">{n2(fail)} ↓</span>
+      </span>
+    </span>
+  );
+}
+
+export const MODULE_GLYPH: Record<ModuleId, GlyphName> = {
+  second_look: "ai",
+  place_time: "gps",
+  witness_review: "witness",
+  count_measure: "physics",
+  full_video: "video",
+  human_review: "me",
+};
+export const KIND_GLYPH: Record<string, GlyphName> = {
+  action: "motion",
+  count: "hash",
+  measure: "physics",
+  place: "gps",
+  time: "timing",
+  object: "frames",
+  outcome: "seal",
+};

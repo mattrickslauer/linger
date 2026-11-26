@@ -19,7 +19,7 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, jpegSrc, Link, Stamp } from "../ui";
-import { CheckPips, Glyph, GlyphChip, Hybrid, More, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
+import { CheckPips, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
 import "../room.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoStatusText } from "../v4";
@@ -696,11 +696,12 @@ export default function Detail({ id }: { id: string }) {
                       <ul className="claim-offers" aria-label="Checks that can still back this claim">
                         {rows.map(({ o, c }) => (
                           <li key={o.module.id} className="claim-offer">
-                            <span>
-                              <strong>{o.module.title}</strong> · if it passes → <span className="up">{c.pass.toFixed(2)}</span> · if it fails →{" "}
-                              <span className="down">{c.fail.toFixed(2)}</span>
-                              {o.state === "blocked" && o.reason && <span className="claim-offer-why"> · {o.reason}</span>}
+                            <span className="co-title">
+                              <Glyph name={MODULE_GLYPH[o.module.id]} />
+                              <strong>{o.module.title}</strong>
+                              {o.state === "blocked" && o.reason && <span className="claim-offer-why">{o.reason}</span>}
                             </span>
+                            <Preview from={c.p} pass={c.pass} fail={c.fail} bar={barValue} />
                             {o.state === "ready" && (
                               <button
                                 type="button"
@@ -709,7 +710,7 @@ export default function Detail({ id }: { id: string }) {
                                   setRequested((r) => ({ module: o.module.id, n: (r?.n ?? 0) + 1 }));
                                 }}
                               >
-                                Run · {o.module.cost} cr
+                                Run <Glyph name="credits" /> {o.module.cost}
                               </button>
                             )}
                           </li>
