@@ -39,6 +39,21 @@ class ScreenshotTest {
         }
     }
 
+    @Config(fontScale = 2.0f)
+    @Test fun meGridFont200() = shot("me-grid-font200") { MeContent() }
+
+    @Config(fontScale = 2.0f)
+    @Test fun feedSlideFont200() = shot("feed-slide-font200") { MediaTheme { FeedSlide(fakeCard(), active = true, reduceMotion = true, player = null, onOpen = {}) } }
+
+    @Config(fontScale = 2.0f)
+    @Test fun liveFont200() { offlineMapsOnly = true; shot("live-font200", dark = true) {
+        LiveHud(
+            liveUi.copy(witness = null), com.mattricks.verified.data.Prefs.CaptureMode.Photo, null, false, false, {}, {},
+            WitnessActions({}, {}, {}, {}, {}), {}, {}, {},
+            media = { mini, full -> B64Image(fakePhoto(1), full); TrackMap(liveUi.track, mini, live = true, compact = true) },
+        )
+    } }
+
     @Test fun meGrid() = shot("me-grid") { MeContent() }
     @Test fun meGridDark() = shot("me-grid-dark", dark = true) { MeContent() }
 

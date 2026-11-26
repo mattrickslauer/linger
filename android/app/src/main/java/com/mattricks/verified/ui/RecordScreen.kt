@@ -19,6 +19,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
@@ -225,7 +228,10 @@ internal fun LiveHud(
 ) = MediaTheme {
     val recording = recordingSince != null
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        val miniPos = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = if (ui.plan != null) 196.dp else 150.dp, end = 12.dp).size(width = 104.dp, height = 136.dp)
+        // Everything under the HUD is placed from its measured height, so it never overlaps at large font scales.
+        var hudPx by remember { mutableIntStateOf(0) }
+        val hudH = with(LocalDensity.current) { hudPx.toDp() }
+        val miniPos = Modifier.align(Alignment.TopEnd).padding(top = hudH + 8.dp, end = 12.dp).size(width = 104.dp, height = 136.dp)
         val mini = miniPos.zIndex(2f).clip(RoundedCornerShape(16.dp)).border(2.dp, TokInk, RoundedCornerShape(16.dp))
         val full = Modifier.fillMaxSize().zIndex(1f)
         media(mini, full)
@@ -237,7 +243,7 @@ internal fun LiveHud(
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(260.dp).zIndex(4f).background(Brush.verticalGradient(listOf(Color.Transparent, MediaBg.copy(alpha = 0.85f)))))
 
         // ── top HUD
-        Column(Modifier.zIndex(5f).fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.zIndex(5f).fillMaxWidth().onSizeChanged { hudPx = it.height }.statusBarsPadding().padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RecDot()
                 Spacer(Modifier.width(8.dp))
@@ -277,7 +283,7 @@ internal fun LiveHud(
 
         // ── coach toast + video REC pill, under the HUD
         Column(
-            Modifier.zIndex(6f).align(Alignment.TopStart).statusBarsPadding().padding(start = 14.dp, end = 128.dp, top = if (ui.plan != null) 200.dp else 154.dp),
+            Modifier.zIndex(6f).align(Alignment.TopStart).padding(start = 14.dp, end = 128.dp, top = hudH + 8.dp),
             horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             recordingSince?.let { since ->

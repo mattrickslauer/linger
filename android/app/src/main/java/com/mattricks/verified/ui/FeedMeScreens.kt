@@ -621,7 +621,7 @@ internal fun StatTile(n: Int, label: String, icon: ImageVector, accent: Color, m
                 Spacer(Modifier.width(8.dp))
                 Text("$n", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, style = Tnum)
             }
-            Text(label, style = MaterialTheme.typography.labelMedium, color = Ink2, maxLines = 1)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
