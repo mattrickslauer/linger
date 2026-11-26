@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.junit.Test
@@ -123,6 +126,21 @@ class ScreenshotTest {
 
     @Test fun interviewStart() = shot("interview-start") {
         InterviewContent(com.mattricks.verified.record.InterviewUi(), "", 0f, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    }
+
+    @Test fun launcherIcon() = shot("launcher-icon") {
+        Row(Modifier.padding(24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            androidx.compose.foundation.layout.Box(Modifier.size(144.dp).clip(androidx.compose.foundation.shape.CircleShape)) {
+                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.mattricks.verified.R.drawable.ic_launcher_background), null, Modifier.size(144.dp))
+                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.mattricks.verified.R.drawable.ic_launcher_foreground), null, Modifier.size(144.dp))
+            }
+            androidx.compose.foundation.layout.Box(Modifier.size(144.dp).clip(androidx.compose.foundation.shape.CircleShape).background(androidx.compose.ui.graphics.Color(0xFF2B4A5A))) {
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(com.mattricks.verified.R.drawable.ic_launcher_monochrome), null, Modifier.size(144.dp),
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.compose.ui.graphics.Color(0xFFCDEDEE)),
+                )
+            }
+        }
     }
 
     @Test fun vocabulary() = shot("vocabulary") { Vocab() }

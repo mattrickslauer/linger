@@ -4,7 +4,18 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ViewAgenda
+import androidx.compose.material3.NavigationBarItemDefaults
+import com.mattricks.verified.record.RecordViewModel
+import com.mattricks.verified.ui.FillBad
+import com.mattricks.verified.ui.MediaBg
+import com.mattricks.verified.ui.TokInk
+import com.mattricks.verified.ui.TokInk2
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -81,25 +92,47 @@ class MainActivity : ComponentActivity() {
 
                 // Keeps the Feed pager (page, tab) while an evidence room or another tab is shown: back lands on the same slide.
                 val screens = rememberSaveableStateHolder()
+                val recordingId by RecordViewModel.recording.collectAsState()
+                // Status / nav bar icons: light over the dark media screens (feed, live camera, evidence-room hero).
+                val darkTheme = isSystemInDarkTheme()
+                val lightIcons = darkTheme || open != null || tab == 0 || (tab == 1 && recordingId != null)
+                LaunchedEffect(lightIcons) {
+                    val style = if (lightIcons) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                }
                 val o = open
                 if (o != null) {
                     BackHandler { open = null }
                     DetailScreen(o, fromMe = openFromMe) { open = null }
                     return@VerifiedTheme
                 }
+                // The feed and the live camera are always dark: the bottom bar goes dark with them.
+                val mediaTab = tab == 0 || (tab == 1 && recordingId != null)
                 Scaffold(bottomBar = {
-                    NavigationBar {
+                    NavigationBar(
+                        containerColor = if (mediaTab) MediaBg else androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        val itemColors = if (mediaTab) NavigationBarItemDefaults.colors(
+                            selectedIconColor = MediaBg, selectedTextColor = TokInk, indicatorColor = TokInk,
+                            unselectedIconColor = TokInk2, unselectedTextColor = TokInk2,
+                        ) else NavigationBarItemDefaults.colors()
                         listOf(
-                            Triple("Feed", Icons.Filled.ViewAgenda, 0),
+                            Triple("Feed", if (tab == 0) Icons.Filled.ViewAgenda else Icons.Outlined.ViewAgenda, 0),
                             Triple("Record", Icons.Filled.FiberManualRecord, 1),
-                            Triple("Me", Icons.Filled.Person, 2),
-                            Triple("Settings", Icons.Filled.Settings, 3),
+                            Triple("Me", if (tab == 2) Icons.Filled.Person else Icons.Outlined.Person, 2),
+                            Triple("Settings", if (tab == 3) Icons.Filled.Settings else Icons.Outlined.Settings, 3),
                         ).forEach { (label, icon, i) ->
-                            NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, label) }, label = { Text(label) })
+                            NavigationBarItem(
+                                selected = tab == i, onClick = { tab = i }, colors = itemColors, label = { Text(label) },
+                                icon = { Icon(icon, null, tint = if (i == 1 && tab != 1) FillBad else androidx.compose.ui.graphics.Color.Unspecified) },
+                            )
                         }
                     }
                 }) { pad ->
-                    Box(Modifier.padding(pad)) {
+                    // Feed and Record draw under the status bar (full-bleed media); the others keep clear of it.
+                    val content = if (tab == 0 || tab == 1) Modifier.padding(bottom = pad.calculateBottomPadding()).consumeWindowInsets(pad) else Modifier.padding(pad).consumeWindowInsets(pad)
+                    Box(content) {
                         when (tab) {
                             0 -> screens.SaveableStateProvider("feed") {
                                 FeedScreen(user, onOpen = { open = it; openFromMe = false }, onRecord = { tab = 1 })

@@ -76,12 +76,6 @@ fun Pill(text: String, bg: Color, fg: Color = contentOn(bg), modifier: Modifier 
     }
 }
 
-fun onDeviceLabel(mode: String) = when (mode) {
-    "on_device" -> "checked on-device"
-    "cloud" -> "checked in the cloud (no on-device model)"
-    else -> "not checked live"
-}
-
 /** GPS track on a light grid, equirectangular projection fitted to the box. No Maps API key needed. */
 @Composable
 fun TrackCanvas(track: List<LatLng>, modifier: Modifier = Modifier, live: Boolean = false) {

@@ -795,7 +795,7 @@ internal fun FinishedContent(
     onVerify: () -> Unit, onOpen: () -> Unit, onNew: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(72.dp).clip(CircleShape).background(if (ui.guest) FillInk else FillLake), contentAlignment = Alignment.Center) {
