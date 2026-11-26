@@ -175,6 +175,8 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     }
     var shooting by remember { mutableStateOf(false) }
     var mapBig by remember { mutableStateOf(false) }
+    // Set when a clip lands: the moment people most often don't realise they still need to end the session.
+    var clipSaved by remember { mutableStateOf(false) }
     val recording = cam.recordingSince != null
     DisposableEffect(Unit) { onDispose { cam.stopVideo() } }
 
@@ -194,7 +196,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
                         if (bmp != null && b64 != null) { view.hapticConfirm(); vm.proofShot(bmp, b64) }
                     }
                 }
-                !recording -> if (cam.startVideo(ctx, ui.momentId ?: "moment")) { view.hapticConfirm(); vm.videoStarted() }
+                !recording -> if (cam.startVideo(ctx, ui.momentId ?: "moment")) { clipSaved = false; view.hapticConfirm(); vm.videoStarted() }
                 else -> {
                     shooting = true
                     view.hapticStop()
@@ -202,7 +204,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
                         scope.launch {
                             val r = if (uri != null) withContext(Dispatchers.IO) { finishClip(ctx, uri, startedAt, endedAt) } else null
                             shooting = false
-                            if (r != null) vm.videoClip(r.clip, r.poster, r.posterB64)
+                            if (r != null) { vm.videoClip(r.clip, r.poster, r.posterB64); clipSaved = true }
                             else Toast.makeText(ctx, "Video clip failed to save", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -210,6 +212,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
             }
         },
         onFinish = { view.hapticStop(); vm.finish() },
+        clipSaved = clipSaved,
         cameraButtons = { CameraButtons(cam, mode, flipEnabled = !recording && !ui.checking && !shooting) },
         media = { mini, full ->
             // Both always composed in the same order, so swapping never rebinds the camera or reloads the map.
@@ -231,8 +234,12 @@ internal fun LiveHud(
     onShutter: () -> Unit, onFinish: () -> Unit,
     cameraButtons: @Composable () -> Unit,
     media: @Composable BoxScope.(mini: Modifier, full: Modifier) -> Unit,
+    clipSaved: Boolean = false,
 ) = MediaTheme {
     val recording = recordingSince != null
+    val planComplete = ui.plan?.requirements?.let { rs -> rs.isNotEmpty() && rs.all { ui.captured[it.id] == true } } == true
+    // Nudge toward ending the session once there's something worth verifying and nothing in flight.
+    val readyToFinish = !recording && !shooting && !ui.checking && ui.witness == null && ui.elapsedMs >= 20_000 && (clipSaved || planComplete)
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         // Landscape / split screen: one row of controls (mode toggle beside the shutter), the mini window beside the
         // HUD instead of under it, the witness card on the start side.
@@ -332,11 +339,12 @@ internal fun LiveHud(
             Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().safeSides().onSizeChanged { thumbPx = it.height }.padding(bottom = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (readyToFinish) FinishNudge(if (clipSaved) "Video saved." else "Everything on the plan is captured.", onFinish)
             val modeToggle = @Composable { ModeToggle(mode, enabled = !recording && !ui.checking && !shooting, onChange = onMode) }
             if (!short) modeToggle()
             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    FinishButton(ui.elapsedMs, enabled = !ui.checking && !recording && !shooting, onFinish)
+                    FinishButton(ui.elapsedMs, enabled = !ui.checking && !recording && !shooting, ready = readyToFinish, onFinish)
                 }
                 Shutter(mode = mode, recording = recording, busy = shooting || ui.checking, onClick = onShutter)
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
@@ -358,20 +366,64 @@ private fun RecDot() {
     Box(Modifier.size(14.dp).graphicsLayer { alpha = pulse }.clip(CircleShape).background(FillBad))
 }
 
-/** Stop: a 56dp round button whose ring fills over the first 20 s (shorter Moments can't be sealed). */
+/**
+ * End & verify: a 60dp round button whose ring fills over the first 20 s (shorter Moments can't be sealed),
+ * then turns gold so it never reads as another capture button; it pulses while [ready].
+ */
 @Composable
-private fun FinishButton(elapsedMs: Long, enabled: Boolean, onClick: () -> Unit) {
+private fun FinishButton(elapsedMs: Long, enabled: Boolean, ready: Boolean, onClick: () -> Unit) {
     val progress = (elapsedMs / 20_000f).coerceIn(0f, 1f)
+    val armed = progress >= 1f
+    val reduce = rememberReduceMotion()
+    val halo = if (!ready || reduce) 0f else {
+        val t = rememberInfiniteTransition(label = "finish")
+        t.animateFloat(0f, 1f, infiniteRepeatable(tween(1600)), label = "finish").value
+    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(60.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.14f))
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Finish the Moment", onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (progress < 1f) CircularProgressIndicator(progress = { progress }, Modifier.size(60.dp), color = SealGold, trackColor = Color.Transparent, strokeWidth = 3.dp)
-            Icon(Icons.Filled.Stop, null, tint = TokInk.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(30.dp))
+        Box(contentAlignment = Alignment.Center) {
+            if (ready) Box(
+                Modifier.size(60.dp).graphicsLayer { val sc = 1f + 0.5f * halo; scaleX = sc; scaleY = sc; alpha = if (reduce) 0.4f else 0.8f * (1f - halo) }
+                    .clip(CircleShape).background(SealGold),
+            )
+            Box(
+                Modifier.size(60.dp).clip(CircleShape).background(if (armed) SealGold else TokInk.copy(alpha = 0.14f))
+                    .clickable(enabled = enabled, role = Role.Button, onClickLabel = "End session and verify", onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!armed) CircularProgressIndicator(progress = { progress }, Modifier.size(60.dp), color = SealGold, trackColor = Color.Transparent, strokeWidth = 3.dp)
+                Icon(
+                    if (armed) Icons.Filled.Check else Icons.Filled.Stop, null,
+                    tint = (if (armed) MediaBg else TokInk).copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(30.dp),
+                )
+            }
         }
-        Text(if (progress < 1f) "20 s min" else "Finish", color = TokInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(if (armed) "End & verify" else "20 s min", color = if (armed) SealGold else TokInk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Shown once a clip lands (or the plan is fully captured): people otherwise don't realise they still need to end the session. */
+@Composable
+private fun FinishNudge(lead: String, onFinish: () -> Unit) {
+    Row(
+        Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SealGold)
+            .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Icons.Filled.Check, null, tint = MediaBg, modifier = Modifier.size(20.dp))
+        Text(
+            androidx.compose.ui.text.buildAnnotatedString {
+                append("$lead ")
+                pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold)); append("All done?"); pop()
+                append(" End the session to verify it.")
+            },
+            color = MediaBg, fontSize = 14.sp, modifier = Modifier.weight(1f),
+        )
+        Button(
+            onClick = onFinish,
+            colors = ButtonDefaults.buttonColors(containerColor = MediaBg, contentColor = TokInk),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        ) { Text("End & verify", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
