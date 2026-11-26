@@ -246,6 +246,12 @@ function Offers(p: Props & { score: number; bar: number }) {
                   Backs {o.claims.map((c) => `${c.text} ${fmtScore(c.p)} → ${fmtScore(c.pass)} / ${fmtScore(c.fail)}`).join(" · ")}
                 </p>
               )}
+              {"cappedBy" in o && o.cappedBy.length > 0 && o.pass <= (p.score ?? 0) + 1e-9 && (
+                <p className="small offer-why">
+                  Moment score stays at {fmtScore(o.pass)} even if this passes: it is only as strong as its weakest claim, and{" "}
+                  {o.cappedBy.map((c) => `“${c.text}”`).join(", ")} {o.cappedBy.length === 1 ? "isn't" : "aren't"} covered by this check.
+                </p>
+              )}
               {o.state === "blocked" && <p className="small offer-why">{o.reason}</p>}
             </div>
             {o.state === "soon" || o.state === "done" ? (

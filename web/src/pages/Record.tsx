@@ -94,6 +94,8 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   const [track, setTrack] = useState<MediaStreamTrack | null>(null);
   const [torchOk, setTorchOk] = useState(false);
   const [torch, setTorch] = useState(false);
+  // Whether the camera stream carries a live microphone track (clips record sound; null until the camera opens).
+  const [mic, setMic] = useState<boolean | null>(null);
 
   useEffect(() => {
     session.onChange = setS;
@@ -120,14 +122,23 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamErr(null);
-    navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 } }, audio: false })
-      .then((st) => {
+    const videoC = { facingMode: facing, width: { ideal: 1280 } };
+    // Clips record sound (singing, counting aloud, speech are proven by ear). A denied or missing mic falls back to
+    // video only; the <video> preview stays muted, so there is no feedback.
+    const openCam = (): Promise<MediaStream> | undefined =>
+      clipSupported()
+        ? navigator.mediaDevices
+            ?.getUserMedia({ video: videoC, audio: { echoCancellation: true, noiseSuppression: false } })
+            .catch(() => navigator.mediaDevices.getUserMedia({ video: videoC, audio: false }))
+        : navigator.mediaDevices?.getUserMedia({ video: videoC, audio: false });
+    openCam()
+      ?.then((st) => {
         if (cancelled) return st.getTracks().forEach((t) => t.stop());
         stream = st;
         if (video.current) video.current.srcObject = st;
         const t = st.getVideoTracks()[0] ?? null;
         setTrack(t);
+        setMic(st.getAudioTracks().some((a) => a.readyState === "live"));
         setTorch(false);
         setTorchOk(!!(t?.getCapabilities?.() as { torch?: boolean } | undefined)?.torch);
         // Labels/count are only reliable once permission is granted.
@@ -213,6 +224,15 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     }
   }
   useEffect(() => () => void clipRef.current?.stop(), []);
+  // Video mode records ONE continuous clip from the moment the camera is ready until Finish, so the video covers the
+  // session instead of only the seconds between two taps (a 9 s clip of a 29 s session can't show a whole song).
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!track || autoStarted.current || mode !== "video" || !clipSupported() || clipRef.current) return;
+    autoStarted.current = true;
+    void startClip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track]);
 
   const coach = s.coach;
   const short = s.elapsedMs < 20_000;
@@ -294,6 +314,11 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
               <span className="hud-dot" aria-hidden="true" />
               {fmtDuration(s.elapsedMs)}
             </span>
+            {mode === "video" && mic === false && (
+              <span className="hud-pill hud-warn" title="The video records without sound. Allow the microphone to prove anything you say or sing.">
+                no mic
+              </span>
+            )}
             {short && (
               <span className="hud-pill hud-warn" title="Moments shorter than 20 seconds can't be sealed.">
                 min 0:20
@@ -380,7 +405,8 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
                 type="button"
                 className="cam-tool"
                 aria-label={facing === "user" ? "Switch to back camera" : "Switch to front camera"}
-                disabled={shooting}
+                disabled={shooting || clipAt != null}
+                title={clipAt != null ? "Stop the video to switch cameras" : undefined}
                 onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
