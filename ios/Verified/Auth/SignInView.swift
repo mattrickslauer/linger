@@ -20,7 +20,7 @@ struct SignInSheet: View {
         }
         .symbolEffect(.bounce, value: app.auth.busy)
         .accessibilityHidden(true)
-        .padding(.top, 12)
+        .padding(.top, 28)  // clear of the sheet's drag indicator (no navigation bar here)
         Text(action.map { "Sign in to \($0)" } ?? "Sign in to Verified")
           .font(.title2.bold()).multilineTextAlignment(.center)
         AdaptiveStack(spacing: 8) {

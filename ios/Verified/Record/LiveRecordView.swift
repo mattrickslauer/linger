@@ -14,6 +14,12 @@ struct LiveRecordView: View {
   @State private var mapBig = false
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var keyboardUp = false
+  /// Height left for the middle band (between the timer and the witness card / shutter row).
+  @State private var middleHeight: CGFloat = .infinity
+  /// Height of the GPS / motion / shots chips row (measured; its text follows Dynamic Type).
+  @State private var indicatorsHeight: CGFloat = 34
+  @State private var planExpanded = false
 
   var body: some View {
     let rec = app.recorder
@@ -22,7 +28,9 @@ struct LiveRecordView: View {
         if mapBig { trackMap(rec, compact: false) } else { cameraView(rec) }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .ignoresSafeArea(edges: .top)
+      // Full bleed behind the status bar / Dynamic Island; the keyboard (witness answer) must not resize the preview.
+      .ignoresSafeArea(.all, edges: .top)
+      .ignoresSafeArea(.keyboard)
 
       // Scrims so the HUD reads over any scene.
       VStack(spacing: 0) {
@@ -30,43 +38,36 @@ struct LiveRecordView: View {
         Spacer(minLength: 0)
         LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom).frame(height: 280)
       }
-      .ignoresSafeArea(edges: .top)
+      .ignoresSafeArea(.all, edges: .top)
+      .ignoresSafeArea(.keyboard)
       .allowsHitTesting(false)
       .accessibilityHidden(true)
 
+      // The HUD stays inside the safe area: below the status bar / Dynamic Island, above the tab bar (or the
+      // keyboard while typing a witness answer). The middle band gives way first when the screen is short (SE,
+      // witness card open, keyboard up, large text): mini window shrinks, then the chips row goes, then the side
+      // buttons; the timer, witness card and shutter row always stay on screen.
       VStack(spacing: 8) {
         topHUD(rec)
-        indicators(rec)
-        HStack(alignment: .top, spacing: 10) {
-          VStack(alignment: .leading, spacing: 8) {
-            if let plan = rec.plan, !plan.requirements.isEmpty {
-              PlanChecklist(plan: plan, claims: rec.claims, captured: rec.captured)
-            }
-            if let coach = rec.coach { CoachBanner(coach: coach) }
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          VStack(spacing: 10) {
-            miniWindow(rec)
-            WitnessToggle()
-            if CameraController.hasFlash(rec.position) {
-              let ui = flashUI(rec)
-              Button { rec.cycleFlash() } label: { roundIcon(ui.icon, enabled: true) }
-                .accessibilityLabel(ui.label)
-            }
-          }
-        }
-        Spacer(minLength: 0)
+        middle(rec)
+          .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+          .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { middleHeight = $0 }
         if let open = rec.witness.open {
           WitnessCard(request: open).id(open.wid)
         }
-        modeToggle(rec)
-        controls(rec)
+        if !keyboardUp {
+          modeToggle(rec)
+          controls(rec)
+        }
       }
       .padding(.horizontal, 12)
       .padding(.bottom, 8)
+      .dynamicTypeSize(...DynamicTypeSize.accessibility2)
       .animation(reduceMotion ? nil : .snappy, value: rec.witness.open?.wid)
       .animation(reduceMotion ? nil : .snappy, value: rec.coach)
+      .animation(reduceMotion ? nil : .snappy, value: keyboardUp)
     }
+    .trackKeyboard($keyboardUp)
     .background(Color.black)
     .foregroundStyle(.white)
     .environment(\.colorScheme, .dark)
@@ -87,6 +88,77 @@ struct LiveRecordView: View {
     }
     .sensoryFeedback(.warning, trigger: rec.retakes)
     .sensoryFeedback(trigger: rec.witness.open?.wid) { _, new in new != nil ? .impact(weight: .light) : nil }
+  }
+
+  // MARK: - Middle band: chips, plan + coach, mini window and side buttons
+
+  private enum MiddleTier { case full, compact, noChips, minimal }
+
+  /// Which middle layout fits the measured height (fixed-size pieces only, so the choice can't feed back on itself).
+  private func middleTier(hasFlash: Bool) -> MiddleTier {
+    let button: CGFloat = 44
+    let tall = 128 + 10 + button + (hasFlash ? 10 + button : 0)  // tall mini window over the witness and flash
+    let short = 72 + 8 + button  // short mini window over one row of buttons
+    let chips = indicatorsHeight + 8
+    if middleHeight >= chips + tall { return .full }
+    if middleHeight >= chips + short { return .compact }
+    if middleHeight >= short { return .noChips }
+    return .minimal
+  }
+
+  private func middle(_ rec: RecorderModel) -> some View {
+    let hasFlash = CameraController.hasFlash(rec.position)
+    let tier = middleTier(hasFlash: hasFlash)
+    return VStack(spacing: 8) {
+      if tier == .full || tier == .compact {
+        indicators(rec)
+          .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { indicatorsHeight = $0 }
+      }
+      HStack(alignment: .top, spacing: 10) {
+        // The plan (expanded) and coach toast scroll in place rather than push the HUD off screen.
+        ViewThatFits(in: .vertical) {
+          planAndCoach(rec)
+          ScrollView { planAndCoach(rec) }.scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        if tier != .minimal { sideColumn(rec, tall: tier == .full, hasFlash: hasFlash) }
+      }
+    }
+  }
+
+  private func planAndCoach(_ rec: RecorderModel) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let plan = rec.plan, !plan.requirements.isEmpty {
+        PlanChecklist(plan: plan, claims: rec.claims, captured: rec.captured, expanded: $planExpanded)
+      }
+      if let coach = rec.coach { CoachBanner(coach: coach) }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  /// Mini window, witness eye and flash: stacked when there's room, else a short window over one row of buttons
+  /// (same 96 pt width either way, so the plan column beside it doesn't reflow).
+  @ViewBuilder private func sideColumn(_ rec: RecorderModel, tall: Bool, hasFlash: Bool) -> some View {
+    if tall {
+      VStack(spacing: 10) {
+        miniWindow(rec, height: 128)
+        sideButtons(rec, hasFlash: hasFlash)
+      }
+    } else {
+      VStack(spacing: 8) {
+        miniWindow(rec, height: 72)
+        HStack(spacing: 8) { sideButtons(rec, hasFlash: hasFlash) }
+      }
+    }
+  }
+
+  @ViewBuilder private func sideButtons(_ rec: RecorderModel, hasFlash: Bool) -> some View {
+    WitnessToggle()
+    if hasFlash {
+      let ui = flashUI(rec)
+      Button { rec.cycleFlash() } label: { roundIcon(ui.icon, enabled: true) }
+        .accessibilityLabel(ui.label)
+    }
   }
 
   // MARK: - Top HUD: timer, distance, sync
@@ -201,11 +273,11 @@ struct LiveRecordView: View {
   }
 
   /// The small window (map, or the camera while the map is big). Tap to swap.
-  private func miniWindow(_ rec: RecorderModel) -> some View {
+  private func miniWindow(_ rec: RecorderModel, height: CGFloat) -> some View {
     Group {
       if mapBig { cameraView(rec) } else { trackMap(rec, compact: true) }
     }
-    .frame(width: 96, height: 128)
+    .frame(width: 96, height: height)
     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.9), lineWidth: 2))
     .overlay(alignment: .bottomTrailing) {
@@ -352,7 +424,8 @@ struct PlanChecklist: View {
   let plan: EvidencePlan
   let claims: [Claim]
   let captured: Set<String>
-  @State private var expanded = false
+  /// Owned by the live screen so it survives the HUD switching between its fitted layouts.
+  @Binding var expanded: Bool
 
   var body: some View {
     let total = plan.requirements.count

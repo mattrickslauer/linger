@@ -49,6 +49,7 @@ body.immersive .theme {
   --t-ok: #8fdcaa;
   --t-bad: #ff9a85;
   --t-track: #ff8a4c;
+  --col: min(100vw, calc(100vh * 0.62));
   --col: min(100vw, calc(100dvh * 0.62));
   color: var(--t-ink);
 }
@@ -67,6 +68,7 @@ body.immersive .theme {
 
 .slide {
   position: relative;
+  height: 100vh;
   height: 100dvh;
   scroll-snap-align: start;
   scroll-snap-stop: always;
@@ -432,7 +434,7 @@ body.immersive .theme {
 .tok-tabs {
   position: fixed;
   z-index: 9;
-  top: calc(66px + var(--safe-t));
+  top: calc(var(--topbar) + 6px);
   left: 0;
   right: 0;
   display: flex;
@@ -794,5 +796,26 @@ body.immersive .theme {
   }
   .intro-tally dd {
     font-size: 1.5rem;
+  }
+}
+
+/* A phone on its side (wide layout, short screen): a wider column so the thread fits in fewer lines,
+   and the rail drops to the bottom corner so it never sits under the filter tabs. */
+@media (min-width: 720px) and (max-height: 500px) {
+  .tok {
+    --col: min(calc(100vw - var(--safe-l) - var(--safe-r)), 640px);
+  }
+  .rail {
+    bottom: calc(16px + var(--safe-b));
+  }
+  .thread {
+    top: calc(var(--topbar) + 50px);
+  }
+  .proof-extra,
+  .proof-checks {
+    display: none;
+  }
+  .wp {
+    padding-bottom: 6px;
   }
 }

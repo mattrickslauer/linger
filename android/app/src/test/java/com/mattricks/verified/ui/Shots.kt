@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.MaterialTheme
 import com.github.takahirom.roborazzi.captureRoboImage
+import androidx.activity.compose.setContent
 import com.mattricks.verified.data.LatLng
 import com.mattricks.verified.data.MomentCard
 import com.mattricks.verified.data.Summary
@@ -116,4 +117,79 @@ fun fakeDetail(status: String = "sealed"): com.mattricks.verified.data.MomentDet
         v4 = com.mattricks.verified.data.V4Detail(claims, com.mattricks.verified.data.Plan(reqs, "photo", ""), null, scores, 2, false, emptyList()),
         sharedClips = listOf(com.mattricks.verified.data.SharedClip("clips/u/m/a.mp4", "a", "mp4", 14_000, true), com.mattricks.verified.data.SharedClip("clips/u/m/b.mp4", "b", "mp4", 9_000, null)),
     )
+}
+
+/**
+ * A device for [deviceShot]: Robolectric qualifiers plus the system insets (dp) a real phone would report. Robolectric
+ * dispatches no insets of its own, so these are fed to the window as if the OS had sent them.
+ */
+enum class Dev(val qualifiers: String, val status: Int, val navBottom: Int, val cutTop: Int = 0, val cutLeft: Int = 0, val navRight: Int = 0) {
+    /** Small, old-style: 24dp status bar, 48dp 3-button nav. */
+    Small("w360dp-h640dp-port-xhdpi", status = 24, navBottom = 48),
+    /** Tall notched phone (Pixel / Poco class): 40dp status bar around a punch-hole cutout, 24dp gesture bar. */
+    Notched("w412dp-h915dp-port-xxhdpi", status = 40, navBottom = 24, cutTop = 40),
+    /** The notched phone turned: cutout on the left, 3-button nav on the right. */
+    Landscape("w915dp-h412dp-land-xxhdpi", status = 24, navBottom = 0, cutLeft = 40, navRight = 48),
+}
+
+/**
+ * Renders [content] in a real edge-to-edge activity on [dev] with its system insets applied, then paints the inset
+ * areas translucent magenta on top: anything readable under magenta is drawn behind a bar or the cutout. [imeDp]
+ * also opens a fake keyboard (grey) of that height.
+ */
+fun deviceShot(name: String, dev: Dev, dark: Boolean = false, imeDp: Int = 0, content: @Composable () -> Unit) {
+    org.robolectric.RuntimeEnvironment.setQualifiers("+" + dev.qualifiers)
+    androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java).use { sc ->
+        sc.onActivity { a ->
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(a.window, false)
+            a.setContent {
+                VerifiedTheme(dark) {
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
+                    InsetOverlay(dev, imeDp)
+                }
+            }
+        }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(500))
+        sc.onActivity { a -> applyInsets(a, dev, imeDp) }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(500))
+        sc.onActivity { a -> a.window.decorView.captureRoboImage("$shotsDir/$name.png") }
+    }
+}
+
+private fun applyInsets(a: android.app.Activity, dev: Dev, imeDp: Int) {
+    val d = a.resources.displayMetrics.density
+    fun px(v: Int) = (v * d).toInt()
+
+    val navBottom = px(dev.navBottom)
+    val b = androidx.core.view.WindowInsetsCompat.Builder()
+        .setInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars(), androidx.core.graphics.Insets.of(0, px(dev.status), 0, 0))
+        .setInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars(), androidx.core.graphics.Insets.of(0, 0, px(dev.navRight), navBottom))
+        .setInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout(), androidx.core.graphics.Insets.of(px(dev.cutLeft), px(dev.cutTop), 0, 0))
+        .setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(), androidx.core.graphics.Insets.of(0, 0, 0, if (imeDp > 0) px(imeDp) + navBottom else 0))
+        .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), imeDp > 0)
+    if (dev.cutTop > 0 || dev.cutLeft > 0) {
+        val w = a.resources.displayMetrics.widthPixels
+        val rect = if (dev.cutTop > 0) android.graphics.Rect(w / 2 - px(14), 0, w / 2 + px(14), px(dev.cutTop))
+        else android.graphics.Rect(0, px(180), px(dev.cutLeft), px(212))
+        b.setDisplayCutout(androidx.core.view.DisplayCutoutCompat(android.graphics.Rect(px(dev.cutLeft), px(dev.cutTop), 0, 0), listOf(rect)))
+    }
+    androidx.core.view.ViewCompat.dispatchApplyWindowInsets(a.window.decorView, b.build())
+}
+
+@Composable
+private fun InsetOverlay(dev: Dev, imeDp: Int) {
+    val bar = androidx.compose.ui.graphics.Color(0x66FF00FF)
+    val kb = androidx.compose.ui.graphics.Color(0xCC5A5A5A)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val d = density
+        val w = size.width; val h = size.height
+        fun r(c: androidx.compose.ui.graphics.Color, l: Float, t: Float, rr: Float, bb: Float) =
+            drawRect(c, androidx.compose.ui.geometry.Offset(l, t), androidx.compose.ui.geometry.Size(rr - l, bb - t))
+        val top = maxOf(dev.status, dev.cutTop) * d
+        if (top > 0) r(bar, 0f, 0f, w, top)
+        if (dev.navBottom > 0) r(bar, 0f, h - dev.navBottom * d, w, h)
+        if (dev.cutLeft > 0) r(bar, 0f, 0f, dev.cutLeft * d, h)
+        if (dev.navRight > 0) r(bar, w - dev.navRight * d, 0f, w, h)
+        if (imeDp > 0) r(kb, 0f, h - (imeDp + dev.navBottom) * d, w, h - dev.navBottom * d)
+    }
 }

@@ -87,6 +87,7 @@ body {
   line-height: 1.5;
   font-optical-sizing: auto;
   min-height: 100vh;
+  min-height: 100dvh; /* the visible height, not the height behind a mobile URL bar */
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
@@ -95,9 +96,13 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 main {
   flex: 1;
+  /* landscape on a notched phone: keep content out of the side insets */
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
 }
 img {
   max-width: 100%;
@@ -183,6 +188,9 @@ a {
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --tabbar: 0px; /* height of the phone bottom bar; 0 on wide screens */
+  /* height of the sticky top bar: 8 + 44 + 8 px + 1 px rule + the top inset. App.tsx overwrites it with
+     the measured height, so font scaling and a wrapped bar stay right. */
+  --topbar: calc(61px + var(--safe-t));
 }
 .top {
   position: sticky;
@@ -397,9 +405,14 @@ a {
 }
 .foot {
   border-top: 1px solid var(--rule);
-  padding: 14px 0 18px;
+  padding: 14px var(--safe-r) calc(18px + var(--safe-b)) var(--safe-l);
   color: var(--ink-3);
   font-size: 0.8rem;
+}
+@media (max-width: 719px) {
+  .foot {
+    padding-bottom: 18px; /* body already pads the tab bar, home indicator included */
+  }
 }
 .foot p {
   max-width: var(--maxw);
@@ -686,6 +699,7 @@ a {
 
 .detail-skeleton {
   min-height: 70vh;
+  min-height: 70svh;
 }
 .viewer {
   display: grid;
@@ -1460,6 +1474,7 @@ path.lf-cursor {
   color: var(--ink);
   width: min(520px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px - var(--safe-t) - var(--safe-b));
   box-shadow: 0 24px 64px rgb(0 0 0 / 0.28);
 }
 .sheet::backdrop {
@@ -1550,6 +1565,9 @@ path.lf-cursor {
     max-width: 100vw;
     border-radius: 18px 18px 0 0;
     border-bottom: 0;
+    /* pinned to the bottom (its box pads the home indicator); stop short of the status bar */
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px - var(--safe-t));
   }
 }
 .claim-list {

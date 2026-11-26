@@ -4,6 +4,8 @@ import SwiftUI
 struct RecordView: View {
   @Environment(AppModel.self) private var app
   @FocusState private var focused: Bool
+  /// The Start button stays out of the way while typing (on an SE it would take a third of what's left).
+  @State private var keyboardUp = false
 
   var body: some View {
     @Bindable var rec = app.recorder
@@ -26,47 +28,55 @@ struct RecordView: View {
   private func form(_ rec: RecorderModel) -> some View {
     @Bindable var rec = rec
     return NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
-          if let err = rec.error {
-            Label(err, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Theme.bad)
-          }
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 20) {
+            if let done = rec.lastSubmitted { SubmittedBanner(done: done) }
+            if let err = rec.error {
+              Label(err, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Theme.bad)
+            }
 
-          InterviewCard(typeInstead: { focused = true })
+            InterviewCard(typeInstead: { focused = true })
+              .id(Self.interviewID)
 
-          VStack(alignment: .leading, spacing: 8) {
-            Label(rec.structured == nil ? "Or type it" : "In one sentence", systemImage: "character.cursor.ibeam")
-              .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            TextField("Catch and release a largemouth bass at Lake Mission Viejo",
-                      text: $rec.intention, axis: .vertical)
-              .lineLimit(2...4)
-              .focused($focused)
-              .padding(14)
-              .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-              .onChange(of: rec.intention) { _, v in
-                if v.count > 200 { rec.intention = String(v.prefix(200)) }
-              }
-            HStack(spacing: 8) {
-              if rec.structured == nil && !app.interview.active && app.network.isOnline
-                && !rec.intention.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button {
-                  focused = false
-                  app.interview.structureTyped(rec.intention, category: InterviewModel.guessCategory(rec.intention))
-                } label: {
-                  Label("Plan the evidence", systemImage: Glyph.claims).font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 8) {
+              Label(rec.structured == nil ? "Or type it" : "In one sentence", systemImage: "character.cursor.ibeam")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+              TextField("Catch and release a largemouth bass at Lake Mission Viejo",
+                        text: $rec.intention, axis: .vertical)
+                .lineLimit(2...4)
+                .focused($focused)
+                .padding(14)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .onChange(of: rec.intention) { _, v in
+                  if v.count > 200 { rec.intention = String(v.prefix(200)) }
                 }
-                .buttonStyle(.bordered).tint(Theme.lake)
-                HybridBadge(onDevice: false)
+              HStack(spacing: 8) {
+                if rec.structured == nil && !app.interview.active && app.network.isOnline
+                  && !rec.intention.trimmingCharacters(in: .whitespaces).isEmpty {
+                  Button {
+                    focused = false
+                    app.interview.structureTyped(rec.intention, category: InterviewModel.guessCategory(rec.intention))
+                  } label: {
+                    Label("Plan the evidence", systemImage: Glyph.claims).font(.subheadline.weight(.semibold))
+                  }
+                  .buttonStyle(.bordered).tint(Theme.lake)
+                  HybridBadge(onDevice: false)
+                }
+                Spacer()
+                Text("\(rec.intention.count)/200").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
               }
-              Spacer()
-              Text("\(rec.intention.count)/200").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
             }
           }
+          .padding(20)
         }
-        .padding(20)
+        .scrollDismissesKeyboard(.interactively)
+        // The interview grows downwards (bubbles above its answer field): keep its bottom, the field, in view.
+        .onChange(of: app.interview.lines.count) {
+          guard app.interview.active else { return }
+          withAnimation(.snappy) { proxy.scrollTo(Self.interviewID, anchor: .bottom) }
+        }
       }
-      .scrollDismissesKeyboard(.interactively)
       .background(Theme.paper)
       .navigationTitle("Record")
       .onChange(of: app.interview.phase) { _, phase in
@@ -76,42 +86,49 @@ struct RecordView: View {
         // Edits on the card (removed assumptions, re-previewed bar) keep the typed sentence.
         if app.interview.phase == .done { rec.structured = r }
       }
+      .trackKeyboard($keyboardUp)
       .safeAreaInset(edge: .bottom) {
-        Button {
-          focused = false
-          if app.interview.active { app.interview.cancel() }
-          let user = app.auth.user  // nil: a guest Moment, kept on this phone (v3.1)
-          let recorder = app.recorder
-          Task {
-            _ = await CameraController.requestAccess()
-            _ = await CameraController.requestMicAccess()  // clip sound; without it clips are video-only
-            recorder.start(owner: user)
-          }
-        } label: {
-          HStack(spacing: 12) {
-            ZStack {
-              Circle().fill(.white).frame(width: 30, height: 30)
-              Circle().fill(Theme.track).frame(width: 18, height: 18)
-            }
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 0) {
-              Text("Start Moment").font(.title3.bold())
-              if app.isGuest {
-                Label("guest · stays on this phone", systemImage: Glyph.onDevice)
-                  .font(.caption2.weight(.semibold)).opacity(0.85)
-              }
-            }
-          }
-          .foregroundStyle(.white)
-          .frame(maxWidth: .infinity, minHeight: 60)
-          .background(Color(hex: 0xD9480F), in: Capsule())
-          .opacity(rec.canStart ? 1 : 0.45)
-        }
-        .buttonStyle(.plain)
-        .disabled(!rec.canStart)
-        .padding(.horizontal, 20).padding(.bottom, 8)
+        if !keyboardUp { startButton(rec) }
       }
     }
+  }
+
+  private static let interviewID = "record.interview"
+
+  private func startButton(_ rec: RecorderModel) -> some View {
+    Button {
+      focused = false
+      if app.interview.active { app.interview.cancel() }
+      let user = app.auth.user  // nil: a guest Moment, kept on this phone (v3.1)
+      let recorder = app.recorder
+      Task {
+        _ = await CameraController.requestAccess()
+        _ = await CameraController.requestMicAccess()  // clip sound; without it clips are video-only
+        recorder.start(owner: user)
+      }
+    } label: {
+      HStack(spacing: 12) {
+        ZStack {
+          Circle().fill(.white).frame(width: 30, height: 30)
+          Circle().fill(Theme.track).frame(width: 18, height: 18)
+        }
+        .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 0) {
+          Text("Start Moment").font(.title3.bold())
+          if app.isGuest {
+            Label("guest · stays on this phone", systemImage: Glyph.onDevice)
+              .font(.caption2.weight(.semibold)).opacity(0.85)
+          }
+        }
+      }
+      .foregroundStyle(.white)
+      .frame(maxWidth: .infinity, minHeight: 60)
+      .background(Color(hex: 0xD9480F), in: Capsule())
+      .opacity(rec.canStart ? 1 : 0.45)
+    }
+    .buttonStyle(.plain)
+    .disabled(!rec.canStart)
+    .padding(.horizontal, 20).padding(.bottom, 8)
   }
 }
 
