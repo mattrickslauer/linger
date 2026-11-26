@@ -514,3 +514,29 @@
     margin: -8px -6px -8px -8px;
   }
 }
+
+/* ---------------------------------------------------------------- fit media
+   Every photo is shown whole (contain), never cropped; the letterbox is a blurred, darkened copy of the same photo
+   (the feed's .slide-back recipe). Videos and tiny thumbnails use contain over a dark fill instead. */
+:where(.fit-media) {
+  /* zero specificity: a page class (e.g. .slide-photo, .hero-img) places and sizes the box */
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: #071419;
+}
+.fit-media > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+.fit-media > .fit-back {
+  object-fit: cover;
+  filter: blur(40px) saturate(1.2) brightness(0.45);
+  transform: scale(1.15);
+}
+.fit-media > .fit-fg {
+  object-fit: contain;
+}

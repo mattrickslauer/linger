@@ -19,7 +19,7 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, jpegSrc, Link, Stamp } from "../ui";
-import { CheckPips, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
+import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
 import "../room.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoStatusText } from "../v4";
@@ -453,7 +453,7 @@ export default function Detail({ id }: { id: string }) {
           Intent
         </h2>
         <header className={`detail-head room-hero on-media ${heroSrc ? "" : "room-hero-nophoto"}`}>
-          {heroSrc && <img className="hero-img" src={heroSrc} alt={`Proof shot: ${intention.text}`} decoding="async" />}
+          {heroSrc && <FitImg className="hero-img" src={heroSrc} alt={`Proof shot: ${intention.text}`} decoding="async" />}
           <div className="hero-top">
             <span className="gchip">
               <Glyph name="intent" />
@@ -521,7 +521,7 @@ export default function Detail({ id }: { id: string }) {
             <div className="frame-stage on-media">
               {frame ? (
                 <>
-                  <img src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} decoding="async" />
+                  <FitImg className="frame-img" src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} decoding="async" />
                   <p className="frame-cap">
                     <span>
                       <Glyph name="timing" /> {fmtDuration(frame.t - start)}
@@ -540,7 +540,7 @@ export default function Detail({ id }: { id: string }) {
                   </p>
                 </>
               ) : feed?.heroJpegB64 ? (
-                <img src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
+                <FitImg className="frame-img" src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
               ) : (
                 <div className="frame-empty">
                   <Glyph name="frames" />

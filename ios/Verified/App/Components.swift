@@ -384,3 +384,25 @@ extension GlyphHeader where Trailing == EmptyView {
     self.init(icon: icon, title: title) { EmptyView() }
   }
 }
+
+// MARK: - Media
+
+/// A photo shown whole at its true aspect ratio, never cropped (same rule on web and Android). It fills whatever
+/// frame it is given; where the frame's shape differs from the photo's, the letterbox is a blurred, darkened copy
+/// of the same photo.
+struct FitImage: View {
+  let cgImage: CGImage
+
+  var body: some View {
+    let image = Image(decorative: cgImage, scale: 1).resizable()
+    Color.clear
+      .overlay {
+        image.scaledToFill()
+          .blur(radius: 30, opaque: true)
+          .brightness(-0.35)
+      }
+      .overlay { image.scaledToFit() }
+      .clipped()
+      .accessibilityHidden(true)
+  }
+}

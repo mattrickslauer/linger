@@ -28,6 +28,9 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Base64
 import android.util.Log
+import android.view.OrientationEventListener
+import android.view.Surface
+import androidx.compose.ui.graphics.toArgb
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -678,8 +681,24 @@ private class CaptureController {
 private fun CameraPreview(cam: CaptureController, mode: Prefs.CaptureMode, modifier: Modifier) {
     val lifecycle = LocalLifecycleOwner.current
     val ctx = LocalContext.current
-    val pv = remember { PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    // FIT_CENTER: the viewfinder shows the whole sensor frame, exactly what is saved (no hidden cropped edges).
+    val pv = remember {
+        PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FIT_CENTER; setBackgroundColor(MediaBg.toArgb()) }
+    }
     AndroidView(modifier = modifier, factory = { pv })
+    // Auto-rotate the capture: follow how the phone is physically held (even with system auto-rotate off or while the
+    // activity stays in portrait), so a sideways-held phone saves an upright landscape photo/clip.
+    DisposableEffect(cam) {
+        val listener = object : OrientationEventListener(ctx) {
+            override fun onOrientationChanged(orientation: Int) {
+                val r = surfaceRotationFor(orientation) ?: return
+                if (cam.image.targetRotation != r) cam.image.targetRotation = r
+                if (cam.video.targetRotation != r) cam.video.targetRotation = r
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        onDispose { listener.disable() }
+    }
     // Bind Preview + one capture use case; rebinding per mode works on every hardware level (3 use cases may not).
     LaunchedEffect(mode, cam.front) {
         val future = ProcessCameraProvider.getInstance(ctx)
@@ -711,14 +730,46 @@ private fun finishClip(ctx: Context, uri: Uri, startedAt: Long, endedAt: Long): 
     val (durationMs, frame) = try {
         mmr.setDataSource(ctx, uri)
         val d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: (endedAt - startedAt)
-        d to mmr.getFrameAtTime(d * 500, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // middle frame (µs), already upright
+        val f = mmr.getFrameAtTime(d * 500, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // middle frame (µs)
+        d to f?.let { it to frameRotationFix(mmr, it) }
     } finally { mmr.release() }
     val name = ctx.contentResolver.query(uri, arrayOf(MediaStore.Video.Media.DISPLAY_NAME), null, null, null)?.use { c ->
         if (c.moveToFirst()) c.getString(0) else null
     } ?: uri.lastPathSegment ?: "clip"
-    val encoded = frame?.let { encodeProof(it, 0) }
+    val encoded = frame?.let { (bmp, rot) -> encodeProof(bmp, rot) }
     ClipResult(VideoClip(name, sha, bytes, durationMs, startedAt), encoded?.first, encoded?.second)
 }.onFailure { Log.e("VerifiedCam", "clip", it) }.getOrNull()
+
+/**
+ * Sensor angle (degrees clockwise from natural, [OrientationEventListener]) → the Surface.ROTATION_* for capture
+ * targetRotation, in 45° buckets; null for ORIENTATION_UNKNOWN (flat on a table) so the last rotation is kept.
+ */
+internal fun surfaceRotationFor(orientation: Int): Int? = when {
+    orientation == OrientationEventListener.ORIENTATION_UNKNOWN || orientation < 0 -> null
+    orientation >= 315 || orientation < 45 -> Surface.ROTATION_0
+    orientation < 135 -> Surface.ROTATION_270
+    orientation < 225 -> Surface.ROTATION_180
+    else -> Surface.ROTATION_90
+}
+
+/**
+ * Extra rotation the poster frame still needs. The platform's getFrameAtTime applies the track's rotation metadata,
+ * but verify rather than trust: if the clip is tagged 90/270° and the frame still has the coded (unrotated)
+ * orientation, rotate it ourselves so the poster comes out upright either way.
+ */
+private fun frameRotationFix(mmr: MediaMetadataRetriever, frame: Bitmap): Int {
+    val rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()?.let { ((it % 360) + 360) % 360 } ?: 0
+    if (rot == 0) return 0
+    val w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: return 0
+    val h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: return 0
+    if (w == h) return 0
+    val codedLandscape = w > h
+    val frameLandscape = frame.width > frame.height
+    return when (rot) {
+        90, 270 -> if (frameLandscape == codedLandscape) rot else 0 // still in coded orientation → not yet rotated
+        else -> 0 // 180° can't be detected from the size; the platform applies it
+    }
+}
 
 /** Upright Bitmap, longest side 640 px → JPEG q0.6 (stepping down to keep < 120 KB base64) → base64 (NO_WRAP). */
 private fun encodeProof(raw: Bitmap, rotationDegrees: Int): Pair<Bitmap, String> {

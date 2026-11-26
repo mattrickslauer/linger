@@ -509,7 +509,7 @@ private struct FrameThumb: View {
 
   var body: some View {
     Group {
-      if let img = frame.image { Image(decorative: img, scale: 1).resizable().scaledToFill() }
+      if let img = frame.image { FitImage(cgImage: img) }
       else { Theme.raised }
     }
     .frame(width: 104, height: 138)

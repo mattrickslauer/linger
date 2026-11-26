@@ -12,6 +12,7 @@ import type { User } from "firebase/auth";
 import { cloudReview, liveCheck } from "./ai";
 import { makeChunk, sha256hex } from "./chain";
 import { db } from "./firebase";
+import { currentFrameRotation } from "./orientation";
 import { computeSummary, decodeChunks, trackDistanceM } from "./geo";
 import type { AppEvent, CheckMode, Chunk, GpsRow, Intention, LiveCheck, Moment, MotionRow } from "./types";
 import { answerEvent, frameEvent, nextWid, openRequest, skipEvent, witnessEvent, witnessSummary, type AnswerVia, type WitnessBy, type WitnessKind, type WitnessLog, type WitnessRequest } from "./witness";
@@ -462,17 +463,31 @@ export function runCloudReview(momentId: string, moment: Parameters<typeof cloud
   return p;
 }
 
-/** Grab a proof frame from a playing <video>: longest side 640 px, JPEG q0.6, under ~120 KB base64. */
+/**
+ * Grab a proof frame from a playing <video>: longest side 640 px, JPEG q0.6, under ~120 KB base64.
+ * Auto-rotated like a native camera (orientation.ts): held sideways under the portrait lock, the saved frame is
+ * turned upright (landscape), and w/h are the post-rotation size. No motion reading (desktop) draws it as before.
+ * The front camera's frame is stored un-mirrored, as before; only its preview is mirrored.
+ */
 export function captureFrame(video: HTMLVideoElement): { jpegB64: string; w: number; h: number } {
   const vw = video.videoWidth || 640;
   const vh = video.videoHeight || 480;
   const s = 640 / Math.max(vw, vh);
-  const w = Math.round(vw * Math.min(1, s));
-  const h = Math.round(vh * Math.min(1, s));
+  const dw = Math.round(vw * Math.min(1, s));
+  const dh = Math.round(vh * Math.min(1, s));
+  const rot = currentFrameRotation(isFrontCamera(video));
+  const quarter = rot === 90 || rot === 270;
+  const w = quarter ? dh : dw;
+  const h = quarter ? dw : dh;
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  c.getContext("2d")!.drawImage(video, 0, 0, w, h);
+  const ctx = c.getContext("2d")!;
+  if (rot) {
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(video, -dw / 2, -dh / 2, dw, dh);
+  } else ctx.drawImage(video, 0, 0, dw, dh);
   let q = 0.6;
   let b64 = c.toDataURL("image/jpeg", q).split(",")[1];
   while (b64.length > 120_000 && q > 0.3) {
@@ -480,4 +495,11 @@ export function captureFrame(video: HTMLVideoElement): { jpegB64: string; w: num
     b64 = c.toDataURL("image/jpeg", q).split(",")[1];
   }
   return { jpegB64: b64, w, h };
+}
+
+/** The selfie camera: its preview is mirrored (`.mirror`) and its track reports facingMode "user". */
+function isFrontCamera(video: HTMLVideoElement) {
+  if (video.classList.contains("mirror")) return true;
+  const track = (video.srcObject as MediaStream | null)?.getVideoTracks?.()[0];
+  return track?.getSettings?.().facingMode === "user";
 }

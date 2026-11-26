@@ -7,6 +7,7 @@ import { configured, db, loadCloudModel } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { fmtDistance, fmtDuration } from "../geo";
 import { captureFrame, runCloudReview, Session, type LiveState } from "../recorder";
+import { startOrientationTracking } from "../orientation";
 import { CATEGORIES, type Category, type Intention, type Moment } from "../types";
 import { jpegSrc, Link } from "../ui";
 import Interview, { RouteChip, Uses } from "../components/Interview";
@@ -134,6 +135,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamErr(null);
+    startOrientationTracking(); // proof frames auto-rotate when the phone is held sideways (portrait-locked PWA)
     navigator.mediaDevices
       ?.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 } }, audio: false })
       .then((st) => {

@@ -7,7 +7,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,7 +84,6 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -353,8 +351,8 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
 
     Box(Modifier.fillMaxSize().clickable(onClickLabel = "Inspect the evidence", onClick = onOpen)) {
         val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
-        if (bmp != null) Image(
-            bmp, "Proof shot: ${c.intention}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+        if (bmp != null) FitImage(
+            bmp, "Proof shot: ${c.intention}", Modifier.fillMaxSize(),
             colorFilter = if (ok) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
         ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), TokBg))))
         // v4.12: the feed clip plays over the photo on the current slide only (muted, looping, no controls).
@@ -648,8 +646,8 @@ fun MomentTile(c: MomentCard, onClick: () -> Unit, onDelete: (() -> Unit)? = nul
             .semantics(mergeDescendants = true) {},
     ) {
         val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
-        if (bmp != null) Image(
-            bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+        if (bmp != null) FitImage(
+            bmp, null, Modifier.fillMaxSize(),
             colorFilter = if (ok || c.status != "rejected") null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
         ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), MediaBg))), contentAlignment = Alignment.Center) {
             if (c.track.size > 1) TrackSketch(c.track, Modifier.size(90.dp, 70.dp)) else Icon(Glyph.Proof, null, tint = TokInk2, modifier = Modifier.size(32.dp))

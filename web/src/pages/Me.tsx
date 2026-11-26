@@ -12,7 +12,7 @@ import type { Moment } from "../types";
 import { isDeclined, requireSignIn } from "../signin";
 import { forgetMoment, localChunks, unclaimed, useLocalMoments, useVaultHeld, type LocalMoment } from "../vault";
 import { ago, jpegSrc, Link } from "../ui";
-import { Glyph, ScoreRing, type GlyphName } from "../kit";
+import { FitImg, Glyph, ScoreRing, type GlyphName } from "../kit";
 import "../me.css";
 import { uploadText, useClipUpload } from "../upload";
 import { videoStatusText } from "../v4";
@@ -82,7 +82,7 @@ function Tile({
   return (
     <li className={`me-tile tile-${tone}`} data-id={id}>
       <div className="tile-media on-media">
-        {thumb ? <img src={jpegSrc(thumb)} alt="" loading="lazy" decoding="async" width={320} height={400} /> : <Glyph name="frames" className="tile-ph" />}
+        {thumb ? <FitImg className="tile-img" src={jpegSrc(thumb)} alt="" loading="lazy" decoding="async" /> : <Glyph name="frames" className="tile-ph" />}
         <span className={`tile-badge badge-${tone}`}>
           <Glyph name={BADGE[tone]} />
           {badge}

@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,8 +91,10 @@ fun rememberFeedPlayer(): ExoPlayer {
 private fun inflatePlayerView(ctx: android.content.Context, controls: Boolean): PlayerView =
     (LayoutInflater.from(ctx).inflate(R.layout.video_player, null) as PlayerView).apply {
         useController = controls
-        resizeMode = if (controls) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-        if (controls) setShutterBackgroundColor(android.graphics.Color.BLACK)
+        // Always FIT: the whole frame at its true aspect, never cropped. With controls the letterbox is the dark media
+        // background; the muted feed clip letterboxes over the (fit) hero photo and its blurred backdrop.
+        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        if (controls) { setShutterBackgroundColor(MediaBg.toArgb()); setBackgroundColor(MediaBg.toArgb()) }
     }
 
 /**
@@ -209,6 +212,6 @@ private fun ClipPlayer(c: SharedClip) {
     AndroidView(
         factory = { inflatePlayerView(it, controls = true).also { v -> v.player = player } },
         onRelease = { it.player = null },
-        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)),
+        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)).background(MediaBg),
     )
 }

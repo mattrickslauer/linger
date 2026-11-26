@@ -403,3 +403,37 @@ export const KIND_GLYPH: Record<string, GlyphName> = {
   object: "frames",
   outcome: "seal",
 };
+
+// ------------------------------------------------------------------ media
+
+/**
+ * A photo shown whole at its true aspect ratio, never cropped (object-fit: contain), same on every platform. Where
+ * the box's shape differs, the letterbox is filled with a blurred, darkened copy of the same photo. The wrapper is
+ * the positioned box: size and place it with `className`; overlays layered on top stay as they were.
+ */
+export function FitImg({
+  src,
+  alt,
+  className,
+  backdrop = true,
+  loading,
+  decoding,
+  width,
+  height,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  backdrop?: boolean;
+  loading?: "lazy" | "eager";
+  decoding?: "async" | "sync" | "auto";
+  width?: number;
+  height?: number;
+}) {
+  return (
+    <span className={`fit-media ${className ?? ""}`}>
+      {backdrop && <img className="fit-back" src={src} alt="" aria-hidden="true" loading={loading} decoding="async" />}
+      <img className="fit-fg" src={src} alt={alt} loading={loading} decoding={decoding} width={width} height={height} />
+    </span>
+  );
+}

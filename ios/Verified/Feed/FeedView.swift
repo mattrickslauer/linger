@@ -571,7 +571,7 @@ private struct RailLabel: View {
   }
 }
 
-/// The proof photo, full-bleed, under a top and bottom ink scrim. Rejected Moments desaturate; no photo is a lake.
+/// The proof photo, whole (fit on a blurred copy of itself), under a top and bottom ink scrim. Rejected Moments desaturate; no photo is a lake.
 private struct SlideBackdrop: View {
   let b64: String?
   let desaturate: Bool
@@ -582,14 +582,13 @@ private struct SlideBackdrop: View {
     ZStack {
       FeedInk.lake
       if let b64, let cg = ProofFrame.cgImage(fromBase64: b64) {
-        Color.clear.overlay {
-          Image(decorative: cg, scale: 1).resizable().scaledToFill()
-            .saturation(desaturate ? 0.15 : 1)
-        }
-        .clipped()
+        FitImage(cgImage: cg)
+          .saturation(desaturate ? 0.15 : 1)
       }
       if let clip {
+        // Aspect fit on a dark letterbox: the whole clip, never cropped.
         PlayerLayerView(player: clip.player) { clip.markReady() }
+          .background(Color.black)
           .opacity(clip.ready ? 1 : 0)
           .animation(.easeIn(duration: 0.25), value: clip.ready)
       }
@@ -752,7 +751,7 @@ struct HeroImage: View {
 
   var body: some View {
     if let b64, let cg = ProofFrame.cgImage(fromBase64: b64) {
-      Image(decorative: cg, scale: 1).resizable().scaledToFill()
+      FitImage(cgImage: cg)
     } else {
       ZStack {
         LinearGradient(colors: [Color(hex: 0x123540), Theme.media], startPoint: .top, endPoint: .bottom)

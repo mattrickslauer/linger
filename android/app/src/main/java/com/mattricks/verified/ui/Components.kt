@@ -2,6 +2,7 @@ package com.mattricks.verified.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -30,9 +31,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -55,9 +61,28 @@ fun decodeB64(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let {
 @Composable
 fun B64Image(b64: String?, modifier: Modifier = Modifier) {
     val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
-    if (bmp != null) Image(bmp, null, modifier, contentScale = ContentScale.Crop)
+    if (bmp != null) FitImage(bmp, null, modifier)
     else Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         Icon(Glyph.Frames, "No frame", tint = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/**
+ * Shows the whole photo at its true aspect ratio (never cropped), centred in [modifier]'s box. Where the box's aspect
+ * differs, the letterbox is filled with a blurred, darkened copy of the same photo (API 31+; below that a dimmed
+ * scaled-up copy), so heroes stay full-bleed and overlays stay legible. Use for proof shots; avatars stay cropped.
+ */
+@Composable
+fun FitImage(bmp: ImageBitmap, contentDescription: String?, modifier: Modifier = Modifier, colorFilter: ColorFilter? = null) {
+    val blur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    Box(modifier.clipToBounds().background(MediaBg), contentAlignment = Alignment.Center) {
+        Image(
+            bmp, null,
+            Modifier.matchParentSize().then(if (blur) Modifier.blur(28.dp, BlurredEdgeTreatment.Rectangle) else Modifier),
+            contentScale = ContentScale.Crop, colorFilter = colorFilter,
+        )
+        Box(Modifier.matchParentSize().background(MediaBg.copy(alpha = if (blur) 0.45f else 0.7f)))
+        Image(bmp, contentDescription, Modifier.matchParentSize(), contentScale = ContentScale.Fit, colorFilter = colorFilter)
     }
 }
 
