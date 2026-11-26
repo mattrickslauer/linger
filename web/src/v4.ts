@@ -262,6 +262,16 @@ export function factsOf(chunks: Pick<Chunk, "payload">[]): ChainFacts {
   return b.facts;
 }
 
+/**
+ * How much of the session the video covers. The session clock starts when recording opens; a clip only runs between
+ * its start and stop, so a 29 s session can hold a 9 s clip. Claims about something that happens over time (a song,
+ * reps, a duration) can only be backed by the part that is on video.
+ */
+export function videoCoverage(sessionMs: number, clips: { durationMs: number }[]): { videoMs: number; sessionMs: number; ratio: number } {
+  const videoMs = clips.reduce((a, c) => a + Math.max(0, c.durationMs || 0), 0);
+  return { videoMs, sessionMs, ratio: sessionMs > 0 ? Math.min(1, videoMs / sessionMs) : videoMs > 0 ? 1 : 0 };
+}
+
 // ---------------------------------------------------------------- record-screen checklist ("captured", never "met")
 
 /** v4.2 client checklist: the local evidence for this requirement exists. The server decides "met". */

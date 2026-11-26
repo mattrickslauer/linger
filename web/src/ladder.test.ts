@@ -26,6 +26,20 @@ describe("v4 offers: modules back claim kinds (docs/ARCHITECTURE.md v4.6)", () =
     expect(o.claims[0].pass).toBeCloseTo(0.58, 9);
     expect(o.claims[0].fail).toBeCloseTo(0.28, 9);
     expect(o.pass).toBeCloseTo(0.52, 9); // min(0.52, 0.58)
+    expect(o.cappedBy.map((c) => c.id)).toEqual(["c1"]); // the action claim (0.52) now holds the Moment down
+  });
+  it("names the claim that keeps the Moment score flat when a module only backs the other one", () => {
+    // Shape of a real Moment: "sing the alphabet (action) in under 30 s (measure)", both at 0.22.
+    const cs = [
+      { id: "c1", kind: "action" as const, text: "singing the alphabet song" },
+      { id: "c2", kind: "measure" as const, text: "under 30 seconds", metric: "duration", value: 30, unit: "s" },
+    ];
+    const sc = cs.map((c) => ({ id: c.id, p: 0.22, sealP: 0.22, met: [], unmet: [], minimumMet: false, backedBy: [] }));
+    const o = offersV4({ claims: cs, requirements: [], scores: sc, modules: [], witness: [] }, ev, 10).find((x) => x.module.id === "second_look")!;
+    if (o.state !== "ready" && o.state !== "blocked") throw new Error(o.state);
+    expect(o.claims[0].pass).toBeCloseTo(0.376, 9); // the claim itself rises
+    expect(o.pass).toBeCloseTo(0.22, 9); // the Moment doesn't: it is its weakest claim
+    expect(o.cappedBy.map((c) => c.text)).toEqual(["under 30 seconds"]);
   });
   it("place_time backs no claim here; witness_review needs an answered request", () => {
     expect(by("place_time")).toMatchObject({ state: "blocked", reason: "Backs none of this Moment's claims." });
