@@ -65,6 +65,66 @@ class ScreenshotTest {
     @Config(qualifiers = "w390dp-h3000dp-xxhdpi")
     @Test fun detailFullDark() { offlineMapsOnly = true; shot("detail-full-dark", dark = true) { DetailBody(fakeDetail("rejected"), {}, null, {}) } }
 
+    private val liveUi = com.mattricks.verified.record.RecUi(
+        phase = com.mattricks.verified.record.RecUi.Phase.Recording, momentId = "m1", intention = "Catch and release a largemouth bass",
+        startedAt = 1_764_000_000_000, elapsedMs = 734_000, distanceM = 612.0, accuracyM = 6.0, frameCount = 3, chunksTotal = 9,
+        sparkline = (0 until 30).map { 9.8f + kotlin.math.sin(it / 3.0).toFloat() }, heartRate = 112, witnessAsked = 1,
+        track = fakeTrack.take(20),
+        coach = com.mattricks.verified.chain.Check(true, "", "on_device", "fish"),
+        witness = com.mattricks.verified.record.WitnessAsk("w1", "Show the fish next to the rod", "show", "Ties the catch to your gear", "on_device", 0.2, "r1"),
+        plan = com.mattricks.verified.data.Plan(
+            listOf(
+                com.mattricks.verified.data.Requirement("r1", "c1", "frames", "Photo of the fish on the line"),
+                com.mattricks.verified.data.Requirement("r2", "c1", "video", "10 s clip of landing it", 10.0),
+                com.mattricks.verified.data.Requirement("r3", "c2", "gps", "GPS at the lake"),
+            ),
+            "photo", "",
+        ),
+        captured = mapOf("r3" to true),
+    )
+
+    @Test fun live() { offlineMapsOnly = true; shot("live", dark = true) {
+        LiveHud(
+            liveUi, com.mattricks.verified.data.Prefs.CaptureMode.Photo, null, false, false, {}, {},
+            WitnessActions({}, {}, {}, {}, {}), {}, {}, {},
+            media = { mini, full ->
+                B64Image(fakePhoto(1), full)
+                TrackMap(liveUi.track, mini, live = true, compact = true)
+            },
+        )
+    } }
+
+    @Test fun finished() = shot("finished") {
+        FinishedContent(liveUi.copy(phase = com.mattricks.verified.record.RecUi.Phase.Finished, hasVideo = false), false, true, null, true, {}, {}, {})
+    }
+
+    @Test fun interview() = shot("interview") {
+        val i = com.mattricks.verified.data.Intention(
+            "Catch and release a largemouth bass at Lake Mission Viejo", "fishing", v = 4, activity = "fishing", goal = "Land a bass and release it",
+            place = com.mattricks.verified.data.Place("Lake Mission Viejo", null, null, "CA", "US"), expectedMinutes = 45.0,
+            assumptions = listOf("You are at the lake now", "Catch and release"), interviewTurns = 2, interviewMode = "on_device",
+            preview = com.mattricks.verified.data.IntentionPreview(0.74, 0.53, "on_device", "Named place and species."),
+            claims = listOf(com.mattricks.verified.data.Claim("c1", "action", "Catch a largemouth bass"), com.mattricks.verified.data.Claim("c2", "place", "At Lake Mission Viejo")),
+            plan = liveUi.plan,
+        )
+        InterviewContent(
+            com.mattricks.verified.record.InterviewUi(
+                com.mattricks.verified.record.InterviewUi.Phase.Ready,
+                listOf(
+                    com.mattricks.verified.record.Turn(true, "going fishing"),
+                    com.mattricks.verified.record.Turn(false, "Nice! Where, and what are you after?", "on_device"),
+                    com.mattricks.verified.record.Turn(true, "Lake Mission Viejo, largemouth bass, catch and release"),
+                ),
+                i,
+            ),
+            "", 0f, {}, {}, {}, {}, {}, {}, {}, {}, {},
+        )
+    }
+
+    @Test fun interviewStart() = shot("interview-start") {
+        InterviewContent(com.mattricks.verified.record.InterviewUi(), "", 0f, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    }
+
     @Test fun vocabulary() = shot("vocabulary") { Vocab() }
     @Test fun vocabularyDark() = shot("vocabulary-dark", dark = true) { Vocab() }
 
