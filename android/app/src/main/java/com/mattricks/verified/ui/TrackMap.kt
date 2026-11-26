@@ -25,7 +25,10 @@ import com.mapbox.maps.dsl.cameraOptions
 import com.mattricks.verified.BuildConfig
 import com.mattricks.verified.data.LatLng
 
-val mapboxEnabled: Boolean get() = BuildConfig.MAPBOX_TOKEN.isNotBlank()
+val mapboxEnabled: Boolean get() = BuildConfig.MAPBOX_TOKEN.isNotBlank() && !offlineMapsOnly
+
+/** Screenshot tests (JVM, no GL): draw the offline [TrackCanvas] instead of Mapbox. */
+internal var offlineMapsOnly = false
 
 private val LiveBlue = Color(0xFF2E7DF6)
 

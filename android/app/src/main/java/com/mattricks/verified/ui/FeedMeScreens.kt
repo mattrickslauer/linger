@@ -218,7 +218,7 @@ private fun SlideSkeleton() {
 
 /** Page 0: one hero line, the three waypoints as glyph tiles, live counts, Record a Moment. */
 @Composable
-private fun FeedIntro(user: FirebaseUser?, all: List<MomentCard>?, onRecord: () -> Unit) {
+internal fun FeedIntro(user: FirebaseUser?, all: List<MomentCard>?, onRecord: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 20.dp), verticalArrangement = Arrangement.Center) {
         Text("Proof it happened.", color = TokInk, fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
         Spacer(Modifier.height(8.dp))
@@ -338,7 +338,7 @@ private fun WpLabel(label: String, sub: String?, trailing: (@Composable () -> Un
 /** The slide template, identical for every Moment: intent → proof → result over the proof photo. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, player: ExoPlayer?, onOpen: () -> Unit) {
+internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, player: ExoPlayer?, onOpen: () -> Unit) {
     val ok = c.status == "sealed" && !c.cheating
     val ctx = LocalContext.current
     // The one reveal, played once when the slide first settles: track segments draw, waypoints arrive in order, the
@@ -569,7 +569,7 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
 
 /** Avatar, name, credits pill; guest = one card with the sign-in CTA. */
 @Composable
-private fun ProfileHeader(user: FirebaseUser?) {
+internal fun ProfileHeader(user: FirebaseUser?) {
     if (user == null) {
         Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(24.dp)) {
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -611,7 +611,7 @@ private fun ProfileHeader(user: FirebaseUser?) {
 }
 
 @Composable
-private fun StatTile(n: Int, label: String, icon: ImageVector, accent: Color, modifier: Modifier) {
+internal fun StatTile(n: Int, label: String, icon: ImageVector, accent: Color, modifier: Modifier) {
     Surface(modifier.semantics(mergeDescendants = true) {}, color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -684,8 +684,7 @@ fun MomentTile(c: MomentCard, onClick: () -> Unit, onDelete: (() -> Unit)? = nul
                         else -> StatOverlay(Glyph.Frames, "${c.summary.frameCount}")
                     }
                 }
-                val bar = c.bar ?: c.previewBar
-                if (c.score != null || bar != null) ScoreRing(c.score, bar, size = 44.dp, onMedia = true, centerText = if (c.score == null) "≈" else null)
+                if (c.score != null) ScoreRing(c.score, c.bar ?: c.previewBar, size = 44.dp, onMedia = true)
             }
         }
     }
