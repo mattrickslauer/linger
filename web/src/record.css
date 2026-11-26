@@ -825,3 +825,32 @@ body.rec-live .foot {
     padding-top: 14px;
   }
 }
+@media (max-width: 600px) {
+  .start-dock {
+    flex-wrap: nowrap;
+  }
+  .start-dock .btn-quiet {
+    flex: none;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 1.5px solid var(--rule);
+    border-radius: 50%;
+    background: var(--sheet);
+  }
+  .start-dock .btn-quiet .glyph {
+    width: 22px;
+    height: 22px;
+  }
+  .dock-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .btn-start {
+    flex: 1;
+  }
+}

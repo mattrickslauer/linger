@@ -495,3 +495,22 @@
   width: 15px;
   height: 15px;
 }
+
+/* Touch screens: every control is at least 44 × 44 px. */
+@media (pointer: coarse), (max-width: 719px) {
+  .btn-small,
+  .tok-tab,
+  .room-nav a,
+  .tile-actions .btn {
+    min-height: 44px;
+  }
+  .tile-del {
+    width: 44px;
+  }
+  .claim-chip button,
+  .tag button {
+    width: 44px;
+    height: 44px;
+    margin: -8px -6px -8px -8px;
+  }
+}

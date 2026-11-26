@@ -461,7 +461,8 @@ function ClaimCard({
       <Uses guest={guest} />
       <div className="start-dock">
         <button type="button" className="btn btn-quiet" onClick={onBack}>
-          <Glyph name="back" /> Back to the interview
+          <Glyph name="back" />
+          <span className="dock-label">Back to the interview</span>
         </button>
         <button className="btn btn-primary btn-big btn-start" type="submit" disabled={!i.text.trim()}>
           <Glyph name="record" /> Start Moment

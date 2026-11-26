@@ -85,7 +85,8 @@ function Setup({ onStart, guest, onVoice }: { onStart: (i: Intention) => void; g
       <Uses guest={guest} />
       <div className="start-dock">
         <button type="button" className="btn btn-quiet" onClick={onVoice}>
-          <Glyph name="mic" /> Use the voice interview instead
+          <Glyph name="mic" />
+          <span className="dock-label">Use the voice interview instead</span>
         </button>
         <button className="btn btn-primary btn-big btn-start" type="submit" disabled={planning} aria-busy={planning}>
           <Glyph name="record" /> {planning ? "Planning the evidence…" : "Start Moment"}
