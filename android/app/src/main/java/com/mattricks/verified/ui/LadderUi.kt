@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,7 +96,7 @@ fun ClaimOffers(d: MomentDetail, c: com.mattricks.verified.data.Claim, s: com.ma
             val pv = com.mattricks.verified.data.V4Score.preview(scores, c.id, m.strength) ?: return@forEach
             Text(
                 "${m.title} · if it passes → ${V3Math.fmt(pv.passP)} · if it fails → ${V3Math.fmt(pv.failP)}",
-                fontSize = 12.sp, color = GreenDark, fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp, color = Ok, fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -116,7 +119,7 @@ fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
                         "baseline ${v.baseline?.let(V3Math::fmt) ?: "–"} → score ${v.score?.let(V3Math::fmt) ?: "–"} · bar ${V3Math.fmt(v.bar)}",
                         fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
                     )
-                    if (v.verified) Pill("Verified ✓", Green) else Pill("below bar", Amber)
+                    if (v.verified) Pill("Verified ✓", Ok) else Pill("below bar", Warn)
                 }
             }
             if (results.isEmpty()) Text("No extra checks yet.", color = Color.Gray)
@@ -136,7 +139,7 @@ fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
 @Composable
 private fun ResultRow(r: LadderResult, claimText: (String) -> String = { it }) {
     Row(verticalAlignment = Alignment.Top) {
-        Text(if (r.passed) "✓" else "✗", color = if (r.passed) Green else Red, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
+        Text(if (r.passed) "✓" else "✗", color = if (r.passed) Ok else Bad, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
         Column(Modifier.weight(1f)) {
             Text(r.title.ifBlank { r.module }, fontWeight = FontWeight.SemiBold)
             Text(
@@ -164,7 +167,7 @@ fun ClaimOutcomes(claims: List<com.mattricks.verified.data.ClaimVerdict>, claimT
                 o.measured?.let { (v, u) -> append(" · measured ${fmtNum(v)} $u") }
                 o.reasons.firstOrNull()?.let { append(" · ").append(it) }
             },
-            style = MaterialTheme.typography.bodySmall, color = if (color != Color.Unspecified) color else if (passed) GreenDark else Red,
+            style = MaterialTheme.typography.bodySmall, color = if (color != Color.Unspecified) color else if (passed) Ok else Bad,
         )
     }
 }
@@ -215,7 +218,7 @@ fun LadderSheet(
                     "score ${p?.let(V3Math::fmt) ?: "–"} · bar ${bar?.let(V3Math::fmt) ?: "–"}",
                     fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
                 )
-                Icon(Icons.Filled.Toll, null, tint = Amber, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Toll, null, tint = Warn, modifier = Modifier.size(18.dp))
                 Text(
                     " " + when {
                         balance != null -> "$balance credits"
@@ -226,11 +229,11 @@ fun LadderSheet(
                 )
             }
             if (p != null && bar != null) BarMeter(p, bar, Modifier.fillMaxWidth())
-            if (granted?.justGranted == true) Text("${Ladder.freeCredits} free demo credits added to your account.", color = Green, style = MaterialTheme.typography.bodySmall)
-            creditsError?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
+            if (granted?.justGranted == true) Text("${Ladder.freeCredits} free demo credits added to your account.", color = Ok, style = MaterialTheme.typography.bodySmall)
+            creditsError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
 
             result?.let { r -> ResultBanner(r, claimText(d)) }
-            error?.let { Text(it, color = Red) }
+            error?.let { Text(it, color = Bad) }
             running?.let { id ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -277,7 +280,7 @@ private fun ResultBanner(r: Ladder.Run, claimText: (String) -> String) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 (if (r.passed) "Passed ✓  " else "Failed ✗  ") + "${V3Math.fmt(r.before)} → ${V3Math.fmt(r.after)}",
-                fontWeight = FontWeight.Bold, color = if (r.passed) GreenDark else Red,
+                fontWeight = FontWeight.Bold, color = if (r.passed) Ok else Bad,
             )
             Text(if (r.verified) "Now Verified ✓ (score ${V3Math.fmt(r.score)} ≥ bar ${V3Math.fmt(r.bar)})" else "Still below the bar (${V3Math.fmt(r.score)} < ${V3Math.fmt(r.bar)})", color = Color.DarkGray)
             r.claimsBacked?.let { k -> Text("$k/${r.claimScores.size.takeIf { it > 0 } ?: k} claims backed", color = Color.DarkGray, fontWeight = FontWeight.SemiBold) }
@@ -298,13 +301,13 @@ private fun ModuleRow(
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(m.title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Pill("${m.cost} credit${if (m.cost == 1) "" else "s"}", Amber)
+                Pill("${m.cost} credit${if (m.cost == 1) "" else "s"}", Warn)
             }
             Text(m.blurb, style = MaterialTheme.typography.bodySmall)
             backsLine?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
             if (p != null && m.available && (previews != null || backsLine == null)) {
                 val (up, down) = previews ?: LadderLogic.previews(p, m.strength)
-                Text("if it passes → ${V3Math.fmt(up)} · if it fails → ${V3Math.fmt(down)}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = GreenDark)
+                Text("if it passes → ${V3Math.fmt(up)} · if it fails → ${V3Math.fmt(down)}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Ok)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 disabledReason?.let { Text(it, color = Color.Gray, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f)) }
@@ -315,22 +318,29 @@ private fun ModuleRow(
     }
 }
 
-/** Me: the credit balance (server-written, owner-readable). */
+/** Me: the credit balance (server-written, owner-readable) as a compact pill. */
 @Composable
-fun CreditsRow() {
+fun CreditsPill() {
     val uid = Firebase.auth.currentUser?.uid ?: return
     val c by remember(uid) { Ladder.credits(uid) }.collectAsState(initial = null)
-    Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Toll, null, tint = Amber)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting", fontWeight = FontWeight.Bold)
-                Text(
-                    c?.let { "${it.granted} granted · ${it.spent} spent on verification" } ?: "Granted the first time you open the verification ladder.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-            }
+    var info by remember { mutableStateOf(false) }
+    Surface(
+        onClick = { info = true }, color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50),
+        modifier = Modifier.heightIn(min = 48.dp).padding(vertical = 4.dp)
+            .semantics { contentDescription = c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting" },
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Glyph.Credits, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            Spacer(Modifier.width(6.dp))
+            Text(c?.balance?.toString() ?: "${Ladder.freeCredits}", fontWeight = FontWeight.Bold, style = Tnum, color = MaterialTheme.colorScheme.onTertiaryContainer)
         }
+    }
+    if (info) InfoSheet("Credits", { info = false }, icon = Glyph.Credits) {
+        Text(c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            c?.let { "${it.granted} granted · ${it.spent} spent on verification" } ?: "Granted the first time you open the verification ladder.",
+            color = Ink2,
+        )
+        Text("Credits buy more scrutiny on the verification ladder, never a score. Free demo credits only, no purchases.", style = MaterialTheme.typography.bodyMedium)
     }
 }

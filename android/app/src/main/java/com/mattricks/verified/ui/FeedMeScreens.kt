@@ -1,6 +1,5 @@
 package com.mattricks.verified.ui
 
-import android.app.Activity
 import android.content.Intent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -12,24 +11,74 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SyncProblem
+import androidx.compose.material.icons.filled.VerticalAlignTop
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow
@@ -37,66 +86,36 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.flow.onEach
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.media3.exoplayer.ExoPlayer
-import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseUser
 import com.mattricks.verified.BuildConfig
 import com.mattricks.verified.ai.Ai
 import com.mattricks.verified.auth.Auth
 import com.mattricks.verified.auth.Gate
 import com.mattricks.verified.data.Claims
-import com.mattricks.verified.data.Vault
-import kotlinx.coroutines.flow.flowOf
-import androidx.compose.ui.text.font.FontWeight
 import com.mattricks.verified.data.MomentCard
 import com.mattricks.verified.data.Store
+import com.mattricks.verified.data.Vault
 import com.mattricks.verified.judge.Judging
 import com.mattricks.verified.record.RecordViewModel
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 /** The last feed snapshot, so coming back from an evidence room draws the same pages at once (no loading flash). */
@@ -110,7 +129,7 @@ private val FEED_FILTERS = listOf("all" to "All", "sealed" to "Verified", "rejec
  * Always dark. MainActivity keeps this screen's saveable state while an evidence room is open, so back lands here.
  */
 @Composable
-fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Unit) {
+fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Unit) = MediaTheme {
     val items by remember { Store.feed().onEach { feedCache = it } }.collectAsState(initial = feedCache)
     var filter by rememberSaveable { mutableStateOf("all") }
     var lastId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -145,7 +164,7 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
         }) { p ->
             when {
                 p == 0 -> FeedIntro(user, all, onRecord)
-                all == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = TokInk) }
+                all == null -> SlideSkeleton()
                 p <= shown.size -> {
                     val c = shown[p - 1]
                     val active = pager.settledPage == p
@@ -156,81 +175,129 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
                 }
             }
         }
+        // Filter: a compact segmented pill over the media. Each segment is a 48dp target.
         Row(
-            Modifier.align(Alignment.TopCenter).padding(top = 12.dp).clip(RoundedCornerShape(50)).background(TokBg.copy(alpha = 0.55f)).padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 6.dp)
+                .clip(RoundedCornerShape(50)).background(TokBg.copy(alpha = 0.55f)).border(1.dp, TokLine.copy(alpha = 0.4f), RoundedCornerShape(50))
+                .padding(horizontal = 4.dp),
         ) {
             FEED_FILTERS.forEach { (k, label) ->
                 val on = filter == k
-                Text(
-                    label, color = if (on) TokBg else TokInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) TokInk else Color.Transparent)
-                        .clickable { if (filter != k) { filter = k; lastId = null; scope.launch { pager.scrollToPage(0) } } }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                )
+                Box(
+                    Modifier.heightIn(min = 48.dp).semantics { selected = on }
+                        .clickable(role = Role.Tab) { if (filter != k) { filter = k; lastId = null; scope.launch { pager.scrollToPage(0) } } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label, color = if (on) TokBg else TokInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) TokInk else Color.Transparent)
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
             }
         }
     }
 }
 
-/** Page 0: what the feed is, the three waypoints in one line each, live counts, Record a Moment. */
+/** Loading page: the slide's shape in still blocks, no spinner. */
+@Composable
+private fun SlideSkeleton() {
+    val block = TokInk.copy(alpha = 0.08f)
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 20.dp, end = 84.dp, top = 72.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.fillMaxWidth(0.4f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(block))
+        Box(Modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(8.dp)).background(block))
+        Box(Modifier.fillMaxWidth(0.7f).height(34.dp).clip(RoundedCornerShape(8.dp)).background(block))
+        Spacer(Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { repeat(5) { Box(Modifier.size(26.dp).clip(CircleShape).background(block)) } }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(120.dp, 48.dp).clip(RoundedCornerShape(7.dp)).background(block))
+            Box(Modifier.size(60.dp).clip(CircleShape).background(block))
+        }
+    }
+}
+
+/** Page 0: one hero line, the three waypoints as glyph tiles, live counts, Record a Moment. */
 @Composable
 private fun FeedIntro(user: FirebaseUser?, all: List<MomentCard>?, onRecord: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = 76.dp, bottom = 24.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 20.dp), verticalArrangement = Arrangement.Center) {
         Text("Proof it happened.", color = TokInk, fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Every post here was recorded live, argued over by AI, and sealed by code. Each one reads the same way:",
-            color = TokInk2, fontSize = 16.sp, lineHeight = 22.sp,
-        )
-        Spacer(Modifier.height(20.dp))
-        listOf(
-            Triple(Wp.Intent, "Intent", "What the person said they would do, before they started."),
-            Triple(Wp.Proof, "Proof", "GPS, motion and proof shots, hashed into a chain as it happened. Gemini Nano coaches on the phone; it can never verify."),
-            Triple(Wp.Result, "Result", "A judge, a skeptic and a scorer weigh it in the cloud. Then a Cloud Function checks the chain and alone writes the seal."),
-        ).forEach { (kind, label, text) ->
-            SlideWaypoint(kind, ok = true, last = kind == Wp.Result) {
-                Text(label, color = TokInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Spacer(Modifier.height(2.dp))
-                Text(text, color = TokInk2, fontSize = 14.sp, lineHeight = 19.sp)
-            }
+        Spacer(Modifier.height(8.dp))
+        Text("Recorded live. Argued by AI. Sealed by code.", color = TokInk2, fontSize = 16.sp, lineHeight = 22.sp)
+        Spacer(Modifier.height(22.dp))
+        IntroStep(Wp.Intent, Glyph.Intent, "Intent", "Said before starting.")
+        IntroStep(Wp.Proof, Glyph.Proof, "Proof", "GPS, motion, shots. Hash-chained live.", badge = "on_device")
+        IntroStep(Wp.Result, Glyph.Result, "Result", "Judge, skeptic, scorer. Code seals.", badge = "cloud", last = true)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val sealed = all?.count { it.status == "sealed" }
+            IntroCount(sealed?.toString() ?: "–", "verified", SealGold, Modifier.weight(1f))
+            IntroCount(all?.let { (it.size - (sealed ?: 0)).toString() } ?: "–", "not verified", TokBad, Modifier.weight(1f))
         }
-        Text(
-            if (all == null) "Connecting…" else all.count { it.status == "sealed" }.let { s -> "$s verified, ${all.size - s} not" },
-            color = TokInk, fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(18.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             RecordButton(onRecord)
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(8.dp))
             if (user == null) TextButton(onClick = { Gate.signIn() }) { Text("Sign in", color = TokInk) }
             Spacer(Modifier.weight(1f))
-            Text("Swipe up ↑", color = TokInk2, fontSize = 13.sp)
+            Icon(Icons.Filled.KeyboardArrowUp, "Swipe up for Moments", tint = TokInk2, modifier = Modifier.size(32.dp))
         }
+    }
+}
+
+@Composable
+private fun IntroStep(kind: Wp, icon: ImageVector, title: String, line: String, badge: String? = null, last: Boolean = false) {
+    SlideWaypoint(kind, ok = true, last = last) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (kind == Wp.Result) SealGold else TrackOrange, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(title, color = TokInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            if (badge != null) { Spacer(Modifier.width(8.dp)); HybridBadge(badge, onMedia = true) }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(line, color = TokInk2, fontSize = 14.sp, lineHeight = 19.sp)
+    }
+}
+
+@Composable
+private fun IntroCount(n: String, label: String, accent: Color, modifier: Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(16.dp)).background(TokInk.copy(alpha = 0.07f)).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(accent))
+        Spacer(Modifier.width(8.dp))
+        Text(n, color = TokInk, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, style = Tnum)
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = TokInk2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun FeedEnd(any: Boolean, onRecord: () -> Unit, onTop: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(84.dp).clip(CircleShape).background(TokInk.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+            Icon(if (any) Glyph.Result else Glyph.Proof, null, tint = if (any) SealGold else TrackOrange, modifier = Modifier.size(40.dp))
+        }
+        Spacer(Modifier.height(16.dp))
         Text(if (any) "That's every Moment." else "Nothing here yet.", color = TokInk, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (any) "Record one of your own and it shows up here once it's sealed." else "Record the first one and it shows up here once it's sealed.",
-            color = TokInk2, textAlign = TextAlign.Center,
-        )
+        Spacer(Modifier.height(6.dp))
+        Text(if (any) "Yours shows up here once sealed." else "Record the first one.", color = TokInk2)
         Spacer(Modifier.height(20.dp))
         RecordButton(onRecord)
-        if (any) TextButton(onClick = onTop) { Text("Back to the top", color = TokInk) }
+        if (any) TextButton(onClick = onTop, modifier = Modifier.padding(top = 6.dp)) {
+            Icon(Icons.Filled.VerticalAlignTop, null, tint = TokInk, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Back to the top", color = TokInk)
+        }
     }
 }
 
 @Composable
 private fun RecordButton(onRecord: () -> Unit) = Button(
-    onClick = onRecord, shape = RoundedCornerShape(28.dp),
+    onClick = onRecord, shape = RoundedCornerShape(28.dp), modifier = Modifier.heightIn(min = 52.dp),
     colors = ButtonDefaults.buttonColors(containerColor = TokInk, contentColor = TokBg),
 ) {
-    Icon(Icons.Filled.FiberManualRecord, null, tint = Red, modifier = Modifier.size(16.dp))
+    Icon(Icons.Filled.FiberManualRecord, null, tint = FillBad, modifier = Modifier.size(16.dp))
     Spacer(Modifier.width(8.dp))
     Text("Record a Moment", fontWeight = FontWeight.Bold)
 }
@@ -252,20 +319,24 @@ private fun SlideWaypoint(
         },
     ) {
         Canvas(Modifier.padding(top = 4.dp).size(14.dp).arrive(arrive)) { waypointDot(kind, ok, center) }
-        Column(Modifier.padding(start = 28.dp, bottom = 24.dp).arrive(arrive), content = content)
+        Column(Modifier.padding(start = 28.dp, bottom = 22.dp).arrive(arrive), content = content)
     }
 }
 
 @Composable
-private fun WpLabel(label: String, sub: String?) = Text(
-    buildAnnotatedString {
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TokInk)) { append(label) }
-        if (!sub.isNullOrBlank()) withStyle(SpanStyle(color = TokInk2)) { append("  "); append(sub) }
-    },
-    fontSize = 15.sp, style = TextStyle(shadow = textShadow), maxLines = 1, overflow = TextOverflow.Ellipsis,
-)
+private fun WpLabel(label: String, sub: String?, trailing: (@Composable () -> Unit)? = null) = Row(verticalAlignment = Alignment.CenterVertically) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TokInk)) { append(label) }
+            if (!sub.isNullOrBlank()) withStyle(SpanStyle(color = TokInk2)) { append("  "); append(sub) }
+        },
+        fontSize = 15.sp, style = TextStyle(shadow = textShadow), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+    )
+    if (trailing != null) { Spacer(Modifier.width(8.dp)); trailing() }
+}
 
 /** The slide template, identical for every Moment: intent → proof → result over the proof photo. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, player: ExoPlayer?, onOpen: () -> Unit) {
     val ok = c.status == "sealed" && !c.cheating
@@ -299,10 +370,10 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pla
             ),
         )
 
-        Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 84.dp, top = 72.dp, bottom = 20.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 20.dp, end = 84.dp, top = 64.dp, bottom = 20.dp)) {
             // 1. Intent: takes the slack, so the photo shows between it and the proof.
             SlideWaypoint(Wp.Intent, ok, Modifier.weight(1f), line = ease.transform(seg(ms, 100f, 600f)), arrive = ease.transform(seg(ms, 0f, 450f))) {
-                WpLabel("Intent", "${c.ownerName.ifBlank { "Someone" }} set out to")
+                WpLabel("Intent", c.ownerName.ifBlank { "Someone" })
                 Spacer(Modifier.height(6.dp))
                 val quote = if (ok) TrackOrange else TokInk2
                 Text(
@@ -312,34 +383,39 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pla
                         withStyle(SpanStyle(color = quote)) { append("”") }
                     },
                     color = TokInk, fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.6).sp,
-                    style = TextStyle(shadow = textShadow), maxLines = 5, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 280.dp),
+                    style = TextStyle(shadow = textShadow), maxLines = 4, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 300.dp),
                 )
             }
-            // 2. Proof
+            // 2. Proof: numbers + glyphs, the five pips, the hybrid badge.
             SlideWaypoint(Wp.Proof, ok, line = ease.transform(seg(ms, 350f, 850f)), arrive = ease.transform(seg(ms, 250f, 700f))) {
-                WpLabel("Proof", "captured live" + agoText(c.sealedAt).let { if (it.isBlank()) "" else ", $it" })
+                WpLabel("Proof", agoText(c.sealedAt).ifBlank { "live" }) { HybridBadge(c.onDeviceMode, onMedia = true) }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (c.track.size > 1) { TrackSketch(c.track, Modifier.size(64.dp, 48.dp)); Spacer(Modifier.width(12.dp)) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Stat(fmtDuration(c.summary.durationMs), "time")
-                        Stat(fmtDistance(c.summary.distanceM), "moved")
-                        Stat("${c.summary.frameCount}", "shots")
+                    if (c.track.size > 1) { TrackSketch(c.track, Modifier.size(56.dp, 44.dp)); Spacer(Modifier.width(12.dp)) }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StatOverlay(Glyph.Time, fmtDuration(c.summary.durationMs))
+                        StatOverlay(Glyph.Distance, fmtDistance(c.summary.distanceM))
+                        StatOverlay(Glyph.Frames, "${c.summary.frameCount}")
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                CheckPips(c.checks)
-                listOfNotNull(
-                    c.claimsTotal?.takeIf { it > 0 && c.claimsBacked != null }?.let { "${c.claimsBacked}/$it claims backed" },
-                    c.ladderCount.takeIf { it > 0 }?.let { "+$it check${if (it == 1) "" else "s"}" },
-                    c.witnessAsked.takeIf { it > 0 }?.let { "witness ${c.witnessAnswered}/$it" },
-                ).takeIf { it.isNotEmpty() }?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(it.joinToString(" · "), color = TokInk2, fontSize = 12.sp, style = TextStyle(shadow = textShadow))
+                CheckPips(c.checks, onMedia = true)
+                val extras = listOfNotNull(
+                    c.claimsTotal?.takeIf { it > 0 && c.claimsBacked != null }?.let { Triple(Glyph.Result, "${c.claimsBacked}/$it", "claims backed") },
+                    c.ladderCount.takeIf { it > 0 }?.let { Triple(Glyph.Ladder, "+$it", "extra checks") },
+                    c.witnessAsked.takeIf { it > 0 }?.let { Triple(Glyph.Witness, "${c.witnessAnswered}/$it", "witness answers") },
+                )
+                if (extras.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        extras.forEach { (icon, v, what) ->
+                            ScrimChip(Modifier.semantics(mergeDescendants = true) { contentDescription = "$v $what" }) { StatOverlay(icon, v) }
+                        }
+                    }
                 }
             }
-            // 3. Result
+            // 3. Result: the stamp and the score ring (tick = the AI-set bar).
             SlideWaypoint(Wp.Result, ok, last = true, arrive = ease.transform(seg(ms, 500f, 950f))) {
                 WpLabel("Result", null)
                 Spacer(Modifier.height(10.dp))
@@ -353,19 +429,8 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pla
                             rotationZ = -12f + 8f * stampP
                         },
                     )
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        c.score?.let { p ->
-                            Text(
-                                buildAnnotatedString {
-                                    withStyle(SpanStyle(color = TokInk, fontWeight = FontWeight.Bold, fontSize = 22.sp)) { append("${(p * 100).roundToInt()}%") }
-                                    append(" likely true")
-                                },
-                                color = TokInk2, fontSize = 15.sp,
-                            )
-                        }
-                        c.bar?.let { Text("bar ${(it * 100).roundToInt()}%", color = TokInk2, fontSize = 13.sp) }
-                    }
+                    Spacer(Modifier.width(14.dp))
+                    if (c.score != null || c.bar != null) ScoreRing(c.score, c.bar, size = 60.dp, onMedia = true)
                 }
                 val reason = when {
                     c.cheating -> c.cheatingSignals.firstOrNull() ?: "Cheating detected"
@@ -375,17 +440,17 @@ private fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pla
                 if (!reason.isNullOrBlank()) {
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        reason, color = TokInk2, fontSize = 14.5.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        reason, color = TokInk2, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         style = TextStyle(shadow = textShadow), modifier = Modifier.widthIn(max = 300.dp),
                     )
                 }
             }
         }
 
-        // Right rail, lower third.
+        // Right rail, lower third (thumb zone).
         Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 180.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 170.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (clip != null && player != null) MuteButton(muted) { muted = !muted }
             RailButton(Icons.Filled.Search, "Evidence", primary = true, onClick = onOpen)
@@ -406,14 +471,11 @@ private const val SHARE_HOST = "https://verified-99e74.web.app"
 private val OvershootEasing = CubicBezierEasing(0.3f, 1.5f, 0.5f, 1f)
 
 @Composable
-private fun Stat(value: String, label: String) = Column {
-    Text(value, color = TokInk, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, style = TextStyle(shadow = textShadow))
-    Text(label, color = TokInk2, fontSize = 12.sp, maxLines = 1)
-}
-
-@Composable
 private fun RailButton(icon: ImageVector, label: String, primary: Boolean = false, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(4.dp)) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(4.dp),
+    ) {
         Box(
             Modifier.size(52.dp).clip(CircleShape).background(if (primary) TokInk else TokBg.copy(alpha = 0.6f))
                 .border(1.dp, TokLine, CircleShape),
@@ -424,6 +486,9 @@ private fun RailButton(icon: ImageVector, label: String, primary: Boolean = fals
     }
 }
 
+// ───────────────────────── Me
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
     val items by remember(user?.uid) { user?.let { Store.myMoments(it.uid) } ?: flowOf(emptyList()) }.collectAsState(initial = null)
@@ -431,79 +496,69 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
     val uploading by Claims.uploading.collectAsState()
     val judging by Judging.status.collectAsState()
     val nano by Ai.onDeviceState.collectAsState()
+    val held by Vault.held.collectAsState()
     val recordingId by RecordViewModel.recording.collectAsState()
     var confirmDelete by remember { mutableStateOf<String?>(null) }
     val local = guests.map { Store.localCard(it) }
     val all = items?.let { local + it }
-    CardList(
-        all, empty = "Your Moments will show up here.", onOpen = onOpen,
-        onDelete = { c ->
-            val mine = c.local || canDeleteMoment(c, user?.uid, recordingId)
-            if (mine && c.id != recordingId) ({ confirmDelete = c.id }) else null
-        },
-        onUpload = { c ->
-            if (c.local && c.status == "submitted" && c.id !in uploading) ({
-                Gate.require("verify this Moment") { Claims.claim(listOf(c.id)) }
-            }) else null
-        },
-        header = {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (user == null) {
-                        Text("You're browsing as a guest", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "Moments you record stay on this phone. Sign in to upload them, run the cloud review and get them sealed.",
-                            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                        )
-                    } else {
-                        Text(user.displayName ?: "Signed in", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(user.email ?: if (user.isAnonymous) "test user" else "", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "On-device model (Gemini Nano): " + when (nano) {
-                            "available" -> "ready"
-                            "downloading" -> "downloading…"
-                            "checking" -> "checking…"
-                            else -> "not on this phone — checks run in the cloud"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (BuildConfig.USE_EMULATOR) Text("Emulator mode · ${BuildConfig.EMULATOR_HOST}", style = MaterialTheme.typography.bodySmall, color = Amber)
-                    judging?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Green) }
-                    if (uploading.isNotEmpty()) Text("Uploading ${uploading.size} guest Moment(s)…", style = MaterialTheme.typography.bodySmall, color = Green)
-                    if (user != null) {
-                        val held by Vault.held.collectAsState()
-                        val conflicts = held.count { it.value == Vault.State.Conflict }
-                        Text(
-                            when {
-                                held.isEmpty() -> "Raw data: all safely stored on the server ✓"
-                                conflicts > 0 -> "Raw data: $conflicts Moment(s) differ from the server — kept on this phone"
-                                else -> "Raw data: ${held.size} Moment(s) kept on this phone until the server confirms every chunk"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (held.isEmpty()) Green else Amber,
-                        )
-                    }
-                    if (local.isNotEmpty()) Text(
-                        "${local.size} guest Moment(s) on this phone only",
-                        style = MaterialTheme.typography.bodySmall, color = Amber,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (user == null) Button(onClick = { Gate.signIn() }) { Text("Sign in") }
-                        else {
-                            if (local.any { it.status == "submitted" }) Button(onClick = { Claims.claim(local.filter { it.status == "submitted" }.map { it.id }) }) {
-                                Text("Upload guest Moments")
-                            }
-                            OutlinedButton(onClick = { Auth.signOut() }) { Text("Sign out") }
-                        }
+    val full = GridItemSpan(2)
+
+    LazyVerticalGrid(
+        GridCells.Fixed(2), Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(span = { full }, key = "profile") { ProfileHeader(user) }
+        item(span = { full }, key = "stats") {
+            val list = all.orEmpty()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatTile(list.count { it.status == "sealed" && !it.cheating }, "Verified", Glyph.Result, SealGold, Modifier.weight(1f))
+                StatTile(list.count { it.status == "rejected" || it.cheating }, "Not verified", Icons.Filled.Block, FillBad, Modifier.weight(1f))
+                StatTile(list.count { it.status == "submitted" || it.status == "recording" || it.local }, "Pending", Icons.Filled.HourglassTop, FillLake, Modifier.weight(1f))
+            }
+        }
+        item(span = { full }, key = "status") {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val (nanoText, nanoMode) = when (nano) {
+                    "available" -> "Nano ready" to "on_device"
+                    "downloading" -> "Nano downloading" to "on_device"
+                    "checking" -> "Nano…" to "on_device"
+                    else -> "cloud only" to "cloud"
+                }
+                StripChip(if (nanoMode == "on_device") Glyph.OnDevice else Glyph.Cloud, nanoText)
+                if (user != null) {
+                    val conflicts = held.count { it.value == Vault.State.Conflict }
+                    when {
+                        held.isEmpty() -> StripChip(Icons.Filled.CloudDone, "all synced", Ok)
+                        conflicts > 0 -> StripChip(Icons.Filled.SyncProblem, "$conflicts differ · kept here", Bad)
+                        else -> StripChip(Glyph.OnDevice, "${held.size} held on phone", Warn)
                     }
                 }
+                if (local.isNotEmpty()) StripChip(Glyph.OnDevice, "${local.size} guest on phone", Warn)
+                if (uploading.isNotEmpty()) StripChip(Icons.Filled.CloudUpload, "uploading ${uploading.size}", Lake)
+                judging?.let { StripChip(Glyph.Ai, it, Lake) }
+                if (BuildConfig.USE_EMULATOR) StripChip(Icons.Filled.SyncProblem, "emulator ${BuildConfig.EMULATOR_HOST}", Warn)
             }
-            if (user != null) CreditsRow()
-        },
-    )
+        }
+        if (user != null && local.any { it.status == "submitted" && it.id !in uploading }) item(span = { full }, key = "upload") {
+            FilledTonalButton(onClick = { Claims.claim(local.filter { it.status == "submitted" }.map { it.id }) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Icon(Icons.Filled.CloudUpload, null); Spacer(Modifier.width(8.dp)); Text("Upload guest Moments")
+            }
+        }
+        when {
+            all == null -> items(4) { Skeleton(Modifier.fillMaxWidth().aspectRatio(0.78f)) }
+            all.isEmpty() -> item(span = { full }, key = "empty") { EmptyState(Glyph.Proof, "Your Moments show up here.") }
+            else -> items(all, key = { it.id }) { c ->
+                val canDelete = (c.local || canDeleteMoment(c, user?.uid, recordingId)) && c.id != recordingId
+                val canUpload = c.local && c.status == "submitted" && c.id !in uploading
+                MomentTile(
+                    c, onClick = { onOpen(c.id) },
+                    onDelete = if (canDelete) ({ confirmDelete = c.id }) else null,
+                    onUpload = if (canUpload) ({ Gate.require("verify this Moment") { Claims.claim(listOf(c.id)) } }) else null,
+                    uploading = c.id in uploading,
+                )
+            }
+        }
+    }
     confirmDelete?.let { id ->
         DeleteMomentDialog(
             onConfirm = { confirmDelete = null; Store.deleteMoment(id) },
@@ -512,21 +567,126 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
     }
 }
 
+/** Avatar, name, credits pill; guest = one card with the sign-in CTA. */
 @Composable
-private fun CardList(
-    items: List<MomentCard>?, empty: String, onOpen: (String) -> Unit,
-    header: (@Composable () -> Unit)? = null,
-    onDelete: (MomentCard) -> (() -> Unit)? = { null },
-    onUpload: (MomentCard) -> (() -> Unit)? = { null },
-) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (header != null) item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { header() } }
-        when {
-            items == null -> item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-            items.isEmpty() -> item {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { Text(empty, textAlign = TextAlign.Center, color = Color.Gray) }
+private fun ProfileHeader(user: FirebaseUser?) {
+    if (user == null) {
+        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(24.dp)) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+                    Icon(Glyph.OnDevice, null, tint = MaterialTheme.colorScheme.onPrimary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Guest", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Moments stay on this phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Button(onClick = { Gate.signIn() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign in") }
             }
-            else -> items(items, key = { it.id }) { MomentCardView(it, onDelete = onDelete(it), onUpload = onUpload(it)) { onOpen(it.id) } }
+        }
+        return
+    }
+    var menu by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val name = user.displayName?.takeIf { it.isNotBlank() } ?: "Signed in"
+        Box(Modifier.size(52.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+            Text(name.first().uppercase(), color = MaterialTheme.colorScheme.onPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(user.email ?: if (user.isAnonymous) "test user" else "", style = MaterialTheme.typography.bodySmall, color = Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        CreditsPill()
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Account") }
+            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Sign out") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Logout, null) },
+                    onClick = { menu = false; Auth.signOut() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(n: Int, label: String, icon: ImageVector, accent: Color, modifier: Modifier) {
+    Surface(modifier.semantics(mergeDescendants = true) {}, color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(22.dp).clip(CircleShape).background(accent), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, Modifier.size(13.dp), tint = contentOn(accent))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("$n", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, style = Tnum)
+            }
+            Text(label, style = MaterialTheme.typography.labelMedium, color = Ink2, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun StripChip(icon: ImageVector, text: String, tint: Color = Ink2) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(50)) {
+        Row(Modifier.padding(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(14.dp), tint = tint)
+            Spacer(Modifier.width(5.dp))
+            Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** A Moment as a thumbnail: proof photo, status badge and score ring overlaid, intention on a scrim. */
+@Composable
+fun MomentTile(c: MomentCard, onClick: () -> Unit, onDelete: (() -> Unit)? = null, onUpload: (() -> Unit)? = null, uploading: Boolean = false) {
+    var menu by remember { mutableStateOf(false) }
+    val ok = c.status == "sealed" && !c.cheating
+    Box(
+        Modifier.fillMaxWidth().aspectRatio(0.78f).clip(RoundedCornerShape(18.dp)).background(MediaBg)
+            .clickable(onClickLabel = "Open the evidence room", onClick = onClick)
+            .semantics(mergeDescendants = true) {},
+    ) {
+        val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
+        if (bmp != null) Image(
+            bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+            colorFilter = if (ok || c.status != "rejected") null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
+        ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), MediaBg))), contentAlignment = Alignment.Center) {
+            if (c.track.size > 1) TrackSketch(c.track, Modifier.size(90.dp, 70.dp)) else Icon(Glyph.Proof, null, tint = TokInk2, modifier = Modifier.size(32.dp))
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to MediaBg.copy(alpha = 0.55f), 0.3f to Color.Transparent, 0.5f to Color.Transparent, 1f to MediaBg.copy(alpha = 0.92f))))
+        StatusBadge(c.status, c.local, c.cheating, Modifier.align(Alignment.TopStart).padding(8.dp))
+        if (onDelete != null || onUpload != null) Box(Modifier.align(Alignment.TopEnd)) {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Moment actions", tint = TokInk) }
+            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                if (onUpload != null) DropdownMenuItem(
+                    text = { Text("Upload & verify") }, leadingIcon = { Icon(Icons.Filled.CloudUpload, null) },
+                    onClick = { menu = false; onUpload() },
+                )
+                if (onDelete != null) DropdownMenuItem(
+                    text = { Text("Delete", color = Bad) }, leadingIcon = { Icon(Icons.Filled.Delete, null, tint = Bad) },
+                    onClick = { menu = false; onDelete() },
+                )
+            }
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                c.intention, color = TokInk, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                style = TextStyle(shadow = textShadow),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    StatOverlay(Glyph.Time, fmtDuration(c.summary.durationMs))
+                    when {
+                        uploading -> StatOverlay(Icons.Filled.CloudUpload, "uploading")
+                        c.pendingWrites -> StatOverlay(Icons.Filled.CloudUpload, "queued")
+                        c.claimsTotal != null && c.claimsTotal > 0 && c.claimsBacked != null -> StatOverlay(Glyph.Result, "${c.claimsBacked}/${c.claimsTotal}")
+                        else -> StatOverlay(Glyph.Frames, "${c.summary.frameCount}")
+                    }
+                }
+                val bar = c.bar ?: c.previewBar
+                if (c.score != null || bar != null) ScoreRing(c.score, bar, size = 44.dp, onMedia = true, centerText = if (c.score == null) "≈" else null)
+            }
         }
     }
 }
