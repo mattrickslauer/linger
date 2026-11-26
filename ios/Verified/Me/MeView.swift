@@ -176,6 +176,13 @@ struct MeView: View {
     }
   }
 
+  /// `moments/{id}` cards carry no photo: fill it from the feed or the chain (see `HeroCache`).
+  private func withHero(_ m: MomentCardData) -> MomentCardData {
+    var out = m
+    out.heroJpegB64 = HeroCache.shared.hero(for: m, feed: app.feed.items)
+    return out
+  }
+
   private func grid(_ items: [MomentCardData], guest: Bool) -> some View {
     let columns = typeSize.isAccessibilitySize
       ? [GridItem(.flexible())]
@@ -183,12 +190,16 @@ struct MeView: View {
     return LazyVGrid(columns: columns, spacing: 10) {
       ForEach(items) { m in
         let canDelete = app.canDelete(m, fromMyMoments: true)
+        let shown = withHero(m)
         NavigationLink {
-          MomentDetailView(initial: m, fromMyMoments: true)
+          MomentDetailView(initial: shown, fromMyMoments: true)
         } label: {
-          MomentTile(item: m, judging: !guest && app.judge.running.contains(m.id))
+          MomentTile(item: shown, judging: !guest && app.judge.running.contains(m.id))
         }
         .buttonStyle(.plain)
+        .task(id: "\(m.id)|\(m.status)") {
+          if shown.heroJpegB64 == nil { await HeroCache.shared.load(m) }
+        }
         .contextMenu {
           if guest && m.status == "submitted" {
             Button { app.upload(m) } label: { Label("Upload & verify", systemImage: "icloud.and.arrow.up") }
