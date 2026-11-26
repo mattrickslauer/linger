@@ -4,54 +4,72 @@ import MapKit
 import SwiftUI
 import VerifiedCore
 
-/// The live Moment screen, laid out like Android's: a compact stats bar, then a full-height camera with the coach
-/// banner, REC timer, Photo/Video switch, flash + flip and a mini map (tap it to swap camera and map), then the
-/// motion sparkline, the shutter / record button and Finish.
+/// The live Moment screen: the camera (or the map) full-bleed, with a HUD over it. Top: the elapsed timer, sync
+/// state and live indicators (GPS, motion, shots, clips), the plan checklist, the coach toast; the mini map window on
+/// the right (tap it to swap camera and map) with the witness and flash buttons. Bottom, in the thumb zone: the
+/// witness card, Photo/Video, then Finish, the big shutter and flip.
 struct LiveRecordView: View {
   @Environment(AppModel.self) private var app
   @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
   @State private var mapBig = false
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     let rec = app.recorder
-    VStack(spacing: 0) {
-      header(rec)
-      if let plan = rec.plan, !plan.requirements.isEmpty {
-        PlanChecklist(plan: plan, claims: rec.claims, captured: rec.captured)
-          .padding(.horizontal, 8).padding(.bottom, 6)
-      }
-      ZStack {
+    ZStack {
+      Group {
         if mapBig { trackMap(rec, compact: false) } else { cameraView(rec) }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .overlay(alignment: .top) {
-        if let coach = rec.coach { CoachBanner(coach: coach).padding(8) }
-      }
-      .overlay(alignment: .topLeading) {
-        if let since = rec.clipStartedAt { recPill(since).padding(.leading, 10).padding(.top, 64) }
-      }
-      .overlay(alignment: .topTrailing) { miniWindow(rec).padding(.trailing, 10).padding(.top, 64) }
-      .overlay(alignment: .bottom) {
-        VStack(spacing: 10) {
-          if let open = rec.witness.open {
-            WitnessCard(request: open).id(open.wid).padding(.horizontal, 10)
-          }
-          modeToggle(rec)
-        }
-        .padding(.bottom, 12)
-        .animation(.snappy, value: rec.witness.open?.wid)
-      }
-      .overlay(alignment: .bottomTrailing) {
-        if !mapBig { cameraButtons(rec).padding(12) }
-      }
-      .background(.black)
-      .clipShape(RoundedRectangle(cornerRadius: 20))
-      .padding(.horizontal, 8)
+      .ignoresSafeArea(edges: .top)
 
-      bottomBar(rec)
+      // Scrims so the HUD reads over any scene.
+      VStack(spacing: 0) {
+        LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom).frame(height: 200)
+        Spacer(minLength: 0)
+        LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom).frame(height: 280)
+      }
+      .ignoresSafeArea(edges: .top)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+
+      VStack(spacing: 8) {
+        topHUD(rec)
+        indicators(rec)
+        HStack(alignment: .top, spacing: 10) {
+          VStack(alignment: .leading, spacing: 8) {
+            if let plan = rec.plan, !plan.requirements.isEmpty {
+              PlanChecklist(plan: plan, claims: rec.claims, captured: rec.captured)
+            }
+            if let coach = rec.coach { CoachBanner(coach: coach) }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          VStack(spacing: 10) {
+            miniWindow(rec)
+            WitnessToggle()
+            if CameraController.hasFlash(rec.position) {
+              let ui = flashUI(rec)
+              Button { rec.cycleFlash() } label: { roundIcon(ui.icon, enabled: true) }
+                .accessibilityLabel(ui.label)
+            }
+          }
+        }
+        Spacer(minLength: 0)
+        if let open = rec.witness.open {
+          WitnessCard(request: open).id(open.wid)
+        }
+        modeToggle(rec)
+        controls(rec)
+      }
+      .padding(.horizontal, 12)
+      .padding(.bottom, 8)
+      .animation(reduceMotion ? nil : .snappy, value: rec.witness.open?.wid)
+      .animation(reduceMotion ? nil : .snappy, value: rec.coach)
     }
-    .background(Color(.systemGroupedBackground))
+    .background(Color.black)
+    .foregroundStyle(.white)
+    .environment(\.colorScheme, .dark)
     .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
     .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
     // Witness: remind with a local notification when the app leaves the screen with a request open.
@@ -59,41 +77,112 @@ struct LiveRecordView: View {
       if phase == .background { rec.witness.didEnterBackground() }
       if phase == .active { WitnessNotifier.clear() }
     }
+    // Haptics: a tap per proof shot, start/stop for clips, a warning when the coach asks for a retake, a nudge
+    // when the witness asks for something.
+    .sensoryFeedback(.impact(weight: .medium), trigger: rec.frameCount)
+    .sensoryFeedback(trigger: rec.clipStartedAt) { old, new in
+      if old == nil && new != nil { return .start }
+      if old != nil && new == nil { return .stop }
+      return nil
+    }
+    .sensoryFeedback(.warning, trigger: rec.retakes)
+    .sensoryFeedback(trigger: rec.witness.open?.wid) { _, new in new != nil ? .impact(weight: .light) : nil }
   }
 
-  // MARK: - Top: intention, timer, distance, sync badge
+  // MARK: - Top HUD: timer, distance, sync
 
-  private func header(_ rec: RecorderModel) -> some View {
-    HStack(alignment: .center, spacing: 10) {
-      VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: 6) {
-          Image(systemName: "record.circle.fill").foregroundStyle(Theme.bad)
-            .symbolEffect(.pulse, options: .repeating, isActive: rec.phase == .recording)
-          Text(rec.phase == .finishing ? "Finishing…" : rec.intention).font(.subheadline.weight(.semibold)).lineLimit(1)
-        }
+  private func topHUD(_ rec: RecorderModel) -> some View {
+    HStack(alignment: .top, spacing: 10) {
+      VStack(alignment: .leading, spacing: 2) {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-          HStack(alignment: .lastTextBaseline, spacing: 10) {
-            Text(formatDuration(ms: rec.elapsedMs(at: ctx.date))).font(.system(size: 30, weight: .bold)).monospacedDigit()
-            Text(formatDistance(rec.distanceM)).font(.headline)
+          HStack(spacing: 8) {
+            Image(systemName: "circle.fill").font(.caption)
+              .foregroundStyle(Color(hex: 0xF05A4A))
+              .opacity(rec.phase == .recording ? 1 : 0.4)
+              .symbolEffect(.pulse, options: .repeating, isActive: rec.phase == .recording && !reduceMotion)
+              .accessibilityHidden(true)
+            Text(formatDuration(ms: rec.elapsedMs(at: ctx.date)))
+              .font(.system(.title, design: .rounded).weight(.bold).monospacedDigit())
+              .accessibilityLabel("Elapsed \(formatDuration(ms: rec.elapsedMs(at: ctx.date)))")
           }
         }
+        Text(rec.phase == .finishing ? "Finishing…" : rec.intention)
+          .font(.footnote.weight(.semibold)).lineLimit(1).opacity(0.85)
       }
+      .padding(.horizontal, 14).padding(.vertical, 8)
+      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
       Spacer(minLength: 0)
-      if rec.isGuest {
-        Chip(text: "On this device · \(rec.chunkCount) chunks", systemImage: "iphone", color: .indigo)
-      } else {
-        SyncBadge(online: app.network.isOnline, pending: rec.sync.pending, total: max(rec.sync.total, rec.chunkCount))
-      }
+      syncPill(rec)
     }
-    .padding(.horizontal, 16).padding(.vertical, 8)
   }
 
-  // MARK: - Camera area
+  @ViewBuilder private func syncPill(_ rec: RecorderModel) -> some View {
+    let (icon, tint, a11y): (String, Color, String) =
+      if rec.isGuest { (Glyph.onDevice, Color(hex: 0x6CC3C6), "Kept on this device") }
+      else if !app.network.isOnline { ("icloud.slash", Theme.warn, "Offline, \(rec.sync.pending) queued") }
+      else if rec.sync.pending > 0 { ("arrow.triangle.2.circlepath.icloud", Color(hex: 0x6CC3C6), "Syncing, \(rec.sync.pending) queued") }
+      else { ("checkmark.icloud", Theme.ok, "Synced") }
+    let chunks = rec.isGuest ? rec.chunkCount : max(rec.sync.total, rec.chunkCount)
+    HStack(spacing: 6) {
+      Image(systemName: icon).foregroundStyle(tint)
+      Image(systemName: Glyph.chain).font(.caption.weight(.bold)).opacity(0.7)
+      Text("\(chunks)").monospacedDigit()
+    }
+    .font(.subheadline.weight(.bold))
+    .padding(.horizontal, 12)
+    .frame(minHeight: 44)
+    .background(.ultraThinMaterial, in: Capsule())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(a11y), \(chunks) chained chunks")
+  }
+
+  /// GPS, distance, motion, shots, clips: live, glanceable.
+  private func indicators(_ rec: RecorderModel) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 6) {
+        if let since = rec.clipStartedAt { recPill(since) }
+        StatChip(icon: Glyph.gps, value: rec.lastFix.map { "±\(Int($0.accuracyM)) m" } ?? "…",
+                 tint: rec.lastFix == nil ? Theme.warn : Theme.ok, onMedia: true)
+          .accessibilityLabel(rec.lastFix.map { "GPS accuracy \(Int($0.accuracyM)) meters" } ?? "Waiting for GPS")
+        StatChip(icon: Glyph.distance, value: formatDistance(rec.distanceM), tint: Theme.track, onMedia: true)
+          .accessibilityLabel("\(formatDistance(rec.distanceM)) moved")
+        HStack(spacing: 5) {
+          Image(systemName: Glyph.motion).font(.caption.weight(.bold)).foregroundStyle(Color(hex: 0x6CC3C6))
+          MotionSparkline(values: rec.motionTrace).frame(width: 54, height: 18)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Motion recording")
+        StatChip(icon: Glyph.shots, value: "\(rec.frameCount)", onMedia: true)
+          .accessibilityLabel("\(rec.frameCount) proof shots")
+        if rec.videoCount > 0 {
+          StatChip(icon: Glyph.video, value: "\(rec.videoCount)", onMedia: true)
+            .accessibilityLabel("\(rec.videoCount) video clips")
+        }
+      }
+    }
+    .scrollClipDisabled()
+  }
+
+  private func recPill(_ since: Int64) -> some View {
+    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+      let ms = max(0, Int64(ctx.date.timeIntervalSince1970 * 1000) - since)
+      Label(formatDuration(ms: ms), systemImage: "record.circle")
+        .font(.subheadline.weight(.bold).monospacedDigit())
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Color(hex: 0xB8322A), in: Capsule())
+        .accessibilityLabel("Recording clip, \(formatDuration(ms: ms))")
+    }
+  }
+
+  // MARK: - Camera and map
 
   @ViewBuilder private func cameraView(_ rec: RecorderModel) -> some View {
     #if targetEnvironment(simulator)
       ZStack {
-        LinearGradient(colors: [.blue.opacity(0.6), .green.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [Color(hex: 0x1F6F78), Color(hex: 0x071419)], startPoint: .topLeading, endPoint: .bottomTrailing)
         Label("Simulator: synthetic proof frames", systemImage: "camera.metering.unknown")
           .font(.footnote).foregroundStyle(.white)
       }
@@ -106,7 +195,7 @@ struct LiveRecordView: View {
     Map(position: $mapPosition, interactionModes: compact ? [] : .all) {
       UserAnnotation()
       if rec.track.count > 1 {
-        MapPolyline(coordinates: rec.track).stroke(Theme.accent, lineWidth: compact ? 3 : 4)
+        MapPolyline(coordinates: rec.track).stroke(Color(hex: 0xFF8A4C), lineWidth: compact ? 3 : 5)
       }
     }
   }
@@ -116,24 +205,22 @@ struct LiveRecordView: View {
     Group {
       if mapBig { cameraView(rec) } else { trackMap(rec, compact: true) }
     }
-    .frame(width: 116, height: 150)
-    .clipShape(RoundedRectangle(cornerRadius: 14))
-    .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white, lineWidth: 2))
-    .contentShape(RoundedRectangle(cornerRadius: 14))
+    .frame(width: 96, height: 128)
+    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.9), lineWidth: 2))
+    .overlay(alignment: .bottomTrailing) {
+      Image(systemName: "arrow.up.left.and.arrow.down.right")
+        .font(.caption2.weight(.heavy))
+        .padding(5)
+        .background(.black.opacity(0.55), in: Circle())
+        .padding(5)
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 16))
     .onTapGesture { mapBig.toggle() }
+    .accessibilityElement(children: .ignore)
     .accessibilityAddTraits(.isButton)
     .accessibilityLabel(mapBig ? "Show camera" : "Show map")
-  }
-
-  private func recPill(_ since: Int64) -> some View {
-    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-      let ms = max(0, Int64(ctx.date.timeIntervalSince1970 * 1000) - since)
-      Text("● REC \(formatDuration(ms: ms))")
-        .font(.caption.weight(.bold)).monospacedDigit()
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Theme.bad, in: Capsule())
-    }
+    .accessibilityAction { mapBig.toggle() }
   }
 
   /// PHOTO | VIDEO, locked while a shot is checked or a clip records.
@@ -145,11 +232,13 @@ struct LiveRecordView: View {
         Button {
           rec.setVideoMode(video)
         } label: {
-          Text(video ? "VIDEO" : "PHOTO")
-            .font(.system(size: 12, weight: .bold)).kerning(1)
+          Label(video ? "Video" : "Photo", systemImage: video ? Glyph.video : Glyph.shots)
+            .font(.subheadline.weight(.bold))
             .foregroundStyle(sel ? .black : .white.opacity(enabled ? 1 : 0.5))
-            .padding(.horizontal, 16).padding(.vertical, 7)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 40)
             .background(sel ? Color.white : Color.clear, in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled || sel)
@@ -157,24 +246,7 @@ struct LiveRecordView: View {
       }
     }
     .padding(4)
-    .background(.black.opacity(0.6), in: Capsule())
-  }
-
-  /// Flash (only when the lens has one; torch in video mode) and front/back flip.
-  @ViewBuilder private func cameraButtons(_ rec: RecorderModel) -> some View {
-    VStack(spacing: 10) {
-      WitnessToggle()
-      if CameraController.hasFlash(rec.position) {
-        let ui = flashUI(rec)
-        Button { rec.cycleFlash() } label: { roundIcon(ui.icon, enabled: true) }
-          .accessibilityLabel(ui.label)
-      }
-      if CameraController.canFlip {
-        Button { rec.flip() } label: { roundIcon("arrow.triangle.2.circlepath.camera.fill", enabled: !rec.cameraBusy) }
-          .accessibilityLabel(rec.front ? "Switch to back camera" : "Switch to front camera")
-          .disabled(rec.cameraBusy)
-      }
-    }
+    .background(.ultraThinMaterial, in: Capsule())
   }
 
   private func flashUI(_ rec: RecorderModel) -> (icon: String, label: String) {
@@ -185,69 +257,97 @@ struct LiveRecordView: View {
     }
   }
 
-  private func roundIcon(_ name: String, enabled: Bool) -> some View {
+  private func roundIcon(_ name: String, enabled: Bool, size: CGFloat = 44) -> some View {
     Image(systemName: name)
-      .font(.system(size: 17, weight: .semibold))
+      .font(.system(size: size * 0.4, weight: .semibold))
       .foregroundStyle(.white.opacity(enabled ? 1 : 0.5))
-      .frame(width: 44, height: 44)
-      .background(.black.opacity(0.55), in: Circle())
+      .frame(width: size, height: size)
+      .background(.ultraThinMaterial, in: Circle())
   }
 
-  // MARK: - Bottom: sparkline + counts, shutter, Finish
+  // MARK: - Thumb zone: Finish, shutter, flip
 
-  private func bottomBar(_ rec: RecorderModel) -> some View {
+  private func controls(_ rec: RecorderModel) -> some View {
     TimelineView(.periodic(from: .now, by: 1)) { ctx in
       let elapsed = rec.elapsedMs(at: ctx.date)
-      VStack(spacing: 4) {
-        HStack(spacing: 12) {
-          VStack(alignment: .leading, spacing: 2) {
-            MotionSparkline(values: rec.motionTrace).frame(height: 28)
-            Text(caption(rec)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      HStack(alignment: .center) {
+        FinishButton(elapsed: elapsed, finishing: rec.phase == .finishing,
+                     enabled: rec.canFinish(at: ctx.date) && !rec.shooting) {
+          Task {
+            await rec.finish()
+            // A guest Moment finished while signed in (signed in mid-recording): offer it for upload now.
+            if rec.lastSubmitted?.guest == true { app.offerClaimIfNeeded(force: true) }
           }
-          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
 
-          Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting,
-                  witness: rec.witness.armed != nil) {
-            if !rec.videoMode { rec.proofShot() }
-            else if rec.clipStartedAt == nil { rec.startVideo() }
-            else { rec.stopVideo() }
-          }
-          .disabled(rec.phase != .recording)
+        Shutter(video: rec.videoMode, recording: rec.clipStartedAt != nil, busy: rec.shooting,
+                witness: rec.witness.armed != nil) {
+          if !rec.videoMode { rec.proofShot() }
+          else if rec.clipStartedAt == nil { rec.startVideo() }
+          else { rec.stopVideo() }
+        }
+        .disabled(rec.phase != .recording)
 
-          Button {
-            Task {
-              await rec.finish()
-              // A guest Moment finished while signed in (signed in mid-recording): offer it for upload now.
-              if rec.lastSubmitted?.guest == true { app.offerClaimIfNeeded(force: true) }
+        Group {
+          if CameraController.canFlip {
+            Button { rec.flip() } label: {
+              roundIcon("arrow.triangle.2.circlepath.camera.fill", enabled: !rec.cameraBusy, size: 56)
             }
-          } label: {
-            Label("Finish", systemImage: "stop.fill").font(.headline).padding(.vertical, 6)
+            .accessibilityLabel(rec.front ? "Switch to back camera" : "Switch to front camera")
+            .disabled(rec.cameraBusy)
+          } else {
+            Color.clear.frame(width: 56, height: 56)
           }
-          .buttonStyle(.bordered)
-          .tint(Theme.bad)
-          .controlSize(.large)
-          .disabled(!rec.canFinish(at: ctx.date) || rec.shooting)
-          .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        if rec.phase == .recording && elapsed < RecorderModel.minDurationMs {
-          let left = (RecorderModel.minDurationMs - elapsed + 999) / 1000
-          Text("Moments shorter than 20 s can't be sealed · \(left)s").font(.caption2).foregroundStyle(.secondary)
-        }
+        .frame(maxWidth: .infinity)
       }
-      .padding(.horizontal, 16).padding(.vertical, 10)
     }
-  }
-
-  private func caption(_ rec: RecorderModel) -> String {
-    var s = "\(rec.frameCount) \(rec.frameCount == 1 ? "frame" : "frames")"
-    if rec.videoCount > 0 { s += " · \(rec.videoCount) \(rec.videoCount == 1 ? "clip" : "clips")" }
-    s += " · " + (rec.lastFix.map { "GPS ±\(Int($0.accuracyM)) m" } ?? "GPS…")
-    return s
   }
 }
 
-/// The plan's checklist under the timer (v4.11): `○ ask` → `● captured` as the evidence lands on the phone.
-/// Collapsed it shows the progress and the next missing item; tap to see every requirement.
+/// Finish: a stop button with a ring that fills over the 20 s minimum; until then it shows the seconds left.
+private struct FinishButton: View {
+  let elapsed: Int64
+  let finishing: Bool
+  let enabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    let min = RecorderModel.minDurationMs
+    let progress = Swift.min(1, Double(elapsed) / Double(min))
+    let left = Swift.max(0, (min - elapsed + 999) / 1000)
+    Button(action: action) {
+      VStack(spacing: 4) {
+        ZStack {
+          Circle().fill(.ultraThinMaterial)
+          Circle().inset(by: 2).stroke(.white.opacity(0.2), lineWidth: 4)
+          Circle().inset(by: 2).trim(from: 0, to: progress)
+            .stroke(progress >= 1 ? Color(hex: 0xF05A4A) : .white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+          if finishing {
+            ProgressView().tint(.white)
+          } else if left > 0 {
+            Text("\(left)").font(.headline.monospacedDigit())
+          } else {
+            RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xF05A4A)).frame(width: 20, height: 20)
+          }
+        }
+        .frame(width: 60, height: 60)
+        Text("Finish").font(.caption.weight(.bold))
+      }
+      .opacity(enabled || finishing ? 1 : 0.7)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+    .accessibilityLabel("Finish Moment")
+    .accessibilityValue(left > 0 ? "Available in \(left) seconds" : "")
+  }
+}
+
+/// The plan's checklist (v4.11): `○ ask` → `● captured` as the evidence lands on the phone. Collapsed it is one
+/// line (progress ring + next missing item); tap to see every requirement.
 struct PlanChecklist: View {
   let plan: EvidencePlan
   let claims: [Claim]
@@ -255,41 +355,56 @@ struct PlanChecklist: View {
   @State private var expanded = false
 
   var body: some View {
+    let total = plan.requirements.count
     let done = plan.requirements.filter { captured.contains($0.id) }.count
     let next = plan.requirements.first { !captured.contains($0.id) }
     VStack(alignment: .leading, spacing: 8) {
       Button { withAnimation(.snappy) { expanded.toggle() } } label: {
-        HStack(spacing: 8) {
-          Image(systemName: done == plan.requirements.count ? "checkmark.seal.fill" : "checklist")
-            .foregroundStyle(Theme.accent)
-          Text("To get this verified").font(.footnote.weight(.semibold))
+        HStack(spacing: 10) {
+          Gauge(value: Double(done), in: 0...Double(Swift.max(total, 1))) {
+            Image(systemName: Glyph.claims)
+          } currentValueLabel: {
+            Text("\(done)").monospacedDigit()
+          }
+          .gaugeStyle(.accessoryCircularCapacity)
+          .tint(done == total ? Theme.ok : Color(hex: 0x6CC3C6))
+          .scaleEffect(0.62)
+          .frame(width: 36, height: 36)
+          VStack(alignment: .leading, spacing: 1) {
+            if let next, !expanded {
+              Text(next.ask.isEmpty ? next.evidence.label.capitalized : next.ask)
+                .font(.footnote.weight(.semibold)).lineLimit(1)
+              Text("\(done)/\(total) captured").font(.caption2.monospacedDigit()).opacity(0.75)
+            } else {
+              Text(done == total ? "All captured" : "To get this verified").font(.footnote.weight(.semibold))
+              Text("\(done)/\(total) captured").font(.caption2.monospacedDigit()).opacity(0.75)
+            }
+          }
           Spacer(minLength: 4)
-          Text("\(done)/\(plan.requirements.count) captured").font(.caption.monospacedDigit().weight(.semibold))
-            .foregroundStyle(done == plan.requirements.count ? Theme.accent : .secondary)
-          Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+          Image(systemName: "chevron.down").font(.caption.weight(.bold)).opacity(0.7)
             .rotationEffect(.degrees(expanded ? 180 : 0))
         }
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("To get this verified: \(done) of \(plan.requirements.count) captured")
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("To get this verified: \(done) of \(total) captured"
+                          + (next.map { ". Next: \($0.ask.isEmpty ? $0.evidence.label : $0.ask)" } ?? ""))
       .accessibilityHint(expanded ? "Collapse the checklist" : "Show every requirement")
       if expanded {
         ForEach(plan.requirements) { r in
           RequirementRow(requirement: r, claim: claims.first { $0.id == r.claimId },
                          state: captured.contains(r.id) ? .captured : .missing, compact: true)
         }
-      } else if let next {
-        RequirementRow(requirement: next, state: .missing, compact: true)
       }
     }
-    .padding(.horizontal, 12).padding(.vertical, 9)
-    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+    .padding(.horizontal, 10).padding(.vertical, 6)
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     .animation(.snappy, value: captured)
   }
 }
 
-/// Big round shutter: green camera disc for photo, red disc for video, red rounded square while recording.
+/// Big round shutter: white disc for photo, red disc for video, red rounded square while recording.
 private struct Shutter: View {
   let video: Bool
   let recording: Bool
@@ -297,25 +412,26 @@ private struct Shutter: View {
   /// The witness asked to be shown something: the shutter glows.
   var witness = false
   let action: () -> Void
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     Button(action: action) {
       ZStack {
-        Circle().stroke(Color.primary, lineWidth: 4)
+        Circle().stroke(.white, lineWidth: 5)
         if busy {
-          ProgressView()
+          ProgressView().tint(.white)
         } else if recording {
-          RoundedRectangle(cornerRadius: 6).fill(Theme.bad).frame(width: 28, height: 28)
+          RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xF05A4A)).frame(width: 32, height: 32)
         } else if video {
-          Circle().fill(Theme.bad).frame(width: 58, height: 58)
+          Circle().fill(Color(hex: 0xF05A4A)).frame(width: 66, height: 66)
         } else {
-          Circle().fill(Theme.accent).frame(width: 58, height: 58)
-            .overlay(Image(systemName: "camera.fill").foregroundStyle(.white))
+          Circle().fill(.white).frame(width: 66, height: 66)
+            .overlay(Image(systemName: "camera.fill").font(.title3).foregroundStyle(.black.opacity(0.75)))
         }
       }
-      .frame(width: 78, height: 78)
-      .background(Circle().fill(Theme.accent.opacity(witness ? 0.35 : 0)).scaleEffect(witness ? 1.25 : 1))
-      .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: witness)
+      .frame(width: 84, height: 84)
+      .background(Circle().fill(Color(hex: 0x6CC3C6).opacity(witness ? 0.45 : 0)).scaleEffect(witness ? 1.28 : 1))
+      .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: witness)
       .contentShape(Circle())
     }
     .buttonStyle(.plain)
@@ -324,6 +440,7 @@ private struct Shutter: View {
   }
 }
 
+/// The coach's verdict as a transient toast: green "keep going", amber "retake".
 struct CoachBanner: View {
   let coach: RecorderModel.Coach
 
@@ -333,23 +450,32 @@ struct CoachBanner: View {
       case .checking: ProgressView().tint(.white)
       case .ok: Image(systemName: "checkmark.circle.fill")
       case .retake: Image(systemName: "arrow.counterclockwise.circle.fill")
-      case .info: Image(systemName: "sparkles")
+      case .info: Image(systemName: Glyph.ai)
       }
       Text(coach.text).font(.subheadline.weight(.semibold)).lineLimit(2)
       Spacer(minLength: 0)
     }
-    .foregroundStyle(.white)
+    .foregroundStyle(filled ? Color(hex: 0x0F2127) : .white)
     .padding(.horizontal, 14).padding(.vertical, 10)
-    .background(color.opacity(0.88), in: RoundedRectangle(cornerRadius: 14))
+    .background {
+      if filled {
+        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(color)
+      } else {
+        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial)
+      }
+    }
     .transition(.move(edge: .top).combined(with: .opacity))
-    .animation(.snappy, value: coach)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.updatesFrequently)
   }
+
+  private var filled: Bool { coach.kind == .ok || coach.kind == .retake }
 
   private var color: Color {
     switch coach.kind {
-    case .checking, .info: .black
-    case .ok: Theme.accent
-    case .retake: Theme.warn
+    case .ok: Color(hex: 0x7FD19B)
+    case .retake: Color(hex: 0xF2B65A)
+    default: .black
     }
   }
 }
@@ -363,8 +489,8 @@ struct SyncBadge: View {
   var body: some View {
     let (text, icon, color): (String, String, Color) =
       if !online { ("Offline · \(pending) \(pending == 1 ? "chunk" : "chunks") queued", "icloud.slash", Theme.warn) }
-      else if pending > 0 { ("Syncing · \(pending) queued", "arrow.triangle.2.circlepath.icloud", .blue) }
-      else { ("Synced · \(total) \(total == 1 ? "chunk" : "chunks")", "checkmark.icloud", Theme.accent) }
+      else if pending > 0 { ("Syncing · \(pending) queued", "arrow.triangle.2.circlepath.icloud", Theme.lake) }
+      else { ("Synced · \(total) \(total == 1 ? "chunk" : "chunks")", "checkmark.icloud", Theme.ok) }
     Chip(text: text, systemImage: icon, color: color)
   }
 }
@@ -376,7 +502,7 @@ struct MotionSparkline: View {
     Chart(Array(values.enumerated()), id: \.offset) { item in
       LineMark(x: .value("t", item.offset), y: .value("|a|", item.element))
         .interpolationMethod(.catmullRom)
-        .foregroundStyle(Theme.accent)
+        .foregroundStyle(Color(hex: 0x6CC3C6))
     }
     .chartXAxis(.hidden)
     .chartYAxis(.hidden)
