@@ -170,6 +170,9 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   const clipRef = useRef<ClipRecorder | null>(null);
   const [clipAt, setClipAt] = useState<number | null>(null);
   const [clipErr, setClipErr] = useState<string | null>(null);
+  // Set when a clip lands: the moment people most often don't realise they still need to end the session.
+  const [clipSaved, setClipSaved] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   // v4: the plan decides how the record screen opens ("Video" when any requirement needs a continuous clip).
   const plan = session.plan;
   const [mode, setMode] = useState<"video" | "photo">(plan?.recordMode === "video" && clipSupported() ? "video" : "photo");
@@ -178,6 +181,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
   async function startClip() {
     if (!video.current || clipRef.current || shooting) return;
     setClipErr(null);
+    setClipSaved(false);
     try {
       const r = new ClipRecorder(video.current, capMs);
       clipRef.current = r;
@@ -201,6 +205,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
       const c = await r.stop();
       setLast(c.middle.jpegB64);
       await session.videoClip({ ...c, sha256: await sha256Bytes(c.blob) });
+      setClipSaved(true);
     } catch (e) {
       setClipErr(String((e as Error)?.message ?? e));
     } finally {
@@ -257,6 +262,21 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
             ? "from 0:30"
             : "watching";
   const planDone = plan?.requirements.filter((r) => captured(r, s.facts)).length ?? 0;
+  const planComplete = !!plan && plan.requirements.length > 0 && planDone === plan.requirements.length;
+  // Nudge toward ending the session once there's something worth verifying and nothing in flight.
+  const readyToFinish = !recording && !shooting && !short && !s.witnessOpen && (clipSaved || planComplete);
+  async function finish() {
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      if (clipRef.current) await stopClip();
+      await session.finish();
+      onDone();
+    } catch (e) {
+      console.error("finish failed", e); // shown above as the vault error
+      setFinishing(false);
+    }
+  }
   return (
     <div className="page live">
       <div className="cam on-media">
@@ -433,24 +453,28 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
             </p>
           )}
           {clipErr && <p className="notice notice-bad small">Clip: {clipErr}</p>}
+          {readyToFinish && (
+            <div className="finish-nudge" role="status">
+              <Glyph name="check" />
+              <span>
+                {clipSaved ? "Video saved." : "Everything on the plan is captured."} <strong>All done?</strong> End the session to verify it.
+              </span>
+              <button type="button" className="btn btn-small finish-nudge-btn" onClick={() => void finish()} disabled={finishing}>
+                End &amp; verify
+              </button>
+            </div>
+          )}
           <div className="live-actions">
             <button
-              className="shutter shutter-finish"
-              onClick={async () => {
-                try {
-                  if (clipRef.current) await stopClip();
-                  await session.finish();
-                  onDone();
-                } catch (e) {
-                  console.error("finish failed", e); // shown above as the vault error
-                }
-              }}
-              disabled={shooting}
+              className={`shutter shutter-finish ${readyToFinish ? "ready" : ""}`}
+              onClick={() => void finish()}
+              disabled={finishing || (shooting && !recording)}
+              aria-label={recording ? "Stop video and end session" : "End session and verify"}
             >
               <span className="shutter-disc" aria-hidden="true">
                 <Glyph name="check" />
               </span>
-              <span className="shutter-label">Finish</span>
+              <span className="shutter-label">{finishing ? "Ending…" : "End & verify"}</span>
             </button>
             {mode === "video" ? (
               <>

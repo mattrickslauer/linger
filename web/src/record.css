@@ -702,6 +702,62 @@ body.rec-live .foot {
   grid-row: 1;
   justify-self: start;
 }
+/* Ending the session is the one step people miss after a clip: gold, never mistaken for a capture button. */
+.shutter-finish .shutter-disc {
+  background: #e7b425;
+  border-color: #f5d77a;
+  color: #10242b;
+}
+.shutter-finish .shutter-label {
+  color: #f5d77a;
+}
+.shutter-finish.ready .shutter-disc {
+  box-shadow: 0 0 0 4px #e7b42566;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .shutter-finish.ready .shutter-disc {
+    animation: finish-pulse 1.6s ease-out infinite;
+  }
+  .finish-nudge {
+    animation: finish-in 0.25s ease-out;
+  }
+}
+@keyframes finish-pulse {
+  0% { box-shadow: 0 0 0 0 #e7b425cc; }
+  70% { box-shadow: 0 0 0 16px #e7b42500; }
+  100% { box-shadow: 0 0 0 0 #e7b42500; }
+}
+@keyframes finish-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.finish-nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 14px;
+  background: #e7b425;
+  color: #10242b;
+  font-size: 0.92rem;
+  line-height: 1.3;
+  box-shadow: 0 4px 16px #0006;
+}
+.finish-nudge > .glyph {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.finish-nudge > span {
+  flex: 1;
+  min-width: 0;
+}
+.finish-nudge .finish-nudge-btn {
+  flex: none;
+  background: #10242b;
+  border-color: #10242b;
+  color: #f5f7f2;
+  white-space: nowrap;
+}
 .shutter-side {
   grid-column: 3;
   grid-row: 1;
