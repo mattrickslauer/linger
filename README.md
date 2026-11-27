@@ -221,9 +221,13 @@ its map, video, frames, motion chart, AI reasons, seal checks, bar, per-claim sc
 Moment**, take a few proof shots and answer the witness. Everything works without signing in, and the Moment
 stays on your device (**Me** → "On this device · sign in to verify").
 
-**Get it verified:** sign in with Google. The app offers to upload your guest Moments. Record for **at least 20 s**
-(shorter sessions are rejected). After **Finish** the Moment uploads, gets its bar, claims and AI reads, and
-appears sealed or rejected in the feed within about a minute. Owners get 10 free credits for ladder checks.
+**Get it verified (needs a Google sign-in):** the cloud reads and the seal run on the server, so this is the one
+step that asks you to sign in. The app then offers to upload your guest Moments. Record for **at least 20 s**
+(shorter sessions are rejected). After **End & verify** the Moment uploads, gets its bar, claims and AI reads, and
+appears sealed or rejected in the feed within about a minute.
+
+**Judges never pay.** Recording, the free video review, the seal and the public post cost nothing. Every account
+gets 10 free credits for the optional ladder checks, which is enough to try several.
 
 **Worked example:** type *"clap 50 times"*. The app plans the evidence (`clapping` · `50 claps`, "one continuous
 video of all 50 claps"), opens the camera in Video and ticks the checklist once the clip is long enough. With the
@@ -323,8 +327,10 @@ Design history: [witness + ladder spec](docs/superpowers/specs/2026-11-25-witnes
 
 ## Built during the hackathon, and what was reused
 
-This is a **new project**. The first commit is 18 Nov 2026, inside the submission period (11–30 Nov 2026), and
-everything in this repository was written during it. Disclosed pre-existing work:
+This is a **new project**, and everything in this repository was written during the submission period (11–30 Nov
+2026). The repository was created on 18 Nov for an earlier idea for this hackathon (a gaze-aware reader, dropped
+after a prototype; its branch is kept as an archive). Verified's first commit is 24 Nov. Disclosed pre-existing
+work:
 
 - **Design patterns, not code**, from my earlier Google hackathon entry *Warrant*: "AI proposes, deterministic
   code decides", a separate skeptic model, and a server-side seal.
