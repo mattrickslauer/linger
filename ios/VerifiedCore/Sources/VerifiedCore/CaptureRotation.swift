@@ -3,12 +3,12 @@ import Foundation
 /// `AVCaptureConnection.videoRotationAngle` for how the phone is physically held, from CoreMotion gravity
 /// (device coordinates, in g: upright portrait ≈ (0, -1, 0); flat face up ≈ (0, 0, -1)).
 ///
-/// 90 = portrait (the app's long-standing, known-good value), 0 = top turned left, 180 = top turned right,
-/// 270 = upside down. Same values for the back and the front camera (the connection handles mirroring).
-///
-/// We compute this ourselves instead of `AVCaptureDevice.RotationCoordinator`: on iPhone 17-generation cameras the
-/// coordinator's horizon-level capture angle comes back offset by 90° (front camera: 0 in portrait), which saved
-/// portrait shots sideways. Web (`web/src/orientation.ts`) and Android (`surfaceRotationFor`) use the same rule.
+/// 90 = portrait, 0 = top turned left, 180 = top turned right, 270 = upside down: the classic angles of a camera
+/// whose sensor is mounted like older iPhones' (= `AVCaptureVideoOrientation` .portrait / .landscapeRight /
+/// .landscapeLeft / .portraitUpsideDown). This is how the phone is held, not the final connection angle: cameras
+/// are mounted differently (the iPhone 17-generation front sensor is upright at 0° in portrait), so the app maps it
+/// per camera with `RotationCoordinator.videoRotationAngleRelative(toDeviceOrientation:)`.
+/// Web (`web/src/orientation.ts`) and Android (`surfaceRotationFor`) follow the same physical rule.
 ///
 /// Returns `prev` when the reading is ambiguous: the phone lies (nearly) flat, or the tilt sits near a 45° diagonal
 /// (hysteresis), so the angle never flickers and a phone laid on a table keeps its last orientation.
