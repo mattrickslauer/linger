@@ -2,8 +2,8 @@
 // the video review into per-claim scores, the seal/verification documents and the feed v4 fields. Pure: no Firebase.
 import { ChainFacts, chainFacts } from "./ladder";
 import { ChunkDoc, MomentDoc, SealResult, barValueOf, baselineOf, evaluateSeal } from "./seal";
-import { ChecksV4, ScoreFacts, ScoreResult, goodGpsFixes, motionSeconds, reasonV4, scoreV4 } from "./score4";
-import { Claim, ClaimScore, ClaimsSource, Plan, SEAL_VERSION_V4, VIDEO_WAIT_MS, VideoReview } from "./v4";
+import { ChecksV4, ScoreFacts, ScoreResult, applyLadderV4, goodGpsFixes, motionSeconds, reasonV4, recheck, scoreV4 } from "./score4";
+import { Claim, ClaimScore, ClaimsSource, Plan, SEAL_VERSION_V4, VIDEO_REVIEW_STRENGTH, VIDEO_WAIT_MS, VerdictForClaim, VideoReview } from "./v4";
 
 export type ServerClaimsDoc = { items: Claim[]; source: ClaimsSource; model: string | null; ranAt: number };
 export type ServerPlanDoc = Plan & { source: ClaimsSource };
@@ -84,9 +84,69 @@ export function evaluateSealV4(momentId: string, m: MomentDoc, chunks: ChunkDoc[
     videoReview: vr ? { status: String(vr.status), claims: vr.claims ?? [], cheating: vr.cheating } : null,
     ladder: [],
   });
+  const lifted = liftVideoBacked(score, bar);
   const integrityReason = integrityReasonOf(base);
-  const reason = reasonV4(score.checks, score.cheating.signals, integrityReason, score.claims, new Map(claims.map((c) => [c.id, c.text])), bar, score.score);
-  return { base, facts, score, claims, plan, bar, baseline, reason, integrityReason };
+  const texts = new Map(claims.map((c) => [c.id, c.text]));
+  const reason = videoAwareReason(
+    reasonV4(lifted.checks, lifted.cheating.signals, integrityReason, lifted.claims, texts, bar, lifted.score),
+    lifted.checks,
+    lifted.claims,
+    texts,
+    vr,
+  );
+  return { base, facts, score: lifted, claims, plan, bar, baseline, reason, integrityReason };
+}
+
+/**
+ * v4.13: a video intention is decided by the clip, not the still frames. The frames scorer's baseline cannot hear or
+ * count, so a claim the free video review backs is lifted past the bar by the full_video strength (the same step as
+ * the paid module: p + s·(1 − p)) instead of sitting exactly on it. Baked into sealP so later ladder runs start from
+ * it. Never under cheating (the cap would discard it anyway).
+ */
+export function liftVideoBacked(score: ScoreResult, bar: number): ScoreResult {
+  if (score.cheating.detected || !score.claims.some((c) => c.backedBy.includes("video_review"))) return score;
+  const base = score.claims.map((c) => ({
+    ...c,
+    sealP: c.backedBy.includes("video_review") ? c.sealP + VIDEO_REVIEW_STRENGTH * (1 - c.sealP) : c.sealP,
+  }));
+  const { claims, score: s } = applyLadderV4(base, false, []);
+  const re = recheck(score.checks, claims, bar);
+  return { ...score, claims, score: s, checks: re.checks, sealed: re.sealed, verified: re.sealed, claimsBacked: re.claimsBacked };
+}
+
+/** The video reviewer's verdict on one claim, when the review is done and gave a reason. */
+function videoVerdict(vr: Partial<VideoReview> | null | undefined, id: string): VerdictForClaim | null {
+  if (!vr || vr.status !== "done") return null;
+  return (vr.claims ?? []).find((c) => c.id === id && (c.reasons?.length ?? 0) > 0) ?? null;
+}
+
+/**
+ * v4.13: when the bar is the only failing check and the video reviewer turned the lowest claim down, say why in the
+ * reviewer's words ("0 of 1 claims backed · singing the ABC's: mixed up the letters after S") instead of quoting the
+ * still-frame baseline ("0.38 < bar 0.52"), which reads as if the frames decided it.
+ */
+export function videoAwareReason(
+  reason: string,
+  checks: ChecksV4,
+  claims: ClaimScore[],
+  claimTexts: Map<string, string>,
+  vr: Partial<VideoReview> | null | undefined,
+): string {
+  const othersPass = checks.chain && checks.timing && checks.physics && checks.frames && checks.ai && checks.cheating;
+  if (!othersPass || checks.bar || claims.length === 0) return reason;
+  let low = claims[0];
+  for (const c of claims) if (c.p < low.p) low = c;
+  const v = videoVerdict(vr, low.id);
+  if (!v || v.verdict === "backed") return reason;
+  return `${reason.split(" · ")[0]} · ${claimTexts.get(low.id) ?? low.id}: ${v.reasons![0]}`;
+}
+
+/** v4.13 feed reasons: for a reviewed video the reviewer's per-claim reasons (then its summary) lead, not the frames'. */
+export function feedScoreReasons(frameReasons: string[] | undefined, vr: Partial<VideoReview> | null | undefined): string[] {
+  if (!vr || vr.status !== "done") return frameReasons ?? [];
+  const out = (vr.claims ?? []).map((c) => c.reasons?.[0]).filter((r): r is string => !!r);
+  if (vr.summary) out.push(vr.summary);
+  return out.length ? out : frameReasons ?? [];
 }
 
 export function sealDocV4(e: Pick<SealV4Evaluation, "score" | "reason">, now: unknown) {
