@@ -81,6 +81,9 @@ object LadderLogic {
         "model_failed" -> "The review model failed. Your credits were refunded."
         "in_progress" -> "This module is already running."
         "moment_missing" -> "This Moment isn't on the server."
+        "pay_unavailable" -> "The payment service couldn't be reached. Try again in a moment."
+        "bad_pack" -> "That credit pack isn't on sale any more. Update the app and try again."
+        "unknown_purchase" -> "That purchase isn't on this account."
         else -> fallback?.takeIf { it.isNotBlank() } ?: "Something went wrong. Try again."
     }
 }
