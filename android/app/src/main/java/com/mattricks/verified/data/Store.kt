@@ -228,6 +228,7 @@ object Store {
             cheatingSignals = (d["cheatingSignals"] as? List<Any?>).orEmpty().mapNotNull { it as? String },
             witnessAnswered = ((d["witness"] as? Map<String, Any?>)?.get("answered") as? Number)?.toInt() ?: 0,
             clips = feedClips(d["video"]),
+            displayRotation = normalizeDisplayRotation(d["displayRotation"]),
         )
     }
 
@@ -270,6 +271,7 @@ object Store {
             claimsBacked = verification?.takeIf { num(it["version"]).toInt() >= 4 }?.get("claimsBacked")?.let { (it as? Number)?.toInt() },
             claimsTotal = ((d["claims"] as? Map<String, Any?>)?.get("items") as? List<Any?>)?.size,
             cheating = ((d["seal"] as? Map<String, Any?>)?.get("checks") as? Map<String, Any?>)?.get("cheating") == false,
+            displayRotation = normalizeDisplayRotation(d["displayRotation"]),
         )
     }
 
@@ -350,7 +352,10 @@ object Store {
         if (frames.isEmpty()) (feed?.get("heroJpegB64") as? String)?.let { frames += Frame(0, 0, it, null) }
 
         val card = when {
-            m != null -> momentCardFrom(momentId, m, local).copy(heroJpegB64 = frames.lastOrNull()?.jpegB64)
+            m != null -> momentCardFrom(momentId, m, local).copy(
+                heroJpegB64 = frames.lastOrNull()?.jpegB64,
+                displayRotation = normalizeDisplayRotation(m["displayRotation"] ?: feed?.get("displayRotation")),
+            )
             feed != null -> feedCardFrom(momentId, feed)
             else -> throw IllegalStateException("Moment not found")
         }

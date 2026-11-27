@@ -366,7 +366,7 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
         // Landscape / split screen: too short for the three blocks stacked to fit, so the text scrolls (inside the
         // page; the pager takes over at either end) and the rail sits low.
         val short = maxHeight < SHORT_SLIDE
-        val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
+        val bmp = rememberB64Bitmap(c.heroJpegB64, c.displayRotation)
         if (bmp != null) FitImage(
             bmp, "Proof shot: ${c.intention}", Modifier.fillMaxSize(),
             colorFilter = if (ok) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
@@ -374,7 +374,7 @@ internal fun FeedSlide(c: MomentCard, active: Boolean, reduceMotion: Boolean, pl
         // v4.12: the feed clip plays over the photo on the current slide only (muted, looping, no controls).
         val clip = c.feedClip
         var muted by remember(c.id) { mutableStateOf(true) }
-        if (clip != null && player != null) FeedVideo(clip, player, muted, Modifier.fillMaxSize())
+        if (clip != null && player != null) FeedVideo(clip, player, muted, Modifier.fillMaxSize(), rotation = c.displayRotation)
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -667,7 +667,7 @@ fun MomentTile(c: MomentCard, onClick: () -> Unit, onDelete: (() -> Unit)? = nul
             .clickable(onClickLabel = "Open the evidence room", onClick = onClick)
             .semantics(mergeDescendants = true) {},
     ) {
-        val bmp = remember(c.heroJpegB64) { decodeB64(c.heroJpegB64)?.asImageBitmap() }
+        val bmp = rememberB64Bitmap(c.heroJpegB64, c.displayRotation)
         if (bmp != null) FitImage(
             bmp, null, Modifier.fillMaxSize(),
             colorFilter = if (ok || c.status != "rejected") null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),

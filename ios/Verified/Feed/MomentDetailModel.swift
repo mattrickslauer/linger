@@ -73,9 +73,15 @@ final class MomentDetailModel {
     next.heroJpegB64 = self.card.heroJpegB64
     if next.track.isEmpty { next.track = self.card.track }
     if next.videoClips.isEmpty { next.videoClips = self.card.videoClips }  // v4.12: the feed's `video.clips`
+    // The feed doc (the card we were opened with) carries `displayRotation` too: keep it if this doc lacks one.
+    if next.displayRotation == 0 { next.displayRotation = self.card.displayRotation }
+    let rotationChanged = next.displayRotation != self.card.displayRotation
     self.card = next
     if self.loadedStatus != next.status {
       self.loadedStatus = next.status
+      Task { await self.loadChunks() }
+    } else if rotationChanged {
+      // Frames are decoded already turned: redo them with the new rotation.
       Task { await self.loadChunks() }
     }
   }
@@ -97,8 +103,10 @@ final class MomentDetailModel {
         let snap = try await MomentStore.chunks(card.id).order(by: "seq").getDocuments()
         rows = snap.documents.map { ChunkRow($0.data()) }
       }
-      let startedAt = card.startedAt, momentId = card.id
-      let parsed = await Task.detached { Self.parse(momentId: momentId, docs: rows, startedAt: startedAt) }.value
+      let startedAt = card.startedAt, momentId = card.id, rotation = card.displayRotation
+      let parsed = await Task.detached {
+        Self.parse(momentId: momentId, docs: rows, startedAt: startedAt, rotation: rotation)
+      }.value
       chunkCount = parsed.chunkCount
       chainVerified = parsed.chainOK
       frames = parsed.frames
@@ -152,7 +160,8 @@ final class MomentDetailModel {
     var heroB64: String?
   }
 
-  nonisolated static func parse(momentId: String, docs: [ChunkRow], startedAt: Int64) -> Parsed {
+  /// `rotation`: the Moment's `displayRotation`; proof frames are decoded already turned by it.
+  nonisolated static func parse(momentId: String, docs: [ChunkRow], startedAt: Int64, rotation: Int = 0) -> Parsed {
     var out = Parsed()
     out.chunkCount = docs.count
     let chunks = docs.map {
@@ -208,7 +217,7 @@ final class MomentDetailModel {
         }
         let ft = row.frameT ?? row.t1
         out.frames.append(Frame(seq: row.seq, offsetS: Double(ft - t0) / 1000,
-                                image: ProofFrame.cgImage(fromBase64: b64), check: check))
+                                image: ProofFrame.cgImage(fromBase64: b64, rotation: rotation), check: check))
         anyHero = b64
         if check?.ok == true { okHero = b64 }
       }

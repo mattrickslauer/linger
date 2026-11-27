@@ -1,6 +1,7 @@
 // The shared visual vocabulary (docs/superpowers/specs/2026-11-25-ui-overhaul-visual-first.md): one glyph per concept,
 // the score ring with the bar tick, the check pips, stat tiles and hybrid badges. Same meaning on every platform.
-import type { ReactNode } from "react";
+import type { ImgHTMLAttributes, ReactNode } from "react";
+import { rot, useRotatedSrc } from "./rotate";
 import type { CheckMode, ModuleId, SealChecks } from "./types";
 import "./kit.css";
 
@@ -420,6 +421,7 @@ export function FitImg({
   decoding,
   width,
   height,
+  rotate = 0,
 }: {
   src: string;
   alt: string;
@@ -429,11 +431,20 @@ export function FitImg({
   decoding?: "async" | "sync" | "auto";
   width?: number;
   height?: number;
+  /** The Moment's displayRotation (clockwise degrees): the photo is redrawn turned, so contain sees its true shape. */
+  rotate?: number;
 }) {
+  const shown = useRotatedSrc(src, rot(rotate));
   return (
     <span className={`fit-media ${className ?? ""}`}>
-      {backdrop && <img className="fit-back" src={src} alt="" aria-hidden="true" loading={loading} decoding="async" />}
-      <img className="fit-fg" src={src} alt={alt} loading={loading} decoding={decoding} width={width} height={height} />
+      {shown && backdrop && <img className="fit-back" src={shown} alt="" aria-hidden="true" loading={loading} decoding="async" />}
+      {shown && <img className="fit-fg" src={shown} alt={alt} loading={loading} decoding={decoding} width={width} height={height} />}
     </span>
   );
+}
+
+/** A plain <img> of a Moment's photo turned by its displayRotation (nothing rendered while the turned copy is drawn). */
+export function RotImg({ src, rotate = 0, ...rest }: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src: string; rotate?: number }) {
+  const shown = useRotatedSrc(src, rot(rotate));
+  return shown ? <img src={shown} {...rest} /> : null;
 }

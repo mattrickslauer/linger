@@ -198,6 +198,8 @@ export interface Moment {
   videoReview?: VideoReview | null;
   recordedAsGuest?: boolean;
   claimedAt?: number | null;
+  /** Clockwise degrees to turn this Moment's photos and clips when showing them (set by an admin; absent → 0). */
+  displayRotation?: number;
   /** journal-only: recorded as a guest, not yet claimed by an account. Never written to Firestore. */
   guest?: boolean;
   /** client-only: Firestore metadata.hasPendingWrites */
@@ -280,6 +282,8 @@ export interface FeedEntry {
   verificationScore?: number | null;
   scoreReasons?: string[];
   heroJpegB64: string | null;
+  /** Clockwise degrees to turn this Moment's photos and clips when showing them (0|90|180|270; absent → 0). See rotate.ts. */
+  displayRotation?: number;
   track: [number, number][];
   // v3 (absent on older entries)
   bar?: number | null;

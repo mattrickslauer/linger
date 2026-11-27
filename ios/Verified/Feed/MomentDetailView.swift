@@ -122,7 +122,7 @@ struct MomentDetailView: View {
 
   private func hero(_ m: MomentCardData) -> some View {
     let decided = m.status == "sealed" || m.status == "rejected"
-    return HeroImage(b64: m.heroJpegB64, category: m.category)
+    return HeroImage(b64: m.heroJpegB64, category: m.category, rotation: m.displayRotation)
       .frame(height: 300).frame(maxWidth: .infinity).clipped()
       .saturation(m.status == "rejected" ? 0.2 : 1)
       .overlay {
@@ -284,7 +284,7 @@ struct MomentDetailView: View {
           GlyphHeader(icon: Glyph.video, title: "Video") {
             Text("\(m.videoClips.count)").font(.subheadline.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
           }
-          SharedClipsSection(clips: m.videoClips)
+          SharedClipsSection(clips: m.videoClips, rotation: m.displayRotation)
         }
       }
     }

@@ -24,12 +24,16 @@ const ME_DEMO = FIXTURES && typeof location !== "undefined" && new URLSearchPara
 const DEMO_USER = { uid: "demo", displayName: "Maya Ortiz", email: "sample data", photoURL: null } as unknown as User;
 
 /** Proof-shot thumbnails: the feed's hero for sealed Moments, else the last frame this browser holds. */
-function useHeroes(): Record<string, string> {
-  const [heroes, setHeroes] = useState<Record<string, string>>({});
+function useHeroes(): Record<string, { b64: string; rotate?: number }> {
+  const [heroes, setHeroes] = useState<Record<string, { b64: string; rotate?: number }>>({});
   useEffect(
     () =>
       subscribeFeed(
-        (es) => setHeroes((h) => ({ ...h, ...Object.fromEntries(es.filter((e) => e.heroJpegB64).map((e) => [e.momentId, e.heroJpegB64!])) })),
+        (es) =>
+          setHeroes((h) => ({
+            ...h,
+            ...Object.fromEntries(es.filter((e) => e.heroJpegB64).map((e) => [e.momentId, { b64: e.heroJpegB64!, rotate: e.displayRotation }])),
+          })),
         () => {},
       ),
     [],
@@ -62,6 +66,7 @@ function Tile({
   id,
   text,
   thumb,
+  rotate,
   tone,
   badge,
   score,
@@ -73,6 +78,8 @@ function Tile({
   id: string;
   text: string;
   thumb: string | null;
+  /** The Moment's displayRotation (clockwise degrees). */
+  rotate?: number;
   tone: Tone;
   badge: string;
   score?: number | null;
@@ -84,7 +91,7 @@ function Tile({
   return (
     <li className={`me-tile tile-${tone}`} data-id={id}>
       <div className="tile-media on-media">
-        {thumb ? <FitImg className="tile-img" src={jpegSrc(thumb)} alt="" loading="lazy" decoding="async" /> : <Glyph name="frames" className="tile-ph" />}
+        {thumb ? <FitImg className="tile-img" src={jpegSrc(thumb)} rotate={rotate} alt="" loading="lazy" decoding="async" /> : <Glyph name="frames" className="tile-ph" />}
         <span className={`tile-badge badge-${tone}`}>
           <Glyph name={BADGE[tone]} />
           {badge}
@@ -105,7 +112,7 @@ const STATUS: Record<Moment["status"], string> = {
   rejected: "Not verified",
 };
 
-function Row({ m, uid, thumb }: { m: Moment; uid: string; thumb: string | null }) {
+function Row({ m, uid, thumb, rotate }: { m: Moment; uid: string; thumb: string | null; rotate?: number }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const up = useClipUpload(m.id);
@@ -126,6 +133,7 @@ function Row({ m, uid, thumb }: { m: Moment; uid: string; thumb: string | null }
       id={m.id}
       text={m.intention.text}
       thumb={thumb}
+      rotate={rotate}
       tone={tone}
       badge={done ? (m.status === "sealed" ? "Verified" : "Not verified") : STATUS[m.status]}
       score={m.verification?.score ?? m.score?.probability ?? null}
@@ -447,7 +455,7 @@ export default function Me({ user: realUser, ready }: { user: User | null; ready
           </h2>
           <ul className="me-grid">
             {moments.map((m) => (
-              <Row key={m.id} m={m} uid={user.uid} thumb={heroes[m.id] ?? null} />
+              <Row key={m.id} m={m} uid={user.uid} thumb={heroes[m.id]?.b64 ?? null} rotate={heroes[m.id]?.rotate ?? m.displayRotation} />
             ))}
           </ul>
         </section>

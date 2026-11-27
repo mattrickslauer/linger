@@ -286,7 +286,7 @@ private fun Hero(d: MomentDetail, ok: Boolean, selected: Int) {
     // 440dp on a phone held upright; at most 80% of the screen in landscape, so the title and score show without scrolling.
     val heroMin = minOf(440, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.8f).toInt()).dp
     Box(Modifier.fillMaxWidth().heightIn(min = heroMin).background(MediaBg)) {
-        val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
+        val bmp = rememberB64Bitmap(b64, d.card.displayRotation)
         if (bmp != null) FitImage(
             bmp, "Proof shot", Modifier.matchParentSize(),
             colorFilter = if (d.card.status != "rejected" && !d.card.cheating) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
@@ -381,7 +381,7 @@ private fun Filmstrip(d: MomentDetail, selected: Int, onSelect: (Int) -> Unit) {
                         .border(if (on) 3.dp else 0.dp, if (on) SealGold else Color.Transparent, RoundedCornerShape(12.dp))
                         .clickable(onClickLabel = "Show frame $label") { onSelect(i) },
                 ) {
-                    B64Image(fr.jpegB64, Modifier.matchParentSize())
+                    B64Image(fr.jpegB64, Modifier.matchParentSize(), rotation = d.card.displayRotation)
                     if (fr.check?.ok == false) Box(
                         Modifier.align(Alignment.TopEnd).padding(4.dp).size(10.dp).clip(CircleShape).background(FillBad).border(1.5.dp, Color.White, CircleShape),
                     )

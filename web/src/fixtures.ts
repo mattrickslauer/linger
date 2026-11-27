@@ -576,6 +576,12 @@ export async function buildFixtures(): Promise<FixtureSet> {
     set.chunks[moment.id] = chunks;
   }
   set.feed.sort((a, b) => (b.sealedAtServer ?? 0) - (a.sealedAtServer ?? 0));
+  // `?rot=270` (or 90/180): every sample Moment carries that displayRotation, to check the sideways-media repair.
+  const turn = typeof location !== "undefined" ? Number(new URLSearchParams(location.search).get("rot") ?? 0) : 0;
+  if (turn) {
+    for (const f of set.feed) f.displayRotation = turn;
+    for (const m of Object.values(set.moments)) m.displayRotation = turn;
+  }
   return set;
 }
 

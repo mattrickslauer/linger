@@ -341,6 +341,10 @@ export async function trySeal(momentId: string): Promise<SealOutcome> {
       verificationScore: e.score.score,
       scoreReasons: m.score?.reasons ?? [],
       heroJpegB64: hero,
+      // Clockwise degrees every client turns this Moment's photos, frames and clips by when showing them (repairs
+      // media stored sideways, e.g. iPhone 17 front-camera clips before the per-camera capture fix). Set by an admin
+      // on the moment doc; copied here on every seal so a re-seal keeps it.
+      displayRotation: displayRotation(m.displayRotation),
       track: r.track.map(([lat, lng]) => ({ lat, lng })),
       sealedAtServer: now,
       // v3
@@ -509,6 +513,12 @@ function requireUid(req: CallableRequest<unknown>): string {
   const uid = req.auth?.uid;
   if (!uid) throw fail("unauthenticated", "sign_in", "Sign in to continue.");
   return uid;
+}
+
+/** 0 | 90 | 180 | 270 from whatever is stored (anything else → 0). */
+function displayRotation(v: unknown): 0 | 90 | 180 | 270 {
+  const n = typeof v === "number" ? ((Math.round(v / 90) * 90) % 360 + 360) % 360 : 0;
+  return n as 0 | 90 | 180 | 270;
 }
 
 export const getCredits = onCall(async (req) => {
