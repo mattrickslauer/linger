@@ -30,12 +30,11 @@ Web (Chrome) · Android · iOS
 
 **TODO** YouTube URL (public, ≤ 3:00, English with subtitles from `submission/Verified-demo.srt`)
 
-## Built with (tags)
+## Built with (25 max, comma-separated)
 
-firebase-ai-logic, hybrid-inference, gemini-nano, apple-foundation-models, gemini, gemini-3.5-flash, vertex-ai,
-firebase-app-check, firebase-authentication, cloud-firestore, cloud-functions-for-firebase, cloud-storage-for-firebase,
-firebase-remote-config, firebase-hosting, chrome-prompt-api, apple-vision, typescript, react, vite, kotlin,
-jetpack-compose, swift, swiftui, node.js, sha-256, claude-code
+firebase-ai-logic, hybrid-inference, gemini-nano, apple-foundation-models, gemini, gemini-3.5-flash, vertex-ai, firebase-app-check, firebase-authentication, cloud-firestore, cloud-functions-for-firebase, cloud-storage-for-firebase, firebase-remote-config, firebase-hosting, chrome-prompt-api, apple-vision, typescript, react, vite, kotlin, jetpack-compose, swift, swiftui, node.js, claude-code
+
+(25 tags)
 
 ---
 
