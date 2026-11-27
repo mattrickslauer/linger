@@ -1,0 +1,23 @@
+This fish doesn't exist. It took me ten seconds to make.
+
+Fishing derbies pay prize money for a photo. Challenges, contests, sponsors: they all run on 'pics or it didn't happen.' And a picture can't prove anything any more.
+
+So I built Verified.
+
+You say what you're about to do. Apple's on-device model runs the interview, so it works at a trailhead with no signal, and turns it into claims and an evidence plan.
+
+Then you record the whole moment, not one frame. GPS, motion and video, hash-chained every five seconds, so nothing can be added or cut later.
+
+No signal? The coach runs on the phone. And it's on purpose that the on-device model is only allowed to say one thing: retake. It can never say verified.
+
+A live AI witness asks for what a skeptic would want to see.
+
+Back online, it syncs by itself. In the cloud, Gemini watches the whole video and three separate models judge it, hunt for fakes and score it. But AI only proposes. A Cloud Function re-checks the chain, the physics and the hashes, and only code can write the seal.
+
+And the fish? Caught. Faking one frame is easy. Faking a session is hard.
+
+iOS, Android and Chrome. One Firebase AI Logic hybrid SDK. On-device when the phone has a model, cloud when it doesn't, and the app shows you which one answered.
+
+Derbies, challenges and sponsors can pay for more scrutiny when the stakes are high. Paying buys scrutiny, never a score.
+
+Verified. Prove it happened.
