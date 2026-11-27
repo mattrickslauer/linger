@@ -3,42 +3,49 @@
 **Judges may score on the video alone.** Every second has to show one of the four criteria (tech, design,
 impact, idea), and the hybrid split must be *visible on screen*, not just narrated.
 
-**The hero is doable solo, anywhere, in one afternoon:**
+**The pitch:** Verified is an **on-device intent and evidence factory**. You say what you're about to do; it turns
+that into checkable claims and an evidence plan, collects the evidence on the phone, and the cloud and code seal
+it. **No single use case is the product.** Push-ups, a fish, a song or a summit are all just intents going in.
+
+**The demo intent is doable solo, anywhere, in one afternoon:**
 > *"20 push-ups at the top of the hill."*
 
-That one sentence gives the app three claims: a **place** (GPS track up the hill), a **count** (20 push-ups on
-video) and an **action**. It shows off the interview, live recording, the witness, offline mode and the seal.
-Swap in any hill, bridge, park or rooftop you can reach. Anything with a view and a short walk works.
+It yields three claims, a **place** (GPS track up the hill), a **count** (20 push-ups on video) and an
+**action**, so it shows the interview, the evidence plan, live recording, the witness, offline mode and the
+seal. Swap in any hill, bridge, park or rooftop you can reach.
 
-**Fishing stays the "why"** through the cold open: an AI-made trophy fish that the app rejects.
+Other intents appear only as **examples**: a montage in the opening, a fake fish that gets rejected, and a
+quick "any intent" montage near the end.
 
 ---
 
 ## The arc in one line
 
-**Fake fish (the problem) → say it → do it, offline → sealed → the fake gets caught → three platforms, one
-SDK → who it's for.**
+**Photos can be faked → the factory: intent in → claims + evidence plan → evidence collected on the device,
+offline → cloud reads + code seal → a fake rejected → any intent → three platforms, one SDK.**
 
 ## Script
 
-Voice-over (VO) is 256 words, about 1:50 of speech at a calm pace. The rest is music, your own voice and on-screen action.
-Lines in **bold** are burned-in captions or title cards.
+The VO is in [`voiceover.txt`](voiceover.txt): 428 words, about 2:40 at a brisk read. Read it to picture after
+the edit, and let the push-ups play *under* the witness and offline lines rather than in silence. Lines in
+**bold** are burned-in captions or title cards.
 
-| # | Time | Picture | Sound / VO |
+| # | Time | Picture | VO (first words) |
 |---|---|---|---|
-| 1 | 0:00–0:10 | Full-screen photo of a huge bass held up on a dock, golden light. Slow push-in. Hold, then a small caption fades up: **"This fish doesn't exist."** | Music: soft pulse, no drums yet. VO: *"This fish doesn't exist. It took me ten seconds to make."* |
-| 2 | 0:10–0:22 | Quick cuts (≤ 1 s each): a derby leaderboard, a "50 push-up challenge" post, a sponsor giveaway. Each gets a red **?** stamp. | VO: *"Fishing derbies pay prize money for a photo. Challenges, contests, sponsors: they all run on 'pics or it didn't happen.' And a picture can't prove anything any more."* |
-| 3 | 0:22–0:28 | Black. App icon, then the wordmark **Verified**. Subtitle: **Proof that a moment really happened.** | Music drops to silence on the cut, then the beat comes in. VO: *"So I built Verified."* |
-| 4 | 0:28–0:45 | **iPhone, screen recording.** Tap the mic. Speak: *"Twenty push-ups at the top of the hill."* The interview asks one follow-up; the bubble shows the **On-device** chip. Claim chips appear (`place` · `20 push-ups`), then the evidence plan ("One continuous video of all 20"), then the bar ring fills to its preview. | Your real voice from the recording, ducked under VO. VO: *"You say what you're about to do. Apple's on-device model runs the interview, so it works at a trailhead with no signal, and turns it into claims and an evidence plan."* |
-| 5 | 0:45–1:05 | **Walk up the hill.** Cut between a wide shot of you walking (phone on a tripod or a friend's phone) and the live HUD: timer, GPS dot moving on the mini map, motion and chain indicators ticking. A lower-third pops in: **Every 5 s: GPS · motion · frames → SHA-256 chain**. | VO: *"Then you record the whole moment, not one frame. GPS, motion and video, hash-chained every five seconds, so nothing can be added or cut later."* |
-| 6 | 1:05–1:18 | **Airplane mode.** Swipe down, tap airplane (close-up). Take a proof shot with your face half out of frame. Toast: **"On-device: retake, body not in frame."** Retake → **"On-device: keep going."** | VO: *"No signal? The coach runs on the phone. And it's on purpose that the on-device model is only allowed to say one thing: retake. It can never say verified."* |
-| 7 | 1:18–1:30 | The witness card slides in: *"Show me the view behind you."* Tap **Show**, pan to the view. The shot lands in the filmstrip with a chain link. | VO: *"A live AI witness asks for what a skeptic would want to see."* |
-| 8 | 1:30–1:45 | **Push-ups**, phone propped on the ground in Video mode. Speed-ramp to about 4×, with a counter overlay climbing to 20. The checklist pip ticks. Tap **End & verify**. | Music lifts. No VO; let the effort land. |
-| 9 | 1:45–2:05 | Airplane mode off. The upload ring fills, then **Reviewing video**. Three cards flip in: **Judge**, **Skeptic**, **Scorer**, then **Video review**, each with a one-line reason. The score ring climbs past the bar tick. Stamp: **Verified ✓ · 3/3 claims backed.** | VO: *"Back online, it syncs by itself. In the cloud, Gemini watches the whole video and three separate models judge it, hunt for fakes and score it. But AI only proposes. A Cloud Function re-checks the chain, the physics and the hashes, and only code can write the seal."* |
-| 10 | 2:05–2:25 | **Back to the fish.** Laptop showing the fake bass; point the phone at the screen and record a short Moment. Cut to the result: **Rejected**, skeptic reason *"photo of a screen: moiré, no motion, indoors."* Split screen: the fake, rejected, next to your hill Moment, verified. | VO: *"And the fish? Caught. Faking one frame is easy. Faking a session is hard."* |
-| 11 | 2:25–2:40 | **Three devices side by side** (iPhone, Android, Chrome laptop) on a table, same feed, same Moment. Chips: **On-device · Apple FM** / **Cloud · no Nano on this phone** / **On-device · Gemini Nano**. Then a 3-second diagram: device ⇄ Firebase AI Logic ⇄ cloud. | VO: *"iOS, Android and Chrome. One Firebase AI Logic hybrid SDK. On-device when the phone has a model, cloud when it doesn't, and the app shows you which one answered."* |
-| 12 | 2:40–2:52 | The ladder sheet: **"Count & measure · if it passes → 0.92."** Then the embed badge on a mock derby page. | VO: *"Derbies, challenges and sponsors can pay for more scrutiny when the stakes are high. Paying buys scrutiny, never a score."* |
-| 13 | 2:52–2:58 | End card: **Verified**, **verified-99e74.web.app**, **iOS · Android · Web**, **#BuildHybridAI**. | VO: *"Verified. Prove it happened."* Music button ending. |
+| 1 | 0:00–0:14 | **"Proof" montage**, ≤ 1 s each: a trophy-fish photo, a "50 push-up challenge" post, a summit selfie, a giveaway post. Each gets a red **?** stamp. The last one glitches to show it's AI-made. | *"A photo used to be proof…"* |
+| 2 | 0:14–0:22 | Black. App icon, wordmark **Verified**, subtitle **An on-device intent & evidence factory.** A simple animated line: **intent → claims → evidence → seal**. | *"Verified is an intent and evidence factory…"* |
+| 3 | 0:22–0:38 | **iPhone screen recording.** Tap the mic, say the intent. The interview asks a follow-up; its bubble shows the **On-device** chip. Claim chips appear: `place` · `action` · `20 push-ups`. | *"It starts with intent…"* |
+| 4 | 0:38–0:52 | The evidence plan under **"To get this verified"**, one row per claim; the bar-preview ring fills. Caption: **Claims → evidence plan → bar**. | *"For every claim it writes an evidence plan…"* |
+| 5 | 0:52–1:06 | **Walk up the hill**: wide shot intercut with the live HUD (timer, GPS dot on the mini map, motion and chain indicators ticking). Lower third: **Every 5 s: GPS · motion · video → SHA-256 chain**. | *"Then the factory runs…"* |
+| 6 | 1:06–1:22 | **Airplane mode on** (close-up). A proof shot with your body half out of frame → toast **"On-device: retake"**; retake → **"On-device: keep going."** Caption: **The device can only say "retake".** | *"The on-device model checks each shot…"* |
+| 7 | 1:22–1:32 | Witness card: *"Show me the view behind you."* Tap **Show**, pan to the view; the shot lands in the filmstrip with a chain link. | *"A live AI witness asks…"* |
+| 8 | 1:32–1:50 | **Push-ups**, phone propped low in Video mode, speed-ramped to about 4× with a counter overlay to 20; the checklist ticks; **End & verify**. Airplane mode off; the upload ring fills, then **Reviewing video**. | *"No signal? Everything waits in a local vault…"* |
+| 9 | 1:50–2:05 | Cards flip in: **Video review**, **Judge**, **Skeptic**, **Scorer**, each with a one-line reason. The score ring climbs past the bar tick. Stamp: **Verified ✓ · 3/3 claims backed.** Quick scroll of the evidence room (map, filmstrip, chain links). | *"But AI only proposes…"* |
+| 10 | 2:05–2:20 | **A fake.** Laptop showing an AI-made fish; the phone records it off the screen. Result: **Rejected**, with the skeptic's reason. Split screen: the fake rejected, the hill Moment verified. | *"Now a fake…"* |
+| 11 | 2:20–2:30 | **"Any intent" montage**, 1 s each, real Moments from the feed: clapping 50 times, singing the alphabet, a run, a recipe. Each lands with a ✓ stamp. | *"Push-ups are just one example…"* |
+| 12 | 2:30–2:42 | **Three devices** (iPhone, Android, Chrome laptop) on a table, same Moment open. Chips: **On-device · Apple FM** / **Cloud · no Nano on this phone** / **On-device · Gemini Nano**. Then a 2-s diagram: device ⇄ Firebase AI Logic ⇄ cloud. | *"It runs on iOS, Android and Chrome…"* |
+| 13 | 2:42–2:52 | The ladder sheet: **"Count & measure · if it passes → 0.92"**, then the credit packs. | *"Proof is free…"* |
+| 14 | 2:52–2:58 | End card: **Verified**, **Say it. Do it. Prove it.**, **verified-99e74.web.app**, **iOS · Android · Web**, **#BuildHybridAI**. | *"Verified. Say it. Do it. Prove it."* |
 
 ## Shot list (what you physically film)
 
@@ -54,6 +61,7 @@ Film on a dry day in the hour before sunset; golden light makes the hill shots l
 | F. Push-ups | Phone propped low, side-on, landscape if possible | Also film one wide B-roll angle with the second phone |
 | G. Result / evidence room | iPhone screen recording, after sync | Scroll slowly: map, filmstrip, claim rows, chain links |
 | H. Fake fish Moment | Phone pointed at the laptop screen | Indoors, at a desk; record ≥ 20 s so it reaches the seal |
+| K. "Any intent" Moments | Any device | 3–4 short real Moments (clap 50 times, sing the alphabet, a short run, cooking) recorded over the week; you only need the sealed result screens |
 | I. Three devices | Overhead on a table, second phone or webcam | Same Moment open on all three; chips visible |
 | J. Ladder + embed | Laptop screen recording (OBS) | `/embed` page and the ladder sheet |
 
@@ -71,7 +79,7 @@ Settings → Screen record. Laptop: OBS at 1080p60.
 - **Motion:** gentle push-ins on stills, quick cuts in the montage (shot 2), real-time for UI moments, speed
   ramps only for the walk and the push-ups.
 - **Music:** one track from the YouTube Audio Library (free, cleared for YouTube), building at shot 8 and
-  ending on a button at shot 13. Keep it about −18 dB under the VO.
+  ending on a button at shot 14. Keep it about −18 dB under the VO.
 - **VO:** record it last, to picture, in a closet or under a blanket with a phone mic held 15 cm away. Read
   slowly; cut breaths in the edit.
 - **Editor (Linux):** DaVinci Resolve (free) or Kdenlive. Export H.264, 1080p, ~16 Mbit/s.
@@ -81,10 +89,9 @@ Settings → Screen record. Laptop: OBS at 1080p60.
 
 Film nothing until each of these is checked on the real phones and the live site:
 
-- [ ] **Deploy storage rules** (`infra/fb.sh deploy --only storage`), or nobody but the owner can play a
-      Moment's video. Needed for shots 9–11.
-- [ ] Decide on **PR #10** (web clip audio, continuous clip) and **PR #8** ("End & verify" on mobile); merge and
-      deploy what's needed, then install fresh builds on the iPhone and the Poco.
+- [x] Storage rules deployed (anyone who can see a Moment can play its video).
+- [x] PR #10 (web clip audio) and PR #8 ("End & verify" on mobile) merged and deployed.
+- [ ] Fresh builds installed on the iPhone (latest TestFlight) and the Poco.
 - [ ] A dry run of the hero at home: say "20 push-ups in my living room", record ≥ 20 s, check it seals
       **Verified** with the video reviewed. If counting fails, the script still works with "10 push-ups".
 - [ ] Airplane mode on the iPhone: does the coach answer **On-device** with no signal? (Apple Intelligence on.)
