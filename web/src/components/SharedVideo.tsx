@@ -7,6 +7,7 @@ import { getDownloadURL, ref } from "firebase/storage";
 import type { FeedVideoClip } from "../types";
 import type { VideoReview } from "../v4";
 import { bucket } from "../upload";
+import { rot, videoRotClass, type Rot } from "../rotate";
 
 const urls = new Map<string, Promise<string>>();
 
@@ -51,7 +52,8 @@ function useClipUrl(path: string | null, enabled: boolean): string | null {
  * Muted, looping, inline video over the slide's hero photo. Mounted only while the slide is current, so one plays at
  * a time; hidden until its first frame renders (the photo is the poster); paused while the tab is hidden.
  */
-export function FeedVideo({ clip, active, muted }: { clip: FeedVideoClip; active: boolean; muted: boolean }) {
+export function FeedVideo({ clip, active, muted, rotate = 0 }: { clip: FeedVideoClip; active: boolean; muted: boolean; rotate?: number }) {
+  const turn = rot(rotate);
   const url = useClipUrl(clip.path, active);
   const el = useRef<HTMLVideoElement>(null);
   const [shown, setShown] = useState(false);
@@ -73,10 +75,10 @@ export function FeedVideo({ clip, active, muted }: { clip: FeedVideoClip; active
   }, [muted, url]);
 
   if (!active || !url) return null;
-  return (
+  const video = (
     <video
       ref={el}
-      className={`slide-photo slide-video ${shown ? "is-on" : ""}`}
+      className={turn ? `slide-video ${videoRotClass(turn)} ${shown ? "is-on" : ""}` : `slide-photo slide-video ${shown ? "is-on" : ""}`}
       src={url}
       muted={muted}
       loop
@@ -88,6 +90,8 @@ export function FeedVideo({ clip, active, muted }: { clip: FeedVideoClip; active
       onPlaying={() => setShown(true)}
     />
   );
+  // Turned clips play inside a size container that takes the photo's place, so the turned video still fits (contain).
+  return turn ? <div className="slide-photo slide-video-box rot-box">{video}</div> : video;
 }
 
 export function SpeakerIcon({ muted }: { muted: boolean }) {
@@ -100,7 +104,19 @@ export function SpeakerIcon({ muted }: { muted: boolean }) {
 }
 
 /** Evidence room: every uploaded clip of the Moment, playable with controls. */
-export function MomentVideos({ momentId, ownerUid, review }: { momentId: string; ownerUid: string | null | undefined; review: VideoReview | null | undefined }) {
+export function MomentVideos({
+  momentId,
+  ownerUid,
+  review,
+  rotate = 0,
+}: {
+  momentId: string;
+  ownerUid: string | null | undefined;
+  review: VideoReview | null | undefined;
+  /** The Moment's displayRotation (clockwise degrees). */
+  rotate?: number;
+}) {
+  const turn = rot(rotate);
   const clips = (review?.clips ?? []).filter((c) => c.uploaded && c.ext && ownerUid);
   if (!clips.length) return null;
   return (
@@ -111,14 +127,14 @@ export function MomentVideos({ momentId, ownerUid, review }: { momentId: string;
       </div>
       <div className="clip-grid">
         {clips.map((c) => (
-          <SharedClip key={c.sha256} path={`clips/${ownerUid}/${momentId}/${c.sha256}.${c.ext}`} sha256={c.sha256} durationMs={c.durationMs} hashOk={c.hashOk} />
+          <SharedClip key={c.sha256} path={`clips/${ownerUid}/${momentId}/${c.sha256}.${c.ext}`} sha256={c.sha256} durationMs={c.durationMs} hashOk={c.hashOk} turn={turn} />
         ))}
       </div>
     </section>
   );
 }
 
-function SharedClip({ path, sha256, durationMs, hashOk }: { path: string; sha256: string; durationMs: number; hashOk: boolean | null }) {
+function SharedClip({ path, sha256, durationMs, hashOk, turn }: { path: string; sha256: string; durationMs: number; hashOk: boolean | null; turn: Rot }) {
   const url = useClipUrl(path, true);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -130,12 +146,84 @@ function SharedClip({ path, sha256, durationMs, hashOk }: { path: string; sha256
   }, [path]);
   return (
     <figure className="clip">
-      {url ? <video src={url} controls playsInline preload="metadata" /> : <div className="clip-wait">{failed ? "Video unavailable" : "Loading video…"}</div>}
+      {url && turn ? (
+        <TurnedPlayer url={url} turn={turn} />
+      ) : url ? (
+        <video src={url} controls playsInline preload="metadata" />
+      ) : (
+        <div className="clip-wait">{failed ? "Video unavailable" : "Loading video…"}</div>
+      )}
       <figcaption className="small">
         {durationMs > 0 && <span>{Math.round(durationMs / 1000)} s · </span>}
         <code title={sha256}>sha256 {sha256.slice(0, 12)}…</code>
         {hashOk === false ? <span className="bad">✗ Hash does not match the chain</span> : hashOk === true ? <span className="ok">✓ matches the chain</span> : null}
       </figcaption>
     </figure>
+  );
+}
+
+const mmss = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
+
+/**
+ * A clip stored sideways, shown turned upright. Native controls would turn with the <video>, so the video plays
+ * without them inside a size container (CSS-rotated, still contained) and a small upright control bar sits under it:
+ * play/pause, seek, time, sound. Tapping the picture also plays/pauses.
+ */
+function TurnedPlayer({ url, turn }: { url: string; turn: Rot }) {
+  const el = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [t, setT] = useState(0);
+  const [dur, setDur] = useState(0);
+  const toggle = () => {
+    const v = el.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  };
+  return (
+    <div className="turned-player">
+      <div className="clip-rot rot-box" onClick={toggle}>
+        <video
+          ref={el}
+          className={videoRotClass(turn)}
+          src={url}
+          playsInline
+          preload="metadata"
+          muted={muted}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
+          onDurationChange={(e) => setDur(e.currentTarget.duration)}
+        />
+      </div>
+      <div className="turned-bar">
+        <button type="button" className="btn btn-small" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>
+          {playing ? "❚❚" : "▶"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={Number.isFinite(dur) && dur > 0 ? dur : 0}
+          step={0.05}
+          value={t}
+          aria-label="Seek"
+          onChange={(e) => {
+            const v = el.current;
+            const x = Number(e.currentTarget.value);
+            if (v) v.currentTime = x;
+            setT(x);
+          }}
+        />
+        <span className="small turned-time">
+          {mmss(t)} / {mmss(dur)}
+        </span>
+        <button type="button" className="btn btn-small turned-sound" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"} aria-pressed={muted}>
+          <SpeakerIcon muted={muted} />
+        </button>
+      </div>
+    </div>
   );
 }

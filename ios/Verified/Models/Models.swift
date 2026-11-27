@@ -299,6 +299,9 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
   var summary: SummaryInfo?
   var onDeviceMode: String
   var heroJpegB64: String?
+  /// `displayRotation` (feed and moment docs): clockwise degrees 0/90/180/270 to turn the stored media when shown
+  /// (early sideways front-camera captures). The evidence itself is never rewritten. Missing/invalid = 0.
+  var displayRotation = 0
   var track: [LatLng] = []
   var sealReason: String?
   var checks: [String: Bool] = [:]
@@ -389,6 +392,7 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     c.ladder = (d["ladder"] as? [[String: Any]] ?? []).compactMap(LadderEntry.init)
     c.sealVersion = d.int("sealVersion")
     c.recordedAsGuest = d.bool("recordedAsGuest") ?? false
+    c.displayRotation = normalizeDisplayRotation(d["displayRotation"])
     if let w = d.obj("witness") {
       c.witnessAsked = w.int("asked") ?? 0; c.witnessAnswered = w.int("answered") ?? 0; c.witnessSkipped = w.int("skipped") ?? 0
     }
@@ -434,6 +438,7 @@ struct MomentCardData: Identifiable, Sendable, Equatable {
     c.ladderEligible = seal?.bool("ladderEligible") ?? false
     c.sealVersion = seal?.int("version")
     c.recordedAsGuest = d.bool("recordedAsGuest") ?? false
+    c.displayRotation = normalizeDisplayRotation(d["displayRotation"])
     if let w = d.obj("witness") {
       c.witnessAsked = w.int("asked") ?? 0; c.witnessAnswered = w.int("answered") ?? 0; c.witnessSkipped = w.int("skipped") ?? 0
     }

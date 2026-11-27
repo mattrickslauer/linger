@@ -125,7 +125,7 @@ function BadgePreview() {
     <figure className="vbadge-wrap">
       <a className="vbadge" href={`/m/${e.momentId}`} aria-label={`Example badge: ${e.intention.text}, ${sealed ? "verified" : "not verified"}. Open the evidence room.`}>
         <span className="vbadge-media on-media">
-          {e.heroJpegB64 && <FitImg className="vbadge-img" src={jpegSrc(e.heroJpegB64)} alt="" loading="lazy" />}
+          {e.heroJpegB64 && <FitImg className="vbadge-img" src={jpegSrc(e.heroJpegB64)} rotate={e.displayRotation} alt="" loading="lazy" />}
         </span>
         <span className="vbadge-body">
           <span className="vbadge-top">

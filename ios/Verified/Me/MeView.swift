@@ -180,6 +180,7 @@ struct MeView: View {
   private func withHero(_ m: MomentCardData) -> MomentCardData {
     var out = m
     out.heroJpegB64 = HeroCache.shared.hero(for: m, feed: app.feed.items)
+    out.displayRotation = HeroCache.shared.rotation(for: m, feed: app.feed.items)
     return out
   }
 
@@ -227,7 +228,7 @@ private struct MomentTile: View {
   let judging: Bool
 
   var body: some View {
-    HeroImage(b64: item.heroJpegB64, category: item.category)
+    HeroImage(b64: item.heroJpegB64, category: item.category, rotation: item.displayRotation)
       .frame(height: 210).frame(maxWidth: .infinity).clipped()
       .saturation(item.status == "rejected" ? 0.2 : 1)
       .overlay {

@@ -1966,6 +1966,41 @@ path.lf-cursor {
   object-fit: contain;
   background: #071419;
 }
+/* A sideways-stored clip shown turned (SharedVideo TurnedPlayer): same 4:3 box, upright controls under it. */
+.clip-rot {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #071419;
+  cursor: pointer;
+}
+.clip .clip-rot video {
+  aspect-ratio: auto;
+  background: #071419;
+}
+.turned-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 0;
+}
+.turned-bar input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+.turned-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.turned-sound svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
 .clip figcaption {
   display: flex;
   flex-wrap: wrap;

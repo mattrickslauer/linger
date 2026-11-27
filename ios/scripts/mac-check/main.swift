@@ -48,6 +48,35 @@ for name in files {
   print("    labels: \(f.labels.objects.prefix(4).joined(separator: ", ")) | text: \(f.labels.text.prefix(2)) | short: \(f.labels.shortLabel)")
 }
 
+print("ProofFrame: displayRotation quarter turns (clockwise on screen)")
+// A 3x2 image, red pixel at its top-left. Reads back as (topRowFirst) RGBA rows.
+func pixels(_ img: CGImage) -> [[UInt8]] {
+  let w = img.width, h = img.height
+  var buf = [UInt8](repeating: 0, count: w * h * 4)
+  let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+  ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+  return (0..<h).map { y in (0..<w).map { x in buf[(y * w + x) * 4] } }  // red channel, row 0 = top
+}
+if let ctx = CGContext(data: nil, width: 3, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+  ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
+  ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 1, width: 1, height: 1))  // y-up: top-left
+  let src = ctx.makeImage()!
+  expect(pixels(src)[0][0] == 255, "source red at top-left")
+  expect(ProofFrame.rotated(src, clockwise: 0) === src, "0 = same image")
+  expect(ProofFrame.rotated(src, clockwise: 45) === src, "invalid = same image")
+  let r90 = ProofFrame.rotated(src, clockwise: 90), p90 = pixels(r90)
+  expect(r90.width == 2 && r90.height == 3 && p90[0][1] == 255, "90 cw: 2x3, red at top-right")
+  let r180 = ProofFrame.rotated(src, clockwise: 180), p180 = pixels(r180)
+  expect(r180.width == 3 && r180.height == 2 && p180[1][2] == 255, "180: 3x2, red at bottom-right")
+  let r270 = ProofFrame.rotated(src, clockwise: 270), p270 = pixels(r270)
+  expect(r270.width == 2 && r270.height == 3 && p270[2][0] == 255, "270 cw: 2x3, red at bottom-left")
+  expect(p90.joined().filter { $0 == 255 }.count == 1 && p270.joined().filter { $0 == 255 }.count == 1, "exactly one red pixel")
+} else {
+  expect(false, "make 3x2 test image")
+}
+
 print("Live coach: offline heuristic + lenient JSON parsing")
 var screen = VisionLabeler.Labels()
 screen.objects = ["computer monitor (80%)"]

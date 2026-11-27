@@ -19,7 +19,8 @@ import { claimAndVerify, markClaimPrompted } from "../claim";
 import { configured } from "../firebase";
 import { isDeclined, requireSignIn } from "../signin";
 import { ago, jpegSrc, Link, Stamp } from "../ui";
-import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
+import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, RotImg, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
+import { rot } from "../rotate";
 import "../room.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoCoverage, videoStatusText } from "../v4";
@@ -294,6 +295,8 @@ export default function Detail({ id }: { id: string }) {
   const decoded = useMemo(() => decodeChunks(chunks ?? []), [chunks]);
   const feed = bundle?.feed ?? null;
   const moment = bundle?.moment ?? null;
+  // Clockwise turn for every photo, frame and clip of this Moment (repairs media stored sideways; 0 for nearly all).
+  const turn = rot(feed?.displayRotation ?? moment?.displayRotation);
   const summary = moment?.summary ?? feed?.summary ?? null;
   const start = moment?.startedAt ?? chunks?.[0]?.t0 ?? 0;
   const duration = summary?.durationMs || (chunks?.length ? chunks[chunks.length - 1].t1 - start : 1);
@@ -457,7 +460,7 @@ export default function Detail({ id }: { id: string }) {
           Intent
         </h2>
         <header className={`detail-head room-hero on-media ${heroSrc ? "" : "room-hero-nophoto"}`}>
-          {heroSrc && <FitImg className="hero-img" src={heroSrc} alt={`Proof shot: ${intention.text}`} decoding="async" />}
+          {heroSrc && <FitImg className="hero-img" src={heroSrc} rotate={turn} alt={`Proof shot: ${intention.text}`} decoding="async" />}
           <div className="hero-top">
             <span className="gchip">
               <Glyph name="intent" />
@@ -526,7 +529,7 @@ export default function Detail({ id }: { id: string }) {
             <div className="frame-stage on-media">
               {frame ? (
                 <>
-                  <FitImg className="frame-img" src={jpegSrc(frame.jpegB64)} alt={frame.label || "Proof frame"} decoding="async" />
+                  <FitImg className="frame-img" src={jpegSrc(frame.jpegB64)} rotate={turn} alt={frame.label || "Proof frame"} decoding="async" />
                   <p className="frame-cap">
                     <span>
                       <Glyph name="timing" /> {fmtDuration(frame.t - start)}
@@ -545,7 +548,7 @@ export default function Detail({ id }: { id: string }) {
                   </p>
                 </>
               ) : feed?.heroJpegB64 ? (
-                <FitImg className="frame-img" src={jpegSrc(feed.heroJpegB64)} alt="Hero proof frame" />
+                <FitImg className="frame-img" src={jpegSrc(feed.heroJpegB64)} rotate={turn} alt="Hero proof frame" />
               ) : (
                 <div className="frame-empty">
                   <Glyph name="frames" />
@@ -568,7 +571,7 @@ export default function Detail({ id }: { id: string }) {
                       }}
                       aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
                     >
-                      <img src={jpegSrc(f.jpegB64)} alt="" loading="lazy" decoding="async" width={88} height={66} />
+                      <RotImg src={jpegSrc(f.jpegB64)} rotate={turn} alt="" loading="lazy" decoding="async" width={88} height={66} />
                       <span className="thumb-t">{fmtDuration(f.t - start)}</span>
                     </button>
                   ))}
@@ -633,7 +636,7 @@ export default function Detail({ id }: { id: string }) {
           </p>
         )}
 
-        <MomentVideos momentId={id} ownerUid={moment?.ownerUid} review={moment?.videoReview} />
+        <MomentVideos momentId={id} ownerUid={moment?.ownerUid} review={moment?.videoReview} rotate={turn} />
 
         {(local || (!!user && moment?.ownerUid === user.uid)) && (
           <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} hide={uploadedClips} />

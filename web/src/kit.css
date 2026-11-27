@@ -515,3 +515,35 @@
 .fit-media > .fit-fg {
   object-fit: contain;
 }
+
+/* Per-Moment display rotation for clips (rotate.ts). The box is a size container placed by a page class; the video
+   is centred and turned, its layout box sized to the box's swapped dimensions for quarter turns so contain still
+   fits the turned picture inside. */
+.rot-box {
+  container-type: size;
+  overflow: hidden;
+}
+.rot-box > video.rot-v {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100cqw;
+  height: 100cqh;
+  max-width: none;
+  object-fit: contain;
+  transform: translate(-50%, -50%) rotate(var(--rot-v, 0deg));
+}
+.rot-box > video.rot-v90,
+.rot-box > video.rot-v270 {
+  width: 100cqh;
+  height: 100cqw;
+}
+.rot-v90 {
+  --rot-v: 90deg;
+}
+.rot-v180 {
+  --rot-v: 180deg;
+}
+.rot-v270 {
+  --rot-v: 270deg;
+}

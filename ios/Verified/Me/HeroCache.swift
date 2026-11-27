@@ -17,6 +17,11 @@ final class HeroCache {
     m.heroJpegB64 ?? heroes[m.id] ?? feed.first(where: { $0.id == m.id })?.heroJpegB64
   }
 
+  /// The Moment's `displayRotation` for its hero: the `moments/{id}` value, else the feed's (both are server-set).
+  func rotation(for m: MomentCardData, feed: [MomentCardData]) -> Int {
+    m.displayRotation != 0 ? m.displayRotation : feed.first(where: { $0.id == m.id })?.displayRotation ?? 0
+  }
+
   /// Loads a chain frame once per Moment (per launch); a miss is retried only after `forget`.
   func load(_ m: MomentCardData) async {
     let id = m.id
