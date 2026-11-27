@@ -393,6 +393,12 @@ export default function Detail({ id }: { id: string }) {
   const cheatingSignals =
     moment?.seal?.checks.cheating === false ? (moment.seal.cheatingSignals ?? []) : feed?.cheating ? (feed.cheatingSignals ?? []) : null;
   const vr = moment?.videoReview ?? (feed?.video ? { status: feed.video.status } : null);
+  // v4.13: a reviewed video decides the score, so its reasons lead (the frames scorer cannot hear or count).
+  const reviewReasons =
+    moment?.videoReview?.status === "done"
+      ? [...(moment.videoReview.claims ?? []).map((c) => c.reasons?.[0]).filter((r): r is string => !!r), ...(moment.videoReview.summary ? [moment.videoReview.summary] : [])]
+      : [];
+  const scoreReasons = reviewReasons.length ? reviewReasons : (moment?.score?.reasons ?? feed?.scoreReasons ?? []);
   // v4.6: modules back claims. Owner offers per claim, with that claim's previews.
   const isOwner = LADDER_DEMO || (!!user && !!moment && moment.ownerUid === user.uid);
   const eligible = !!moment?.seal?.ladderEligible && (moment.status === "sealed" || moment.status === "rejected");
@@ -759,12 +765,12 @@ export default function Detail({ id }: { id: string }) {
                 source={moment?.bar?.source ?? (feed?.bar != null ? "ai" : null)}
                 model={moment?.bar?.model ?? null}
                 difficulty={moment?.bar?.difficulty ?? feed?.difficulty ?? null}
-                reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+                reasons={scoreReasons}
               />
             ) : (
               <ScoreCard
                 probability={moment?.score?.probability ?? feed?.verificationScore ?? null}
-                reasons={moment?.score?.reasons ?? feed?.scoreReasons ?? []}
+                reasons={scoreReasons}
               />
             )}
           </div>

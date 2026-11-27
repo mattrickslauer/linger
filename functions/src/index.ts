@@ -33,12 +33,14 @@ import {
   ServerPlanDoc,
   TERMINAL_REVIEW,
   evaluateSealV4,
+  feedScoreReasons,
   feedV4Fields,
   isReadyToSealV4,
   needsBarAndClaims,
   needsVideoReview,
   sealDocV4,
   verificationDocV4,
+  videoAwareReason,
   videoWaitExpired,
 } from "./seal4";
 import { IMAGE_PATH, MOMENT_PATH, ShareFeed, buildShareMeta, heroJpeg, injectMeta } from "./share";
@@ -339,7 +341,7 @@ export async function trySeal(momentId: string): Promise<SealOutcome> {
       judgeReasons: m.judge?.reasons ?? [],
       skepticReasons: m.skeptic?.reasons ?? [],
       verificationScore: e.score.score,
-      scoreReasons: m.score?.reasons ?? [],
+      scoreReasons: feedScoreReasons(m.score?.reasons, vr),
       heroJpegB64: hero,
       // Clockwise degrees every client turns this Moment's photos, frames and clips by when showing them (repairs
       // media stored sideways, e.g. iPhone 17 front-camera clips before the per-camera capture fix). Set by an admin
@@ -884,7 +886,14 @@ export const runLadderModule = onCall({ timeoutSeconds: 300, memory: "1GiB" }, a
     const re = recheck(seal.checks as unknown as ChecksV4, res.claims, bar);
     const claimsDoc = ((cur.claims as ServerClaimsDoc | undefined)?.items ?? []) as Claim[];
     const signals = (seal.cheatingSignals as string[] | undefined) ?? v.cheating?.signals ?? [];
-    const reason = reasonV4(re.checks, signals, seal.reason, res.claims, new Map(claimsDoc.map((c) => [c.id, c.text])), bar, res.score);
+    const texts = new Map(claimsDoc.map((c) => [c.id, c.text]));
+    const reason = videoAwareReason(
+      reasonV4(re.checks, signals, seal.reason, res.claims, texts, bar, res.score),
+      re.checks,
+      res.claims,
+      texts,
+      cur.videoReview as Partial<VideoReview> | undefined,
+    );
     const status = re.sealed ? "sealed" : "rejected";
     const now = FieldValue.serverTimestamp();
     tx.update(momentRef, {
