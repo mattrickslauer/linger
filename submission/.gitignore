@@ -1,0 +1,4 @@
+# raw footage and renders: too big for git (see edit/README.md)
+*.mov
+*.mp4
+*.webm

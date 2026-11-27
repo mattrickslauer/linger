@@ -1,0 +1,660 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Verified demo compositor</title>
+<link rel="stylesheet" href="assets/fonts/local.css">
+<style>
+:root{
+  --bg:#0f2127; --deep:#071419; --ink:#e8ece4; --ink2:#e8ece4b3; --ink3:#e8ece466;
+  --gold:#E7B425; --ok:#7fd19b; --bad:#f08a78; --glass:#0b1c22e6; --line:#e8ece426;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#000}
+body{font-family:'Bricolage Grotesque',sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+#stage{position:absolute;inset:0;overflow:hidden;background:var(--deep)}
+.layer{position:absolute;inset:0}
+#roll{transform-origin:1330px 330px}
+#roll img{position:absolute;inset:0;width:1920px;height:1080px}
+#cutbg{background:
+  radial-gradient(1100px 700px at 75% 20%, #E7B42514, transparent 60%),
+  radial-gradient(900px 700px at 10% 90%, #7fd19b10, transparent 60%),
+  linear-gradient(160deg,#10262d,#081519 70%)}
+#grid{background-image:linear-gradient(#e8ece40a 1px,transparent 1px),linear-gradient(90deg,#e8ece40a 1px,transparent 1px);
+  background-size:60px 60px}
+#dim{background:linear-gradient(90deg,#071419f2 0%,#071419e6 40%,#07141999 54%,#07141900 64%)}
+.scene{position:absolute;inset:0;display:none}
+.it{position:absolute;will-change:transform,opacity}
+/* devices */
+.iphone{position:absolute;border-radius:58px;background:#0a0a0a;padding:12px;
+  box-shadow:0 0 0 2px #2b3a3f, 0 40px 80px #000a, 0 0 120px #E7B4251a}
+.iphone img{display:block;width:100%;height:100%;border-radius:46px;object-fit:cover}
+.android{position:absolute;border-radius:40px;background:#0a0a0a;padding:11px;
+  box-shadow:0 0 0 2px #2b3a3f, 0 40px 80px #000a, 0 0 120px #7fd19b1a}
+.android img{display:block;width:100%;height:100%;border-radius:30px;object-fit:cover}
+.browser{position:absolute;border-radius:16px;background:#1b2428;overflow:hidden;
+  box-shadow:0 0 0 2px #2b3a3f, 0 40px 80px #000a, 0 0 120px #8ab4f81a}
+.browser .bar{height:44px;display:flex;align-items:center;gap:9px;padding:0 16px;background:#202b30}
+.browser .dot{width:13px;height:13px;border-radius:50%}
+.browser .url{margin-left:18px;flex:1;height:28px;border-radius:14px;background:#0f171a;color:#c9d3cf;
+  font:500 15px 'JetBrains Mono';display:flex;align-items:center;padding-left:14px;gap:8px}
+.browser img{display:block;width:100%}
+/* cards */
+.card{background:var(--glass);border:1px solid var(--line);border-radius:22px;padding:20px 24px;
+  box-shadow:0 20px 50px #0008;backdrop-filter:blur(8px)}
+.kicker{font:600 17px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.h1{font-weight:800;font-size:64px;line-height:1.02;letter-spacing:-.02em}
+.h2{font-weight:800;font-size:44px;line-height:1.06;letter-spacing:-.015em}
+.h3{font-weight:700;font-size:30px;line-height:1.15}
+.body{font-weight:500;font-size:24px;line-height:1.3;color:var(--ink2)}
+.mono{font-family:'JetBrains Mono';}
+.chip{display:inline-flex;align-items:center;gap:10px;border-radius:999px;padding:10px 18px;
+  font-weight:700;font-size:24px;background:#e8ece414;border:1px solid var(--line)}
+.chip.gold{background:#E7B4251f;border-color:#E7B42566;color:#ffd866}
+.chip.ok{background:#7fd19b1f;border-color:#7fd19b66;color:#9fe8b6}
+.chip.bad{background:#f08a781f;border-color:#f08a7866;color:#ffb3a3}
+.ico{width:1em;height:1em;flex:none;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.row{display:flex;align-items:center;gap:14px}
+.gold{color:var(--gold)} .ok{color:var(--ok)} .bad{color:var(--bad)}
+.stamp{border:7px solid currentColor;border-radius:18px;padding:8px 26px;font-weight:800;font-size:68px;
+  letter-spacing:.04em;text-transform:uppercase;background:#07141999}
+/* bubble */
+#bubble{position:absolute;left:1600px;top:770px;width:260px;height:260px;border-radius:50%;overflow:hidden;
+  border:5px solid var(--gold);box-shadow:0 20px 50px #000a}
+#bubble img{position:absolute;width:832px;height:468px;left:-400px;top:-30px}
+/* captions */
+#caps{position:absolute;left:0;right:0;top:962px;display:flex;justify-content:center;pointer-events:none}
+#caps .box{display:flex;flex-wrap:wrap;justify-content:center;gap:0 18px;max-width:1300px;padding:10px 26px;
+  border-radius:18px;background:#071419b8;}
+#caps span{font-weight:800;font-size:50px;letter-spacing:-.01em;color:#fff;display:inline-block;
+  text-shadow:0 3px 12px #000c;transform-origin:50% 70%}
+#caps span.on{color:var(--gold)}
+#caps span.fut{color:#ffffff8c}
+/* chrome */
+#stepper{position:absolute;left:56px;top:44px;display:flex;gap:10px;align-items:center}
+#stepper .s{display:flex;align-items:center;gap:10px;font-weight:700;font-size:22px;padding:9px 16px;border-radius:999px;
+  background:#071419cc;border:1px solid var(--line);color:var(--ink3)}
+#stepper .s b{font:600 15px 'JetBrains Mono';opacity:.8}
+#stepper .s.on{color:#071419;background:var(--gold);border-color:var(--gold)}
+#stepper .s.done{color:var(--ok)}
+#stepper .arrow{width:26px;height:2px;background:var(--line)}
+#mark{position:absolute;right:52px;top:44px;display:flex;align-items:center;gap:12px;padding:9px 18px 9px 12px;border-radius:999px;
+  background:#071419c0;border:1px solid var(--line);font-weight:700;font-size:20px}
+#mark img{height:30px}
+#flash{background:#fff;opacity:0}
+.qrwrap{position:relative;background:#fff;border-radius:28px;padding:26px}
+.qrwrap img{display:block}
+.qrwrap .laser{position:absolute;left:14px;right:14px;height:4px;border-radius:2px;background:var(--gold);
+  box-shadow:0 0 18px 6px #E7B42599}
+.qrwrap .br{position:absolute;width:46px;height:46px;border:6px solid var(--gold)}
+.blk{position:absolute;width:190px;height:178px;border-radius:18px;background:#0b1c22;border:2px solid #7fd19b66;padding:14px 16px}
+.blk .n{font:700 16px 'JetBrains Mono';color:var(--ok)}
+.blk .sig{display:flex;gap:6px;margin:10px 0}
+.blk .sig i{font-style:normal;font:600 13px 'JetBrains Mono';padding:3px 7px;border-radius:6px;background:#e8ece414;color:var(--ink2)}
+.blk .h{font:600 14px 'JetBrains Mono';color:var(--ink2);word-break:break-all;line-height:1.35}
+.lnk{position:absolute;height:6px;border-radius:3px;background:var(--ok)}
+.node{position:relative;width:250px;height:250px;border-radius:40px;background:#0b1c22;border:2px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.node .ico{font-size:84px}
+.node .t{font-weight:800;font-size:36px}
+.node .sub{font:600 16px 'JetBrains Mono';color:var(--ink3);letter-spacing:.08em;text-transform:uppercase}
+.wire{position:absolute;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.wire i{position:absolute;inset:0;background:var(--gold);transform-origin:0 50%}
+.dotp{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--gold);box-shadow:0 0 14px var(--gold)}
+.photo{position:absolute;width:330px;height:390px;background:#f4f1ea;border-radius:10px;padding:16px 16px 70px;box-shadow:0 30px 60px #000b}
+.photo .img{width:100%;height:100%;border-radius:4px;overflow:hidden;position:relative;
+  background:linear-gradient(180deg,#7fb8d8,#cfe6ef 60%,#8fb07a 60%,#5e8a55)}
+.photo .cap{position:absolute;left:18px;bottom:20px;font:700 22px 'Bricolage Grotesque';color:#20302f}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="layer" id="roll"><img id="ra"></div>
+  <div class="layer" id="dim"></div>
+  <div class="layer" id="cutbg"></div>
+  <div class="layer" id="grid"></div>
+  <div class="layer" id="scenes"></div>
+  <div id="bubble"><img id="ra2"></div>
+  <div id="stepper"></div>
+  <div id="mark"><img src="assets/logos/fb-flame.svg"><span>Firebase AI Logic</span></div>
+  <div id="caps"><div class="box"></div></div>
+  <div class="layer" id="flash"></div>
+</div>
+<script src="data.js"></script>
+<script>
+// ---------------------------------------------------------------- constants
+const FPS = 30, INTRO = 4.0, ROLL_IN = 1.2, ROLL_OUT = 149.0, OUTRO = 6.0;
+const TOTAL = INTRO + (ROLL_OUT - ROLL_IN) + OUTRO;
+const WORDS = DATA.words, CLIPN = DATA.clipn;
+const RA_N = DATA.ran;
+const $ = (s, el = document) => el.querySelector(s);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, p) => a + (b - a) * p;
+const oc = p => 1 - Math.pow(1 - clamp(p), 3);                // ease out cubic
+const io = p => { p = clamp(p); return p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; };
+const ob = p => { p = clamp(p); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+const win = (r, a, b, f = .35) => clamp(Math.min((r - a) / f + .5, (b - r) / f + .5));  // soft window
+const pad = n => String(n).padStart(5, '0');
+const norm = s => s.toLowerCase().replace(/[^a-z0-9-]/g, '');
+// time of a spoken word nearest to `near` (A-roll seconds)
+function W(word, near) {
+  let best = null;
+  for (const w of WORDS) if (norm(w.w) === norm(word) && (!best || Math.abs(w.s - near) < Math.abs(best.s - near))) best = w;
+  if (!best || Math.abs(best.s - near) > 4) { console.warn('W miss', word, near); return near; }
+  return best.s;
+}
+const ICON = {
+  pin:'<path d="M12 21s-7-6.1-7-11a7 7 0 1 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  act:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  hash:'<path d="M5 9h14M5 15h14M10 3 8 21M16 3l-2 18"/>',
+  video:'<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3z"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>',
+  wifioff:'<path d="M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 5-2.7M19 12.5a10 10 0 0 0-2.4-1.6M2 8.8a15 15 0 0 1 4.2-2.7M22 8.8A15 15 0 0 0 11 5"/><circle cx="12" cy="20" r="1"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  cloud:'<path d="M17.5 19H8a6 6 0 1 1 5.7-8A4.5 4.5 0 1 1 17.5 19z"/>',
+  check:'<path d="M4 12l5 5L20 6"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  plane:'<path d="M17.8 19.2 16 11l3.5-3.5A2.1 2.1 0 0 0 16.5 4.5L13 8 4.8 6.2l-1.6 1.6 6.6 3.5-3.3 3.3-2.2-.4-1.2 1.2 3.3 1.8 1.8 3.3 1.2-1.2-.4-2.2 3.3-3.3 3.5 6.6z"/>',
+  eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  judge:'<path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/>',
+  gauge:'<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>',
+  mic:'<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/>',
+  camera:'<path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  seal:'<path d="M12 2l2.4 2.1 3.2-.3.9 3.1 2.8 1.6-1.1 3 1.1 3-2.8 1.6-.9 3.1-3.2-.3L12 22l-2.4-2.1-3.2.3-.9-3.1-2.8-1.6 1.1-3-1.1-3 2.8-1.6.9-3.1 3.2.3z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  spark:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+  quote:'<path d="M7 7h4v4c0 3-1.5 5-4 6M15 7h4v4c0 3-1.5 5-4 6"/>',
+  sync:'<path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M3 21v-5h5"/>',
+};
+const ic = (n, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24">${ICON[n]}</svg>`;
+const LOGO = n => `assets/logos/${n}`;
+
+// ---------------------------------------------------------------- scene system
+// A scene: {a, b, mode:'full'|'split'|'cut', bubble, el, items[], fn(r)}
+const SCENES = [], CUES = [];
+function scene(a, b, mode, opts = {}) {
+  const el = document.createElement('div'); el.className = 'scene'; $('#scenes').appendChild(el);
+  const s = { a, b, mode, el, items: [], bubble: !!opts.bubble, fade: opts.fade ?? .35, fn: null, step: opts.step ?? -1 };
+  SCENES.push(s); return s;
+}
+// item: absolutely placed html that animates in at `at` (and optionally out at `until`)
+function item(s, html, o) {
+  const el = document.createElement('div'); el.className = 'it'; el.innerHTML = html;
+  Object.assign(el.style, { left: (o.x ?? 0) + 'px', top: (o.y ?? 0) + 'px' });
+  if (o.w) el.style.width = o.w + 'px';
+  if (o.style) Object.assign(el.style, o.style);
+  s.el.appendChild(el);
+  const it = { el, at: o.at ?? s.a, until: o.until ?? 1e9, anim: o.anim ?? 'up', dur: o.dur ?? .5, origin: o.origin };
+  if (o.origin) el.style.transformOrigin = o.origin;
+  if (o.cue !== false) CUES.push({ r: it.at, kind: o.cue ?? (it.anim === 'stamp' ? 'stamp' : 'pop') });
+  s.items.push(it); return el;
+}
+function animItem(it, r) {
+  const p = (r - it.at) / it.dur, q = (r - it.until) / .3;
+  let op = clamp(p * 1.6) * (1 - clamp(q)), tf = '';
+  const e = oc(p), b = ob(p);
+  switch (it.anim) {
+    case 'up': tf = `translateY(${(1 - e) * 40}px)`; break;
+    case 'left': tf = `translateX(${(1 - e) * -60}px)`; break;
+    case 'right': tf = `translateX(${(1 - e) * 80}px)`; break;
+    case 'pop': tf = `scale(${lerp(.6, 1, b)})`; break;
+    case 'stamp': { const k = clamp(p * 1.4); tf = `scale(${lerp(2.4, 1, oc(k))}) rotate(${lerp(-18, -7, oc(k))}deg)`; op = clamp(k * 3) * (1 - clamp(q)); break; }
+    case 'fade': tf = ''; break;
+    case 'drop': tf = `translateY(${(1 - b) * -120}px) rotate(${(1 - e) * -10}deg)`; break;
+  }
+  if (q > 0) tf += ` translateY(${-oc(q) * 20}px)`;
+  it.el.style.opacity = op; it.el.style.transform = tf;
+  it.el.style.visibility = op <= 0.001 ? 'hidden' : 'visible';
+}
+// devices
+const iphone = (clip, start, h, extra = '') =>
+  `<div class="iphone" style="width:${Math.round(h * 1206 / 2622) + 24}px;height:${h + 24}px;${extra}">
+     <img data-clip="${clip}" data-start="${start}"></div>`;
+const iphoneStill = (src, h) =>
+  `<div class="iphone" style="width:${Math.round(h * 1206 / 2622) + 24}px;height:${h + 24}px"><img src="${src}"></div>`;
+const android = (clip, start, h) =>
+  `<div class="android" style="width:${Math.round(h * 1080 / 2400) + 22}px;height:${h + 22}px"><img data-clip="${clip}" data-start="${start}"></div>`;
+const androidStill = (src, h) =>
+  `<div class="android" style="width:${Math.round(h * 1080 / 2400) + 22}px;height:${h + 22}px"><img src="${src}"></div>`;
+const browser = (clip, start, w) =>
+  `<div class="browser" style="width:${w}px"><div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+   <div class="url">${ic('lock')} verified-99e74.web.app</div></div><img data-clip="${clip}" data-start="${start}" style="height:${Math.round(w * 800 / 1280)}px"></div>`;
+
+// ================================================================= SCENES ==
+// ---- INTRO title card (r -2.8 .. 1.2) --------------------------------------
+{
+  const s = scene(-2.8, 2.05, 'full', { fade: .01 });
+  s.el.innerHTML = `<div class="layer" style="background:radial-gradient(1000px 700px at 30% 40%, #E7B42522, transparent 60%),linear-gradient(160deg,#10262d,#071419 70%)"></div>
+    <div class="layer" style="background-image:linear-gradient(#e8ece40a 1px,transparent 1px),linear-gradient(90deg,#e8ece40a 1px,transparent 1px);background-size:60px 60px"></div>`;
+  const a = -2.8;
+  item(s, `<img src="${LOGO('verified-icon.svg')}" style="width:150px;border-radius:34px;box-shadow:0 20px 60px #E7B42544">`, { x: 150, y: 210, at: a + .15, anim: 'pop', cue: 'whoosh' });
+  item(s, `<div style="font-weight:800;font-size:190px;letter-spacing:-.04em;line-height:.9">Verified</div>`, { x: 140, y: 380, at: a + .35, anim: 'up' });
+  item(s, `<div class="h2" style="font-size:52px"><span>Say it.</span> <span class="gold">Do it.</span> <span class="ok">Prove it.</span></div>`, { x: 150, y: 575, at: a + .75 });
+  item(s, `<div class="body" style="font-size:30px;max-width:900px">An on-device intent &amp; evidence factory: AI on your phone plans the proof, the cloud checks it, code seals it.</div>`, { x: 150, y: 660, at: a + 1.0 });
+  item(s, `<div class="row" style="gap:22px;font-weight:700;font-size:26px;color:var(--ink2)">
+      <span>Built with</span><img src="${LOGO('fb-wordmark-white.svg')}" style="height:54px">
+      <span style="width:2px;height:40px;background:var(--line)"></span>
+      <img src="${LOGO('gemini-color.svg')}" style="height:42px"><span style="color:var(--ink)">Gemini</span>
+      <span style="width:2px;height:40px;background:var(--line)"></span>
+      <span class="chip gold" style="font-size:22px">#BuildHybridAI</span></div>`, { x: 150, y: 830, at: a + 1.3 });
+  const qr = item(s, `<div class="qrwrap" id="qr1"><img src="qr-web.svg" style="width:380px;height:380px"><div class="laser"></div>
+      <div class="br" style="left:-10px;top:-10px;border-right:0;border-bottom:0;border-radius:14px 0 0 0"></div>
+      <div class="br" style="right:-10px;top:-10px;border-left:0;border-bottom:0;border-radius:0 14px 0 0"></div>
+      <div class="br" style="left:-10px;bottom:-10px;border-right:0;border-top:0;border-radius:0 0 0 14px"></div>
+      <div class="br" style="right:-10px;bottom:-10px;border-left:0;border-top:0;border-radius:0 0 14px 0"></div></div>
+      <div style="text-align:center;margin-top:30px"><div class="h3">Scan to try it</div>
+      <div class="mono" style="font-size:22px;color:var(--gold);margin-top:6px">verified-99e74.web.app</div>
+      <div class="row" style="justify-content:center;gap:18px;margin-top:16px;color:var(--ink2);font-weight:700;font-size:20px">
+        <img src="${LOGO('si-apple.svg')}" style="height:24px;filter:invert(1)">iOS
+        <img src="${LOGO('android-color.svg')}" style="height:26px">Android
+        <img src="${LOGO('chrome-color.svg')}" style="height:24px">Web</div></div>`, { x: 1290, y: 190, at: a + .55, anim: 'pop' });
+  s.fn = r => {
+    const lt = r - a, laser = $('.laser', qr);
+    laser.style.top = (14 + (0.5 - 0.5 * Math.cos(lt * 2.4)) * 400) + 'px';
+    const out = io((r - 1.3) / .7);           // exit: zoom through
+    s.el.style.opacity = 1 - out;
+    s.el.style.transform = `scale(${1 + out * .12})`;
+  };
+  CUES.push({ r: 1.35, kind: 'whoosh' });
+}
+
+// ---- 1. Hook: name lower third --------------------------------------------
+{
+  const s = scene(1.2, 5.6, 'full');
+  item(s, `<div class="card" style="display:flex;gap:20px;align-items:stretch;padding:18px 30px 18px 22px"><div style="width:8px;border-radius:4px;background:var(--gold)"></div>
+     <div><div class="h2" style="font-size:54px">Mattricks Lauer</div><div class="kicker" style="margin-top:8px">Founder &amp; developer · Verified</div></div></div>`,
+     { x: 96, y: 720, at: 2.4, anim: 'left', until: 5.4 });
+}
+// ---- 2. Photo used to be proof (4.5 .. 18.6) -------------------------------
+{
+  const s = scene(4.45, 18.7, 'split');
+  const tProof = W('photo', 4.9), tGen = W('generate', 7.6), tScreen = W('photograph', 8.9);
+  const tPics = W('pics', 11.5), tTrust = W('trust', 17.9);
+  const photo = (inner, cap) => `<div class="photo"><div class="img">${inner}</div><div class="cap">${cap}</div></div>`;
+  const scenery = `<svg viewBox="0 0 300 300" style="position:absolute;inset:0;width:100%;height:100%"><circle cx="220" cy="80" r="34" fill="#ffe7a3"/>
+      <path d="M0 190 L90 100 L150 160 L200 120 L300 200 V300 H0Z" fill="#4c7a5a"/><path d="M0 230 L120 170 L300 240 V300 H0Z" fill="#3d6448"/></svg>`;
+  item(s, photo(scenery, 'the summit, 7:02 am'), { x: 150, y: 210, at: tProof - .1, anim: 'drop', until: tPics - .3, style: { transform: 'rotate(-6deg)' } });
+  item(s, `<div class="stamp ok" style="font-size:44px;padding:4px 18px">Proof ✓</div>`, { x: 260, y: 300, at: tProof + .5, anim: 'stamp', until: tGen });
+  item(s, `<div class="stamp bad" style="font-size:44px;padding:4px 18px">Proof ?</div>`, { x: 260, y: 300, at: tGen, anim: 'stamp', until: tPics - .3 });
+  item(s, photo(scenery + `<div style="position:absolute;inset:0;background:linear-gradient(120deg,#ff00aa33,#00e5ff33);mix-blend-mode:screen"></div>`,
+      `<span style="color:#9a3cff">✦ generated in 3 s</span>`), { x: 470, y: 160, at: tGen + .1, anim: 'drop', until: tPics - .3 });
+  item(s, `<div class="photo" style="width:300px;height:420px"><div class="img" style="background:#000"><img src="stills/fish_screen.jpg" style="width:100%;height:100%;object-fit:cover;object-position:50% 45%"></div><div class="cap">a photo of a screen</div></div>`,
+       { x: 330, y: 330, at: tScreen, anim: 'drop', until: tPics - .3 });
+  item(s, `<div class="h1" style="font-size:76px;max-width:860px">“Pics or it<br>didn’t happen.”</div>`, { x: 110, y: 170, at: tPics, anim: 'up' });
+  const rows = [['sporting', 14.0, 'Sporting events'], ['fishing', 15.0, 'Fishing derbies'], ['sponsored', 16.0, 'Sponsored contests']];
+  rows.forEach(([w, n, label], i) => item(s, `<div class="row" style="gap:18px"><span class="chip" style="font-size:32px;padding:14px 24px">${label}</span>
+      <span class="chip bad" style="font-size:32px;padding:12px 20px">?</span></div>`, { x: 110, y: 420 + i * 100, at: W(w, n), anim: 'left' }));
+  item(s, `<div class="h2">…now runs on <span class="bad" style="text-decoration:underline 6px;text-underline-offset:10px">trust</span>.</div>`, { x: 110, y: 740, at: tTrust - .25 });
+}
+// ---- 3. Not a photo checker -> the factory (18.7 .. 29.1) -------------------
+{
+  const s = scene(18.7, 21.15, 'split');
+  const t = W('checker', 20.4);
+  item(s, `<div class="kicker">So I didn’t build</div><div class="h1" style="margin-top:14px;position:relative;display:inline-block">a better photo checker
+      <i id="strike" style="position:absolute;left:-10px;right:-10px;top:50%;height:10px;border-radius:5px;background:var(--bad);transform-origin:0 50%"></i></div>`,
+      { x: 110, y: 380, at: 18.8, w: 900 });
+  s.fn = r => { $('#strike').style.transform = `scaleX(${oc((r - t) / .4)})`; };
+}
+{
+  const s = scene(21.15, 29.15, 'cut', { bubble: true });
+  const tI = W('intent', 22.0), tTell = W('tell', 24.5), tRec = W('records', 26.0), tBuild = W('builds', 27.4);
+  item(s, `<div class="kicker">What I built</div><div class="h1" style="margin-top:12px">An <span class="gold">on-device</span> intent &amp; evidence factory</div>`,
+       { x: 140, y: 120, at: 21.2, w: 1500, cue: 'whoosh' });
+  const N = [['quote', 'Intent', 'you say it', 'phone'], ['list', 'Claims', 'checkable', 'phone'], ['camera', 'Evidence', 'GPS · motion · video', 'phone'], ['seal', 'Seal', 'cloud + code', 'cloud']];
+  const X = [140, 560, 980, 1400];
+  N.forEach(([i, t, sub, where], k) => {
+    item(s, `<div class="node" data-n="${k}">${ic(i)}<div class="t">${t}</div><div class="sub">${sub}</div></div>
+      <div class="chip ${where === 'phone' ? 'ok' : 'gold'}" style="position:absolute;left:50%;transform:translateX(-50%);top:270px;white-space:nowrap;font-size:20px">${ic(where)} ${where === 'phone' ? 'on device' : 'cloud'}</div>`,
+      { x: X[k], y: 380, at: tI + k * .35, anim: 'pop' });
+    if (k < 3) item(s, `<div class="wire" style="width:170px"><i data-w="${k}"></i></div><div class="dotp" data-d="${k}" style="top:-4px"></div>`,
+      { x: X[k] + 250, y: 502, at: tI + k * .35 + .2, anim: 'fade', cue: false });
+  });
+  const glowAt = [tTell, tRec - .4, tRec, tBuild];
+  s.fn = r => {
+    s.el.querySelectorAll('.wire i').forEach(e => { const k = +e.dataset.w; e.style.transform = `scaleX(${oc((r - tI - k * .35 - .25) / .4)})`; });
+    s.el.querySelectorAll('.dotp').forEach(e => { const k = +e.dataset.d; const ph = ((r * .9 + k * .3) % 1); e.style.left = (ph * 160) + 'px'; e.style.opacity = r > tRec ? 1 : 0; });
+    s.el.querySelectorAll('.node').forEach(e => {
+      const k = +e.dataset.n, g = clamp((r - glowAt[k]) / .3);
+      e.style.borderColor = g > 0 ? `rgba(231,180,37,${.3 + .7 * g})` : '';
+      e.style.boxShadow = `0 0 ${60 * g}px rgba(231,180,37,${.35 * g})`;
+      e.querySelector('.ico').style.color = g > .5 ? '#E7B425' : '';
+    });
+  };
+}
+// ---- 4. 01 Intent (29.15 .. 52.1) ------------------------------------------
+{
+  const s = scene(29.15, 52.1, 'split', { step: 0 });
+  item(s, iphone('intent', 29.15, 880), { x: 120, y: 88, at: 29.15, anim: 'up', cue: 'whoosh' });
+  const X = 600, Wd = 470;
+  item(s, `<div class="card" style="border-color:#E7B42566"><div class="row kicker" style="gap:10px">${ic('mic')} Intent · spoken</div>
+      <div class="h3" style="margin-top:10px;font-size:34px">“Twenty push-ups at the top of the hill.”</div></div>`, { x: X, y: 90, w: Wd, at: W('twenty', 31.0) });
+  item(s, `<div class="row" style="gap:10px;flex-wrap:wrap"><span class="chip ok" style="font-size:21px">${ic('phone')} On-device interview</span>
+      <span class="chip" style="font-size:21px">${ic('wifioff')} no signal needed</span></div>`, { x: X, y: 262, w: Wd, at: W('on-device', 33.0) });
+  item(s, `<div class="kicker">Claims</div>`, { x: X, y: 372, at: W('claims', 37.5) });
+  [['pin', 'place', 39.3, 'Place', 'top of the hill'], ['act', 'action', 39.8, 'Action', 'push-ups'], ['hash', 'count', 40.4, 'Count', '20']].forEach(([i, w, n, k, v], j) =>
+    item(s, `<span class="chip gold" style="font-size:24px">${ic(i)} ${k} <span style="color:var(--ink);font-weight:600">· ${v}</span></span>`, { x: X, y: 410 + j * 58, at: W(w, n), anim: 'pop', origin: '0 50%' }));
+  item(s, `<div class="card"><div class="row kicker" style="gap:10px">${ic('list')} Evidence plan</div>
+      <div class="body" style="margin-top:6px;font-size:20px">the minimum a fair skeptic would need</div>
+      <div class="row h3" style="margin-top:14px;font-size:25px;gap:12px" data-p="1">${ic('video', 'gold')} One continuous video of all 20</div>
+      <div class="row h3" style="margin-top:10px;font-size:25px;gap:12px" data-p="2">${ic('pin', 'gold')} GPS track ends on the hill</div></div>`,
+      { x: X, y: 615, w: Wd, at: W('plan', 42.6) });
+  const p1 = W('continuous', 46.0), p2 = W('GPS', 49.7);
+  s.fn = r => {
+    s.el.querySelectorAll('[data-p]').forEach(e => { const at = e.dataset.p === '1' ? p1 : p2; const k = oc((r - at) / .4); e.style.opacity = k; e.style.transform = `translateX(${(1 - k) * -30}px)`; });
+  };
+}
+// ---- 5. 02 Evidence: the factory runs (52.1 .. 64.9) ------------------------
+{
+  const s = scene(52.1, 64.95, 'cut', { bubble: true, step: 1 });
+  item(s, iphone('factory', 52.1, 860), { x: 140, y: 100, at: 52.1, anim: 'up', cue: 'whoosh' });
+  item(s, `<div class="kicker">The factory runs</div><div class="h2" style="margin-top:10px">Every 5 s → one sealed chunk</div>`, { x: 640, y: 120, w: 1200 });
+  item(s, `<div class="row" style="gap:12px"><span class="chip ok">${ic('pin')} GPS</span><span class="chip ok">${ic('act')} motion</span><span class="chip ok">${ic('video')} video</span><span class="chip gold mono" style="font-size:22px">${ic('link')} SHA-256 chained</span></div>`,
+      { x: 640, y: 250, at: W('GPS', 55.5) });
+  const hashes = ['9f3a7c21e0b4', '41d08e7fa92c', 'c7e512ab9d03', '2b96f04c11ea', 'e80d3a5fb7c4'];
+  const t0 = W('chunk', 58.7), tLink = W('chained', 60.0), tByte = W('byte', 63.0), tBreak = W('breaks', 64.3);
+  hashes.forEach((h, k) => {
+    item(s, `<div class="blk" data-b="${k}"><div class="n">#${k + 1} · ${k * 5}–${k * 5 + 5} s</div><div class="sig"><i>GPS</i><i>motion</i><i>video</i></div>
+       <div class="h">sha256<br><span class="hh">${h}…</span></div></div>`, { x: 640 + k * 238, y: 360, at: t0 - 1.6 + k * .55, anim: 'pop', cue: 'tick' });
+    if (k) item(s, `<div class="lnk" data-l="${k}" style="width:48px"></div>`, { x: 640 + k * 238 - 48, y: 446, at: tLink - .3 + k * .12, anim: 'fade', cue: false });
+  });
+  item(s, `<div class="row h3" style="gap:14px">${ic('link', 'ok')} each chunk carries the hash of the one before</div>`, { x: 640, y: 580, at: tLink + .3 });
+  item(s, `<div class="row h2 bad" style="gap:16px">${ic('x')} one byte changed → chain broken</div>`, { x: 640, y: 660, at: tBreak - .2, cue: 'stamp' });
+  s.fn = r => {
+    const k = clamp((r - tByte) / .5);
+    const b = s.el.querySelector('[data-b="2"]'), hh = b.querySelector('.hh');
+    if (r > tByte) {
+      const chars = '0123456789abcdef'; let x = '';
+      const seed = Math.floor(r * 20);
+      for (let i = 0; i < 12; i++) x += chars[(seed * 7 + i * 13 + (k < 1 ? seed * i : 5 * i)) % 16];
+      hh.textContent = (k < 1 ? x : 'd41f09c2b7e3') + '…';
+      b.style.borderColor = '#f08a78'; b.style.boxShadow = '0 0 40px #f08a7855';
+    } else { hh.textContent = hashes[2] + '…'; b.style.borderColor = ''; b.style.boxShadow = ''; }
+    const br = clamp((r - tBreak + .4) / .4);
+    s.el.querySelectorAll('[data-l]').forEach(l => {
+      const i = +l.dataset.l;
+      if (i >= 3 && br > 0) { l.style.background = '#f08a78'; l.style.transform = `scaleX(${1 - .6 * br}) rotate(${(i % 2 ? 1 : -1) * 18 * br}deg)`; }
+      else { l.style.background = ''; l.style.transform = ''; }
+    });
+  };
+}
+// ---- 6. Design decision (64.95 .. 80.4) ------------------------------------
+{
+  const s = scene(64.95, 67.4, 'split', { step: 1 });
+  item(s, `<div class="kicker" style="font-size:22px">The design decision</div><div class="h2" style="margin-top:10px;max-width:760px">I care about this one most.</div>`, { x: 110, y: 420, at: 65.2, anim: 'left' });
+}
+{
+  const s = scene(67.4, 80.45, 'split', { step: 1 });
+  item(s, iphone('retake', 67.4, 880), { x: 120, y: 88, at: 67.4, anim: 'up', cue: 'whoosh' });
+  const X = 600;
+  item(s, `<span class="chip ok" style="font-size:24px">${ic('bolt')} On-device check · &lt; 1 s per shot</span>`, { x: X, y: 110, at: W('checks', 68.6) });
+  item(s, `<span class="chip" style="font-size:24px">${ic('lock')} the image never leaves the phone</span>`, { x: X, y: 180, at: W('image', 70.9) });
+  item(s, `<div class="h3" style="color:var(--ink2)">It has exactly one power:</div>`, { x: X, y: 290, at: W('power', 73.4) });
+  item(s, `<div class="stamp ok" style="font-size:60px;display:inline-flex;align-items:center;gap:16px">${ic('check')} Retake</div>`, { x: X + 10, y: 360, at: W('retake', 75.0), anim: 'stamp', origin: '20% 50%' });
+  item(s, `<div style="position:relative;display:inline-block"><div class="stamp" style="font-size:60px;color:#e8ece480">Verified</div>
+     <i style="position:absolute;left:-14px;right:-14px;top:46%;height:9px;border-radius:5px;background:var(--bad);transform:rotate(-8deg)"></i></div>`,
+     { x: X + 10, y: 500, at: W('verified', 76.6), anim: 'stamp', origin: '20% 50%' });
+  item(s, `<div class="card" style="border-color:#E7B42566"><div class="h3" style="font-size:32px">The small model <span class="gold">coaches</span>.<br>It never <span class="bad">judges</span>.</div></div>`,
+     { x: X, y: 680, w: 470, at: W('coaches', 78.6) });
+}
+// ---- 7. Live AI witness (80.45 .. 93.6) ------------------------------------
+{
+  const s = scene(80.45, 93.7, 'split', { step: 1 });
+  item(s, iphone('witness', 80.45, 880), { x: 120, y: 88, at: 80.45, anim: 'up', cue: 'whoosh' });
+  const X = 600, Wd = 470;
+  item(s, `<div class="row" style="gap:12px"><span class="chip gold" style="font-size:24px">${ic('eye')} Live AI witness</span><span class="chip ok" style="font-size:20px">${ic('phone')} on device</span></div>`, { x: X, y: 100, at: W('witness', 82.0) });
+  item(s, `<div class="card"><div class="body" style="font-size:20px">asks for whatever is still missing</div>
+     <div class="h3" style="margin-top:8px;font-size:32px">“Show the video of all 10 push-ups.”</div></div>`, { x: X, y: 180, w: Wd, at: W('missing', 83.8) });
+  item(s, `<div class="row h3" style="gap:12px;font-size:27px">${ic('link', 'ok')} the answer goes into the chain</div>`, { x: X, y: 400, at: W('answer', 87.6) });
+  item(s, `<div class="card" style="width:${Wd}px"><div class="row h3" style="gap:12px">${ic('plane', 'gold')} No signal?</div>
+     <div style="position:relative;height:120px;margin-top:10px">
+       <div style="position:absolute;left:0;top:20px;font-size:76px;color:var(--ink2)">${ic('phone')}</div>
+       <div style="position:absolute;right:10px;top:16px;font-size:84px;color:var(--ink2)" id="wcloud">${ic('cloud')}</div>
+       <div class="q" style="position:absolute;width:26px;height:26px;border-radius:6px;background:var(--ok)"></div>
+       <div class="q" style="position:absolute;width:26px;height:26px;border-radius:6px;background:var(--ok)"></div>
+       <div class="q" style="position:absolute;width:26px;height:26px;border-radius:6px;background:var(--ok)"></div></div>
+     <div class="body" style="font-size:22px">It all waits on the phone, then <span class="ok">syncs later</span>.</div></div>`, { x: X, y: 480, at: W('signal', 90.0) });
+  const tS = W('syncs', 92.3);
+  s.fn = r => {
+    s.el.querySelectorAll('.q').forEach((q, i) => {
+      const f = oc((r - tS - i * .15) / .6);
+      q.style.left = lerp(90 + i * 32, 360, f) + 'px';
+      q.style.top = lerp(70, 40, f) + 'px';
+      q.style.opacity = f >= 1 ? 0 : 1;
+    });
+    $('#wcloud').style.color = r > tS + .6 ? '#7fd19b' : '';
+  };
+}
+// ---- 8. 03 Seal: the cloud (93.7 .. 111.3) ----------------------------------
+{
+  const s = scene(93.7, 111.35, 'cut', { bubble: true, step: 2 });
+  item(s, iphone('cloud', 93.7, 860), { x: 140, y: 100, at: 93.7, anim: 'up', cue: 'whoosh' });
+  const X = 640;
+  item(s, `<div class="row" style="gap:14px"><span class="kicker">Then the cloud takes over</span></div>`, { x: X, y: 104, at: 94.2 });
+  item(s, `<div class="card row" style="gap:22px;width:900px"><img src="${LOGO('gemini-color.svg')}" style="height:70px">
+     <div><div class="h3">Gemini watches the whole video</div><div class="body" style="font-size:22px">claim by claim: doing push-ups · 10 reps · Punta Arenas</div></div></div>`, { x: X, y: 150, at: W('Gemini', 96.3) });
+  [['judge', 'judge', 99.6, 'Judge'], ['search', 'skeptic', 100.3, 'Skeptic'], ['gauge', 'scorer', 101.0, 'Scorer']].forEach(([i, w, n, t], k) =>
+    item(s, `<div class="card ai" style="width:280px;text-align:center"><div style="font-size:56px;color:var(--gold)">${ic(i)}</div><div class="h3">${t}</div><div class="body" style="font-size:19px">reads the frames</div></div>`,
+      { x: X + k * 310, y: 310, at: W(w, n), anim: 'pop' }));
+  item(s, `<span class="chip" style="font-size:22px">AI only <b class="gold">&nbsp;proposes</b></span>`, { x: X + 640, y: 268, at: W('proposes', 102.8) });
+  item(s, `<div class="card" style="width:900px;border-color:#FF910066"><div class="row" style="gap:18px"><img src="${LOGO('fb-flame.svg')}" style="height:56px">
+     <div><div class="h3">Cloud Function re-checks everything</div><div class="body" style="font-size:20px">only this code can write the seal</div></div></div>
+     <div class="row" style="gap:14px;margin-top:16px">
+       <span class="chip ok cf" data-c="0">${ic('link')} chain ✓</span><span class="chip ok cf" data-c="1">${ic('sync')} timing ✓</span><span class="chip ok cf" data-c="2">${ic('act')} physics ✓</span></div></div>`,
+     { x: X, y: 530, at: W('Cloud', 104.3) });
+  const ct = [W('chain', 105.6), W('timing', 106.4), W('physics', 107.2)];
+  const tSeal = W('seal', 110.2);
+  item(s, `<div class="stamp gold" style="font-size:76px;display:inline-flex;gap:18px;align-items:center">${ic('seal')} Sealed by code</div>`,
+     { x: X + 40, y: 760, at: tSeal - .1, anim: 'stamp' });
+  CUES.push({ r: tSeal + .05, kind: 'ding' });
+  s.fn = r => {
+    s.el.querySelectorAll('.cf').forEach(e => { const k = oc((r - ct[+e.dataset.c]) / .35); e.style.opacity = k; e.style.transform = `scale(${lerp(.7, 1, ob((r - ct[+e.dataset.c]) / .35))})`; });
+    const d = clamp((r - W('proposes', 102.8)) / .4);
+    s.el.querySelectorAll('.ai').forEach(e => e.style.filter = `saturate(${1 - .7 * d}) brightness(${1 - .35 * d})`);
+  };
+  ct.forEach(t => CUES.push({ r: t, kind: 'tick' }));
+}
+// ---- 9. A fake (111.35 .. 121.65) ------------------------------------------
+{
+  const s = scene(111.35, 121.65, 'cut', { step: -1 });
+  item(s, `<div class="h1 bad" style="font-size:80px">And a fake?</div>`, { x: 120, y: 70, at: W('fake', 111.7), cue: 'whoosh' });
+  item(s, iphone('fish', 111.35, 700), { x: 160, y: 200, at: 111.4, anim: 'up', cue: false });
+  item(s, `<div class="row" style="gap:10px"><span class="chip" style="font-size:22px">${ic('spark')} AI-generated fish · filmed off a laptop</span></div>`, { x: 640, y: 96, at: W('AI-generated', 113.6), cue: false });
+  const tSk = W('skeptic', 116.0), tRej = W('rejected', 117.3);
+  item(s, androidStill('stills/android_fish.jpg', 700), { x: 640, y: 200, at: tSk - .5, anim: 'right' });
+  item(s, `<div class="row" style="gap:10px;color:var(--ink2);font-weight:700;font-size:20px"><img src="${LOGO('android-color.svg')}" style="height:26px">same Moment, on Android</div>`, { x: 660, y: 160, at: tSk - .2, cue: false });
+  item(s, `<div class="stamp bad" style="font-size:84px">Rejected</div>`, { x: 610, y: 450, at: tRej, anim: 'stamp' });
+  item(s, `<div class="card" style="width:620px;border-color:#f08a7866"><div class="row kicker bad" style="gap:10px;color:var(--bad)">${ic('search')} Skeptic</div>
+     <div class="h3" style="margin-top:10px">“Frames 1 and 2 are photos taken of a computer screen.”</div></div>`, { x: 1180, y: 210, at: tSk + .1 });
+  item(s, `<div class="h2">Faking one frame: <span class="ok">easy.</span></div>`, { x: 1180, y: 540, at: W('faking', 118.3) });
+  item(s, `<div class="h2">Faking a whole session: <span class="bad">hard.</span></div>`, { x: 1180, y: 630, at: W('faking', 119.9) });
+}
+// ---- 10. Three platforms (121.65 .. 137.2) ---------------------------------
+{
+  const s = scene(121.65, 137.2, 'cut', { step: -1 });
+  const tIp = W('iPhone', 123.6), tAn = W('Android', 124.6), tCh = W('Chrome', 125.5), tFb = W('Firebase', 127.6);
+  item(s, `<div class="h2" style="text-align:center;width:1920px">One app · <span class="gold">three platforms</span></div>`, { x: 0, y: 36, at: 121.8, cue: 'whoosh' });
+  const lab = (logo, name, chip, cls, inv) => `<div style="text-align:center"><div class="row" style="justify-content:center;gap:12px;font-weight:800;font-size:30px">
+     <img src="${LOGO(logo)}" style="height:34px;${inv ? 'filter:invert(1)' : ''}">${name}</div>
+     <span class="chip ${cls}" style="font-size:19px;margin-top:10px;padding:7px 14px">${chip}</span></div>`;
+  item(s, lab('si-apple.svg', 'iPhone', `${ic('phone')} On-device · Apple FM`, 'ok', true), { x: 120, y: 118, w: 420, at: tIp, cue: false });
+  item(s, iphone('ios_feed', 121.65, 700), { x: 180, y: 236, at: tIp, anim: 'up' });
+  item(s, lab('chrome-color.svg', 'Chrome / Web', `${ic('phone')} On-device · Gemini Nano`, 'ok'), { x: 610, y: 118, w: 700, at: tCh, cue: false });
+  item(s, browser('chrome_feed', 121.65, 760), { x: 580, y: 300, at: tCh, anim: 'up' });
+  item(s, lab('android-color.svg', 'Android', `${ic('cloud')} Cloud · no Nano on this phone`, 'gold'), { x: 1380, y: 118, w: 420, at: tAn, cue: false });
+  item(s, android('android_feed', 121.65, 700), { x: 1440, y: 236, at: tAn, anim: 'up' });
+  item(s, `<div class="card row" style="gap:16px;padding:14px 26px;border-color:#FF910088;box-shadow:0 0 60px #FF910033">
+      <img src="${LOGO('fb-flame.svg')}" style="height:48px"><div><div class="h3" style="font-size:28px">Firebase AI Logic</div><div class="body" style="font-size:18px">one hybrid SDK · on-device or cloud</div></div></div>`,
+      { x: 735, y: 818, at: tFb, anim: 'pop' });
+  item(s, `<span class="chip ok tg" style="font-size:22px">${ic('phone')} on device</span>`, { x: 520, y: 836, at: W('device', 130.6), anim: 'pop' });
+  item(s, `<span class="chip gold tg" style="font-size:22px">${ic('cloud')} cloud</span>`, { x: 1200, y: 836, at: W('cloud', 132.4), anim: 'pop' });
+  const tWhich = W('which', 135.4);
+  s.fn = r => {
+    const z = 1 + .05 * io((r - 121.65) / 15.5);
+    s.el.style.transform = `scale(${z})`; s.el.style.transformOrigin = '960px 540px';
+    s.el.querySelectorAll('.tg').forEach((e, i) => { const p = r > tWhich ? .5 + .5 * Math.sin((r - tWhich) * 8 + i * 3) : 0; e.style.boxShadow = `0 0 ${30 * p}px ${i ? '#E7B425' : '#7fd19b'}`; });
+  };
+}
+// ---- 11. Business (137.2 .. 144.75) ----------------------------------------
+{
+  const s = scene(137.2, 144.8, 'split', { step: -1 });
+  item(s, iphone('ladder', 137.2, 880), { x: 120, y: 88, at: 137.2, anim: 'up', cue: 'whoosh' });
+  const X = 600;
+  item(s, `<div class="h1 ok" style="font-size:82px">Proof is free.</div>`, { x: X, y: 160, at: W('free', 137.6) });
+  item(s, `<div class="card row" style="gap:16px;width:470px">${ic('card', 'gold')}<div><div class="h3" style="font-size:28px">High stakes?</div><div class="body" style="font-size:21px">buy extra checks</div></div></div>`,
+     { x: X, y: 320, at: W('stakes', 139.3) });
+  item(s, `<div class="h2" style="font-size:46px">Paying buys <span class="gold">scrutiny</span>,</div>`, { x: X, y: 500, at: W('paying', 142.2) });
+  item(s, `<div class="h2" style="font-size:46px">never a <span style="position:relative">score<i style="position:absolute;left:-6px;right:-6px;top:52%;height:7px;border-radius:4px;background:var(--bad)"></i></span>.</div>`,
+     { x: X, y: 570, at: W('never', 143.8) });
+}
+// ---- 12. Close (144.8 .. 149) ----------------------------------------------
+{
+  const s = scene(144.8, 148.75, 'split', { step: -1 });
+  item(s, `<div class="h1" style="font-size:92px">This is <span class="gold">Verified</span>.</div>`, { x: 110, y: 250, at: W('this', 144.9), anim: 'left' });
+  item(s, `<div class="h1" style="font-size:110px">Say it.</div>`, { x: 110, y: 420, at: W('say', 146.1), anim: 'pop', origin: '0 50%' });
+  item(s, `<div class="h1 gold" style="font-size:110px">Do it.</div>`, { x: 110, y: 545, at: W('do', 146.8), anim: 'pop', origin: '0 50%' });
+  item(s, `<div class="h1 ok" style="font-size:110px">Prove it.</div>`, { x: 110, y: 670, at: W('prove', 147.5), anim: 'pop', origin: '0 50%' });
+}
+// ---- OUTRO end card (148.75 .. 155) ----------------------------------------
+{
+  const s = scene(148.6, 155.1, 'cut', { fade: .5 });
+  const a = 148.75;
+  item(s, `<img src="${LOGO('verified-icon.svg')}" style="width:120px;border-radius:28px">`, { x: 140, y: 120, at: a, anim: 'pop', cue: 'whoosh' });
+  item(s, `<div style="font-weight:800;font-size:150px;letter-spacing:-.04em;line-height:.9">Verified</div>`, { x: 130, y: 260, at: a + .15 });
+  item(s, `<div class="h2"><span>Say it.</span> <span class="gold">Do it.</span> <span class="ok">Prove it.</span></div>`, { x: 140, y: 420, at: a + .4 });
+  item(s, `<div class="body" style="font-size:28px;max-width:760px">Proof that a moment really happened: planned on your phone, checked in the cloud, sealed by code.</div>`, { x: 140, y: 500, at: a + .6 });
+  item(s, `<div class="row" style="gap:16px;font-weight:700;font-size:24px;color:var(--ink2)">
+     <img src="${LOGO('si-apple.svg')}" style="height:30px;filter:invert(1)">iOS
+     <img src="${LOGO('android-color.svg')}" style="height:32px">Android
+     <img src="${LOGO('chrome-color.svg')}" style="height:30px">Web</div>`, { x: 140, y: 640, at: a + .8 });
+  item(s, `<div class="row" style="gap:20px;flex-wrap:wrap;width:820px"><span style="font-weight:700;font-size:22px;color:var(--ink3)">BUILT WITH</span>
+     <img src="${LOGO('fb-wordmark-white.svg')}" style="height:50px"><img src="${LOGO('gemini-color.svg')}" style="height:38px"><span class="h3" style="font-size:26px">Gemini</span></div>
+     <div class="row" style="gap:10px;flex-wrap:wrap;width:840px;margin-top:14px">
+     ${['Firebase AI Logic', 'Cloud Functions', 'Firestore', 'Cloud Storage', 'App Check', 'Hosting', 'Auth'].map(x => `<span class="chip" style="font-size:19px;padding:7px 14px">${x}</span>`).join('')}</div>`,
+     { x: 140, y: 730, at: a + 1.0 });
+  const qr = (id, src, title, url, x, at) => item(s, `<div class="qrwrap"><img src="${src}" style="width:300px;height:300px"><div class="laser"></div>
+      <div class="br" style="left:-10px;top:-10px;border-right:0;border-bottom:0;border-radius:14px 0 0 0"></div>
+      <div class="br" style="right:-10px;top:-10px;border-left:0;border-bottom:0;border-radius:0 14px 0 0"></div>
+      <div class="br" style="left:-10px;bottom:-10px;border-right:0;border-top:0;border-radius:0 0 0 14px"></div>
+      <div class="br" style="right:-10px;bottom:-10px;border-left:0;border-top:0;border-radius:0 0 14px 0"></div></div>
+      <div style="text-align:center;margin-top:26px;width:352px"><div class="h3" style="font-size:28px">${title}</div>
+      <div class="mono" style="font-size:18px;color:var(--gold);margin-top:6px">${url}</div></div>`, { x, y: 200, at, anim: 'pop' });
+  const q1 = qr('w', 'qr-web.svg', 'Try it on the web', 'verified-99e74.web.app', 1050, a + .5);
+  const q2 = qr('t', 'qr-testflight.svg', 'iPhone beta', 'TestFlight', 1460, a + .7);
+  item(s, `<span class="chip gold" style="font-size:24px">#BuildHybridAI</span>`, { x: 1395, y: 740, at: a + 1.2 });
+  s.fn = r => {
+    [q1, q2].forEach((q, i) => { $('.laser', q).style.top = (14 + (0.5 - 0.5 * Math.cos((r - a) * 2.4 + i * 1.3)) * 320) + 'px'; });
+    s.el.style.opacity = Math.min(win(r, 148.6, 155.1, .5), 1 - clamp((r - 154.4) / .6));
+  };
+}
+
+// ---------------------------------------------------------------- stepper
+const STEPS = ['Intent', 'Evidence', 'Seal'];
+$('#stepper').innerHTML = STEPS.map((s, i) => `${i ? '<div class="arrow"></div>' : ''}<div class="s" data-s="${i}"><b>0${i + 1}</b>${s}</div>`).join('');
+
+// ---------------------------------------------------------------- captions
+const CHUNKS = [];
+{
+  let cur = [];
+  const flush = () => { if (cur.length) CHUNKS.push(cur); cur = []; };
+  WORDS.forEach((w, i) => {
+    const prev = cur[cur.length - 1];
+    if (prev && (w.s - prev.e > .5)) flush();
+    cur.push(w);
+    const end = /[.?!]$/.test(w.w) || (/,$/.test(w.w) && cur.length >= 3) || cur.length >= 5;
+    if (end) flush();
+  });
+  flush();
+  CHUNKS.forEach((c, i) => { c.a = c[0].s - .08; c.b = Math.min(c[c.length - 1].e + .6, CHUNKS[i + 1] ? CHUNKS[i + 1][0].s - .08 : 1e9); });
+}
+const NOCAPS = [[144.8, 149]];
+let lastChunk = -1;
+function caps(r) {
+  const box = $('#caps .box');
+  const hide = NOCAPS.some(([a, b]) => r >= a && r < b) || r < 1.98 || r > 148.6;
+  const k = hide ? -1 : CHUNKS.findIndex(c => r >= c.a && r < c.b);
+  if (k !== lastChunk) {
+    box.innerHTML = k < 0 ? '' : CHUNKS[k].map(w => `<span>${w.w.replace(/</g, '&lt;')}</span>`).join('');
+    lastChunk = k;
+  }
+  box.style.display = k < 0 ? 'none' : 'flex';
+  if (k < 0) return;
+  const c = CHUNKS[k];
+  const enter = oc((r - c.a) / .18);
+  box.style.transform = `translateY(${(1 - enter) * 14}px)`; box.style.opacity = enter;
+  [...box.children].forEach((sp, i) => {
+    const w = c[i], on = r >= w.s && r < (c[i + 1] ? c[i + 1].s : w.e + .3);
+    sp.className = on ? 'on' : (r < w.s ? 'fut' : '');
+    const pop = on ? ob((r - w.s) / .18) : 1;
+    sp.style.transform = on ? `scale(${lerp(.92, 1.05, pop)})` : '';
+  });
+}
+
+// ---------------------------------------------------------------- roll / modes
+const PUNCH = [[2.0, 4.8, 1.07, 'settle'], [18.7, 21.15, 1.06], [64.95, 67.4, 1.16], [144.8, 149, 1.12]];
+function rollZoom(r) {
+  let z = 1;
+  for (const [a, b, s, kind] of PUNCH) {
+    if (kind === 'settle') z = Math.max(z, lerp(s, 1, io((r - a) / (b - a))) * (r >= a - 1 && r < b ? 1 : 0) || 1);
+    else z = Math.max(z, lerp(1, s, win(r, a, b, .5)));
+  }
+  return z * (1 + .015 * Math.sin(r * .21));     // breathing drift
+}
+const imgs = new Map();
+function setImg(img, src) { if (img.getAttribute('src') !== src) { img.src = src; imgs.set(img, src); } }
+
+async function renderFrame(t) {
+  imgs.clear();
+  const r = t - INTRO + ROLL_IN;
+  // weights
+  let cut = 0, split = 0, bubble = 0, step = -1;
+  for (const s of SCENES) {
+    const w = win(r, s.a, s.b, s.fade);
+    if (s.mode === 'cut') cut = Math.max(cut, w);
+    if (s.mode === 'split') split = Math.max(split, w);
+    if (s.bubble) bubble = Math.max(bubble, w);
+    if (w > .5 && s.step >= 0) step = s.step;
+    const vis = w > 0.001;
+    s.el.style.display = vis ? 'block' : 'none';
+    if (!vis) continue;
+    if (s.mode !== 'full' || s.fade > .02) s.el.style.opacity = w;
+    s.items.forEach(it => animItem(it, r));
+    if (s.fn) s.fn(r);
+    s.el.querySelectorAll('img[data-clip]').forEach(img => {
+      const clip = img.dataset.clip, n = CLIPN[clip];
+      const f = clamp(Math.floor((r - +img.dataset.start) * FPS) + 1, 1, n);
+      setImg(img, `frames/${clip}/${pad(f)}.jpg`);
+    });
+  }
+  // A-roll
+  const rf = clamp(Math.floor((r - ROLL_IN) * FPS) + 1, 1, RA_N);
+  setImg($('#ra'), `frames/ra/${pad(rf)}.jpg`);
+  $('#roll').style.transform = `scale(${rollZoom(r)})`;
+  $('#roll').style.opacity = 1 - cut;
+  $('#dim').style.opacity = split;
+  $('#cutbg').style.opacity = cut; $('#grid').style.opacity = cut * .8;
+  $('#grid').style.backgroundPosition = `${r * 6}px ${r * 3}px`;
+  const bo = bubble;
+  $('#bubble').style.display = bo > .001 ? 'block' : 'none';
+  if (bo > .001) { setImg($('#ra2'), `frames/ra/${pad(rf)}.jpg`); $('#bubble').style.opacity = bo; $('#bubble').style.transform = `scale(${lerp(.6, 1, ob(bo))})`; }
+  // stepper + watermark
+  const stepVis = win(r, 29.15, 111.35, .4);
+  $('#stepper').style.opacity = stepVis;
+  $('#stepper').querySelectorAll('.s').forEach(e => { const i = +e.dataset.s; e.className = 's' + (i === step ? ' on' : i < step ? ' done' : ''); });
+  $('#mark').style.opacity = win(r, 1.6, 148.5, .6) * (1 - win(r, 121.65, 137.2, .4)) * (1 - win(r, 111.35, 121.65, .4)) * .95;
+  caps(r);
+  // white flash on the two stamps that matter
+  const fl = [W('seal', 110.2), W('rejected', 117.3)].reduce((m, x) => Math.max(m, 1 - clamp(Math.abs(r - x - .05) / .12)), 0);
+  $('#flash').style.opacity = fl * .18;
+  await Promise.all([...imgs.keys()].map(i => i.decode().catch(() => {})));
+  return true;
+}
+window.renderFrame = renderFrame;
+window.META = { TOTAL, FPS, INTRO, ROLL_IN, cues: () => CUES.map(c => ({ t: c.r - ROLL_IN + INTRO, kind: c.kind })) };
+window.READY = document.fonts.ready.then(() => true);
+</script>
+</body>
+</html>
