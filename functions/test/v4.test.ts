@@ -9,7 +9,7 @@ import { unmetNeedV4 } from "../src/callable";
 import { fakeClaimsAndPlan, fallbackClaims, normalizeClaims, normalizePlan } from "../src/claims";
 import { chainFacts } from "../src/ladder";
 import { ChunkDoc, MomentDoc, chunkHash, genesis, sha256hex } from "../src/seal";
-import { evaluateSealV4, feedV4Fields, feedVideoClips, isReadyToSealV4, needsBarAndClaims, needsVideoReview, videoWaitExpired } from "../src/seal4";
+import { evaluateSealV4, feedScoreReasons, feedV4Fields, feedVideoClips, isReadyToSealV4, needsBarAndClaims, needsVideoReview, videoWaitExpired } from "../src/seal4";
 import { applyLadderV4, claimsBackedByModule, moduleOutcomes, scoreV4 } from "../src/score4";
 import { getModule } from "../src/shared";
 import { Claim, VIDEO_WAIT_MS } from "../src/v4";
@@ -314,16 +314,21 @@ describe("seal v4 readiness: waits for bar + claims, then the clip (v4.3, v4.4)"
 
 describe("seal v4 evaluation (v4.5, v4.6)", () => {
   const chunks = clapChunks();
-  it("clap 50 times: the video review backs both claims → minimum evidence earns the bar, no paid module", () => {
+  it("clap 50 times: the video review backs both claims → bar, then lifted by the full_video strength, no paid module", () => {
     const e = evaluateSealV4(ID, clapMoment(), chunks);
     expect(e.base.checks).toMatchObject({ chain: true, timing: true, physics: true, frames: true });
-    expect(e.score.claims.map((c) => [c.id, c.p, c.met, c.backedBy])).toEqual([
-      ["c1", 0.55, ["r1"], ["video_review"]],
-      ["c2", 0.55, ["r2"], ["video_review"]],
+    // minimum evidence earns the bar (0.55); the backing clip then lifts it: 0.55 + 0.45 · 0.45 = 0.7525
+    expect(e.score.claims.map((c) => [c.id, +c.p.toFixed(4), +c.sealP.toFixed(4), c.met, c.backedBy])).toEqual([
+      ["c1", 0.7525, 0.7525, ["r1"], ["video_review"]],
+      ["c2", 0.7525, 0.7525, ["r2"], ["video_review"]],
     ]);
     expect(e.score.sealed).toBe(true);
-    expect(e.score.score).toBe(0.55);
-    expect(e.reason).toBe("All 2 claims backed · score 0.55 ≥ bar 0.55");
+    expect(e.score.claimsBacked).toBe(2);
+    expect(e.score.score).toBeCloseTo(0.7525, 6);
+    expect(e.reason).toBe("All 2 claims backed · score 0.75 ≥ bar 0.55");
+    // the feed leads with the reviewer's reasons, not the frames scorer's
+    expect(feedScoreReasons(["Single frame cannot verify the count"], DONE as never)).toEqual(["hands", "counted 50", "One clip of 50 claps"]);
+    expect(feedScoreReasons(["frames"], { ...DONE, status: "expired" } as never)).toEqual(["frames"]);
     const f = feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, DONE as never);
     expect(f).toMatchObject({ sealVersion: 4, claimsBacked: 2, claimsTotal: 2, cheating: false, video: { reviewed: true, summary: "One clip of 50 claps", status: "done" } });
     expect(f.plan.requirements.map((r) => r.met)).toEqual([true, true]);
@@ -341,6 +346,23 @@ describe("seal v4 evaluation (v4.5, v4.6)", () => {
     const e = evaluateSealV4(ID, clapMoment(), chunks);
     const f = feedV4Fields(e.claims, e.score.claims, e.plan, e.bar, e.score.checks, e.score.cheating.signals, vr as never, { uid: "alice", momentId: ID });
     expect(f.video.clips.map((c) => c.ext)).toEqual(["mp4", "webm"]);
+  });
+  it("the clip shows a shortfall: rejected in the reviewer's words, not the still-frame baseline", () => {
+    const short = {
+      ...DONE,
+      claims: [
+        { id: "c1", verdict: "backed", confidence: 1, reasons: ["clapping on camera"] },
+        { id: "c2", verdict: "not_backed", confidence: 1, reasons: ["Only 6 claps before stopping."], measured: { value: 6, unit: "claps" } },
+      ],
+    };
+    const e = evaluateSealV4(ID, clapMoment({ videoReview: short }), chunks);
+    expect(e.score.sealed).toBe(false);
+    expect(e.score.claims.map((c) => [c.id, +c.p.toFixed(4)])).toEqual([
+      ["c1", 0.7525], // met → bar 0.55, lifted
+      ["c2", 0.4], // the frames baseline; the reason says why, not "0.40 < bar"
+    ]);
+    expect(e.score.claimsBacked).toBe(1);
+    expect(e.reason).toBe("1 of 2 claims backed · 50 claps: Only 6 claps before stopping.");
   });
   it("the clip expired after 24 h: video requirements unmet, no cheating, stays at the baseline", () => {
     const e = evaluateSealV4(ID, clapMoment({ videoReview: { ...DONE, status: "expired", claims: [], clips: [clip({ uploaded: false, ext: null, hashOk: null })] } }), chunks);

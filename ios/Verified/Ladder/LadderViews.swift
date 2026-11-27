@@ -67,6 +67,7 @@ struct LadderSheet: View {
   @State private var confirm: LadderCatalog.Module?
   @State private var result: LadderService.RunResult?
   @State private var error: String?
+  @State private var buying = false
   /// Idempotency keys (`requestId`) kept across retries of the same module until the call gives a definite answer.
   @State private var requestIds: [String: String] = [:]
 
@@ -120,6 +121,7 @@ struct LadderSheet: View {
         ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
       .task { await app.credits.refresh() }
+      .sheet(isPresented: $buying) { BuyCreditsSheet().presentationDetents([.large]) }
       .sensoryFeedback(trigger: result) { _, new in
         guard let new else { return nil }
         return new.passed ? .success : .error
@@ -157,12 +159,19 @@ struct LadderSheet: View {
 
   @ViewBuilder private var creditsChip: some View {
     if let c = app.credits.credits {
-      Label("\(c.balance)", systemImage: Glyph.credits)
-        .font(.headline.monospacedDigit())
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .foregroundStyle(Color(hex: 0x10242B))
-        .background(Theme.gold, in: Capsule())
-        .accessibilityLabel("\(c.balance) free demo \(c.balance == 1 ? "credit" : "credits")")
+      HStack(spacing: 8) {
+        Label("\(c.balance)", systemImage: Glyph.credits)
+          .font(.headline.monospacedDigit())
+          .padding(.horizontal, 10).padding(.vertical, 5)
+          .foregroundStyle(Color(hex: 0x10242B))
+          .background(Theme.gold, in: Capsule())
+          .accessibilityLabel("\(c.balance) \(c.balance == 1 ? "credit" : "credits")")
+        Button("Buy") { buying = true }
+          .font(.subheadline.weight(.semibold))
+          .buttonStyle(.bordered).controlSize(.small).tint(Theme.lake)
+          .disabled(running != nil)
+          .accessibilityLabel("Buy credits")
+      }
     } else if app.credits.loading {
       ProgressView().controlSize(.small)
     }
@@ -388,7 +397,7 @@ struct LadderSection: View {
             .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent).tint(Theme.lake).controlSize(.large)
-        Label("Free demo credits · fails lower the score", systemImage: Glyph.credits)
+        Label("Spends credits · fails lower the score", systemImage: Glyph.credits)
           .font(.caption2).foregroundStyle(.secondary)
       } else if owner, (m.status == "sealed" || m.status == "rejected"), (m.sealVersion ?? 0) >= 3 {
         Label("Ladder closed: an integrity check failed", systemImage: "lock.fill")

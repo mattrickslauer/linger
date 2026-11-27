@@ -1,10 +1,11 @@
+import FirebaseCore
 @preconcurrency import FirebaseFunctions
 import Foundation
 import Observation
 import VerifiedCore
 
 /// The v3.7 callables (`us-central1`, sign-in required). Credits and ladder results are written only by Cloud
-/// Functions; the client never writes a score. Free demo credits only (no purchase).
+/// Functions; the client never writes a score. Credits start free and are topped up through pay (`buyCredits`).
 nonisolated enum LadderService {
   struct Credits: Sendable, Equatable {
     var balance: Int
@@ -60,7 +61,10 @@ nonisolated enum LadderService {
       case "not_owner": "Only the owner can run modules."
       case "moment_missing": "This Moment isn't on the server yet."
       case "in_progress": "This module is still running. Try again in a moment."
-      case "bad_request", "bad_module": "The app sent a request the server didn't accept. Update the app and try again."
+      case "bad_pack": "That credit pack isn't on sale any more. Update the app and try again."
+      case "pay_unavailable": "The payment service couldn't be reached. Try again in a moment."
+      case "unknown_purchase": "That purchase isn't on this account."
+      case "bad_request", "bad_module", "bad_return_url": "The app sent a request the server didn't accept. Update the app and try again."
       default: nil
       }
     }
@@ -89,6 +93,45 @@ nonisolated enum LadderService {
       },
       claims: (d["claims"] as? [[String: Any]] ?? []).compactMap(LadderEntry.ClaimOutcome.init),
       claimsBacked: d.int("claimsBacked"))
+  }
+
+  // MARK: Buying credits (pay.mattrickslauer.com)
+
+  struct Checkout: Sendable, Equatable, Identifiable {
+    var purchaseId: String
+    var url: URL
+    var id: String { purchaseId }
+  }
+
+  struct Purchase: Sendable, Equatable {
+    /// "open" (not paid yet), "paid" or "refunded".
+    var status: String
+    var credited: Bool
+    var credits: Int
+    var balance: Int
+  }
+
+  /// Where pay sends the buyer after checkout: this project's web app, which (with `from=app`) says to go back to
+  /// the app. buyCredits only accepts this app's own origins.
+  static var purchaseReturnURL: String {
+    let project = FirebaseApp.app()?.options.projectID ?? "verified-99e74"
+    return "https://\(project).web.app/me?from=app"
+  }
+
+  /// Opens a pay checkout for `pack` (the function writes the purchase, then asks pay for a hosted checkout page).
+  static func buyCredits(pack: String) async throws -> Checkout {
+    let d = try await call("buyCredits", ["pack": pack, "returnUrl": purchaseReturnURL])
+    guard let id = d.str("purchaseId"), let raw = d.str("url"), let url = URL(string: raw) else {
+      throw Failure(code: "internal", reason: "", message: "The payment page couldn't be opened.")
+    }
+    return Checkout(purchaseId: id, url: url)
+  }
+
+  /// Looks the checkout up on pay and credits the pack if paid (idempotent; the signed webhook does the same, once).
+  static func confirmPurchase(_ purchaseId: String) async throws -> Purchase {
+    let d = try await call("confirmCreditPurchase", ["purchaseId": purchaseId])
+    return Purchase(status: d.str("status") ?? "open", credited: d.bool("credited") ?? false,
+                    credits: d.int("credits") ?? 0, balance: d.int("balance") ?? 0)
   }
 
   /// Completion-based call so no non-Sendable `[String: Any]` crosses an isolation boundary: the request goes in

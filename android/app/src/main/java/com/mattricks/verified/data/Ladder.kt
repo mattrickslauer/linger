@@ -23,6 +23,10 @@ object Ladder {
     var modules: List<LadderLogic.Module> = emptyList(); private set
     var needsText: Map<String, String> = emptyMap(); private set
     var freeCredits = 10; private set
+    /** Credit packs sold through pay.mattrickslauer.com (`buyCredits`); the function re-reads the price. */
+    var packs: List<Pack> = emptyList(); private set
+
+    data class Pack(val id: String, val credits: Int, val priceCents: Int, val label: String)
 
     private val functions get() = FirebaseFunctions.getInstance("us-central1")
 
@@ -30,6 +34,12 @@ object Ladder {
         runCatching {
             val j = JSONObject(ctx.assets.open("ladder.json").bufferedReader().readText())
             freeCredits = j.optInt("freeCredits", 10)
+            packs = j.optJSONArray("creditPacks")?.let { a ->
+                (0 until a.length()).map { i ->
+                    val p = a.getJSONObject(i)
+                    Pack(p.getString("id"), p.getInt("credits"), p.getInt("priceCents"), p.optString("label"))
+                }
+            }.orEmpty()
             val a = j.getJSONArray("modules")
             modules = (0 until a.length()).map { i ->
                 val m = a.getJSONObject(i)
@@ -101,6 +111,40 @@ object Ladder {
             Log.w(TAG, "runLadderModule ${e.code} $reason", e)
             throw RunError(reason, LadderLogic.message(reason, e.message))
         }
+    }
+
+    // ───────────────────────── buying credits (pay.mattrickslauer.com; same backend as the web)
+
+    data class Checkout(val purchaseId: String, val url: String)
+    /** status: "open" (not paid yet), "paid" or "refunded". */
+    data class Purchase(val status: String, val credited: Boolean, val credits: Int, val balance: Int)
+
+    /** pay sends the buyer back to the web app, which (with `from=app`) says to return here. Must be this app's origin. */
+    private fun returnUrl(): String {
+        val project = runCatching { com.google.firebase.FirebaseApp.getInstance().options.projectId }.getOrNull() ?: "verified-99e74"
+        return "https://$project.web.app/me?from=app"
+    }
+
+    /** Writes the purchase server-side and opens a pay hosted checkout for [pack]. */
+    suspend fun buyCredits(pack: String): Checkout = callable("buyCredits", mapOf("pack" to pack, "returnUrl" to returnUrl())).let { d ->
+        val id = d["purchaseId"] as? String
+        val url = d["url"] as? String
+        if (id == null || url == null) throw RunError(null, "The payment page couldn't be opened.")
+        Checkout(id, url)
+    }
+
+    /** Looks the checkout up on pay and credits the pack if paid (idempotent; the signed webhook does the same, once). */
+    suspend fun confirmPurchase(purchaseId: String): Purchase = callable("confirmCreditPurchase", mapOf("purchaseId" to purchaseId)).let { d ->
+        Purchase(d["status"] as? String ?: "open", d["credited"] == true, num(d["credits"]).toInt(), num(d["balance"]).toInt())
+    }
+
+    private suspend fun callable(name: String, req: Map<String, Any>): Map<String, Any?> = try {
+        @Suppress("UNCHECKED_CAST")
+        functions.getHttpsCallable(name).call(req).await().getData() as? Map<String, Any?> ?: emptyMap()
+    } catch (e: FirebaseFunctionsException) {
+        val reason = (e.details as? Map<*, *>)?.get("reason") as? String
+        Log.w(TAG, "$name ${e.code} $reason", e)
+        throw RunError(reason, LadderLogic.message(reason, e.message))
     }
 
     fun errorMessage(t: Throwable): String = when (t) {

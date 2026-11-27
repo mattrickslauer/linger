@@ -9,6 +9,8 @@ export const DEFAULT_BASELINE = 0.2;
 export const CHEATING_CAP = 0.1;
 /** A verdict (frames judge, video review, ladder module) counts as "backed" only at confidence ≥ this. */
 export const BACKED_CONFIDENCE = 0.6;
+/** v4.13: a claim the free video review backs is lifted by this (= shared/ladder.json full_video strength). */
+export const VIDEO_REVIEW_STRENGTH = 0.45;
 /** A `motion` requirement without minSeconds needs this many seconds of non-zero motion. */
 export const DEFAULT_MOTION_SECONDS = 10;
 /** A GPS fix counts for a `gps` requirement when its accuracy is ≤ this (metres). */

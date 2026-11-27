@@ -136,9 +136,9 @@ final class InterviewModel {
         if draft.isEmpty { draft = ["text": said, "category": Self.guessCategory(said).rawValue, "goal": said] }
         break
       }
-      if let d = turn.json?["draft"] as? [String: Any], !d.isEmpty { draft = d }
+      if let d = turn.json?["draft"] as? [String: Any], !d.isEmpty { draft = groundCategory(d) }
       let done = (turn.json?["done"] as? Bool) ?? false
-      let sayText = (turn.json?["say"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      let sayText = groundQuestion((turn.json?["say"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
       if !sayText.isEmpty { await say(sayText, mode: turn.mode.rawValue) }
       if done || questions >= Self.maxQuestions { break }
       questions += 1
@@ -182,7 +182,7 @@ final class InterviewModel {
         "context": HybridAI.jsonText(context), "transcript": transcript, "draft": HybridAI.jsonText(draft),
       ]) + "\n\n" + HybridAI.jsonInstruction("structureIntention")
       if let a = try? await HybridAI.cloud(system: p.system, prompt: prompt, timeout: 15), let j = a.json, !j.isEmpty {
-        draft = j
+        draft = groundCategory(j)
         structuredByCloud = true
       }
     }
@@ -302,6 +302,32 @@ final class InterviewModel {
     var seen = Set<String>()
     let out = parts.filter { seen.insert($0).inserted }.joined(separator: ", ")
     return out.isEmpty ? nil : out
+  }
+
+  // MARK: - Grounding (the small on-device model must not invent an activity)
+
+  /// Everything the person has said so far.
+  private var personSaid: String { lines.filter { $0.role == .me }.map(\.text).joined(separator: " ") }
+
+  /// The model may only call it fishing when the person mentioned fishing; otherwise the category comes from the
+  /// person's own words (usually `.other`).
+  private func groundCategory(_ d: [String: Any]) -> [String: Any] {
+    guard (d["category"] as? String) == Category.fishing.rawValue, !Self.mentionsFishing(personSaid) else { return d }
+    var d = d
+    d["category"] = Self.guessCategory(personSaid).rawValue
+    if let a = d["activity"] as? String, Self.mentionsFishing(a) { d["activity"] = "" }
+    return d
+  }
+
+  /// A question about catching fish when the person never mentioned fishing becomes a neutral one.
+  private func groundQuestion(_ say: String) -> String {
+    guard Self.mentionsFishing(say), !Self.mentionsFishing(personSaid) else { return say }
+    return "What exactly counts as done for this?"
+  }
+
+  static func mentionsFishing(_ s: String) -> Bool {
+    let t = s.lowercased()
+    return ["fish", "catch", "bass", "trout", "angl", "bait", "lure", "species"].contains(where: t.contains)
   }
 
   static func isStartWord(_ s: String) -> Bool {

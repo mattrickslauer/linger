@@ -11,6 +11,7 @@ struct MeView: View {
   @State private var pendingDelete: MomentCardData?
   @State private var deleteError: String?
   @State private var showingSettings = false
+  @State private var showingBuy = false
 
   var body: some View {
     NavigationStack {
@@ -66,6 +67,7 @@ struct MeView: View {
         }
       }
       .sheet(isPresented: $showingSettings) { MeSettings().presentationDetents([.medium, .large]) }
+      .sheet(isPresented: $showingBuy) { BuyCreditsSheet().presentationDetents([.large]) }
       .confirmationDialog(
         MomentDeletion.confirmTitle,
         isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -104,13 +106,20 @@ struct MeView: View {
         }
         Spacer(minLength: 4)
         if let c = app.credits.credits {
-          Label("\(c.balance)", systemImage: Glyph.credits)
+          Button { showingBuy = true } label: {
+            HStack(spacing: 4) {
+              Label("\(c.balance)", systemImage: Glyph.credits)
+              Image(systemName: "plus").font(.caption.weight(.bold))
+            }
             .font(.headline.monospacedDigit())
             .padding(.horizontal, 10).padding(.vertical, 6)
             .foregroundStyle(Color(hex: 0x10242B))
             .background(Theme.gold, in: Capsule())
-            .accessibilityLabel("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits"), "
-                                + (c.justGranted ? "\(c.granted) free to start" : "free demo, \(c.spent) spent"))
+            .frame(minHeight: 44)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("\(c.balance) ladder \(c.balance == 1 ? "credit" : "credits"), \(c.spent) spent")
+          .accessibilityHint("Buy more credits")
         }
       }
       AdaptiveStack(spacing: 8) {

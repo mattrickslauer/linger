@@ -102,15 +102,35 @@ export function BuyCredits({ label = "Buy credits", primary = false, className =
   );
 }
 
-type ReturnState = { kind: "checking" } | { kind: "ok"; credits: number; balance: number } | { kind: "pending" } | { kind: "bad"; text: string };
+type ReturnState =
+  | { kind: "checking" }
+  | { kind: "ok"; credits: number; balance: number }
+  | { kind: "pending" }
+  | { kind: "bad"; text: string }
+  | { kind: "app"; paid: boolean };
 
-/** Pay's success redirect lands with ?purchase=<id>: settle it, say so, and drop the param from the address bar. */
+/**
+ * Pay's success redirect lands with ?purchase=<id>: settle it, say so, and drop the param from the address bar.
+ * A checkout opened by the iOS/Android app returns with &from=app inside the app's in-app browser, which isn't signed
+ * in: just say to go back, where the app settles the purchase itself.
+ */
 export function PurchaseReturn({ user, ready }: { user: User | null; ready: boolean }) {
-  const [purchaseId] = useState(() => new URLSearchParams(location.search).get("purchase"));
-  const [state, setState] = useState<ReturnState | null>(purchaseId ? { kind: "checking" } : null);
+  const [{ purchaseId, fromApp }] = useState(() => {
+    const q = new URLSearchParams(location.search);
+    return { purchaseId: q.get("purchase"), fromApp: q.get("from") === "app" };
+  });
+  const [state, setState] = useState<ReturnState | null>(fromApp ? { kind: "app", paid: !!purchaseId } : purchaseId ? { kind: "checking" } : null);
 
   useEffect(() => {
-    if (!purchaseId || !ready) return;
+    if (!fromApp) return;
+    const url = new URL(location.href);
+    url.searchParams.delete("purchase");
+    url.searchParams.delete("from");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  }, [fromApp]);
+
+  useEffect(() => {
+    if (fromApp || !purchaseId || !ready) return;
     const url = new URL(location.href);
     url.searchParams.delete("purchase");
     history.replaceState(history.state, "", url.pathname + url.search + url.hash);
@@ -139,7 +159,7 @@ export function PurchaseReturn({ user, ready }: { user: User | null; ready: bool
     return () => {
       live = false;
     };
-  }, [purchaseId, ready, user]);
+  }, [fromApp, purchaseId, ready, user]);
 
   if (!state) return null;
   const text =
@@ -149,8 +169,12 @@ export function PurchaseReturn({ user, ready }: { user: User | null; ready: bool
         ? `Payment received: +${state.credits} credits. You now have ${state.balance}.`
         : state.kind === "pending"
           ? "Payment is still processing. Your credits are added automatically once it clears."
-          : state.text;
-  const tone = state.kind === "ok" ? "notice-ok" : state.kind === "bad" ? "notice-bad" : "";
+          : state.kind === "app"
+            ? state.paid
+              ? "Payment sent. Tap Done (or go back) to return to the Verified app, where your credits appear."
+              : "Checkout closed. Tap Done (or go back) to return to the Verified app."
+            : state.text;
+  const tone = state.kind === "ok" || (state.kind === "app" && state.paid) ? "notice-ok" : state.kind === "bad" ? "notice-bad" : "";
   return (
     <div className={`notice purchase-toast ${tone}`} role="status" aria-live="polite">
       <Glyph name="credits" />
