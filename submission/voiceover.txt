@@ -1,27 +1,25 @@
-A photo used to be proof. Not anymore. Anyone can generate one in seconds, or photograph a screen. So everything that runs on "pics or it didn't happen" (fitness challenges, fishing derbies, sponsor contests) now runs on trust.
+Hi, I'm [your name], and I built Verified.
 
-Verified is an intent and evidence factory that runs on your phone. You say what you're about to do, and it builds the proof while you do it.
+A photo used to be proof. Today anyone can generate one in seconds, or just photograph a screen. So everything that runs on "pics or it didn't happen" (fitness challenges, fishing derbies, sponsor contests) now runs on trust.
 
-It starts with intent. I say it out loud: "twenty push-ups at the top of the hill." An on-device model interviews me right on the phone, no signal needed, and breaks my words into claims that can each be checked: a place, an action, a count.
+So I didn't build a better photo checker. I built an intent and evidence factory that runs on your phone. You tell it what you're about to do, and it builds the proof while you do it.
 
-For every claim it writes an evidence plan, the minimum a fair skeptic would need: one continuous video of all twenty, and a GPS track that ends on the hill. It also sets a bar. Harder claims must clear a higher score.
+It starts with intent. I just say it: "twenty push-ups at the top of the hill." An on-device model interviews me, right on the phone, no signal needed. It breaks my words into claims that can each be checked: a place, an action, a count. And for each claim it writes an evidence plan, the minimum a fair skeptic would need. Here, one continuous video of all twenty, and a GPS track that ends on the hill.
 
-Then the factory runs. The phone records GPS, motion and video, and every five seconds seals that data into a chunk, chained to the last with SHA-256. Change one byte later, and the chain breaks.
+Then the factory runs. The phone records GPS, motion and video, and every five seconds it seals that into a chunk, chained to the last one with SHA-256. Change one byte later, and the chain breaks.
 
-The on-device model checks each shot against the plan in under a second, and the image never leaves the phone. But it has one power: it can tell me to retake. It can never say verified. The small model coaches. It never judges.
+Here's the design decision I care most about. The on-device model checks every shot in under a second, and the image never leaves the phone. But it has exactly one power: it can say "retake." It can never say "verified." The small model coaches. It never judges.
 
-A live AI witness asks for whatever is still missing. "Show me the view behind you." My answer is chained in too.
+While I record, a live AI witness asks for whatever is still missing, like "show me the view behind you," and my answer goes into the chain too. No signal? It all waits on the phone and syncs later.
 
-No signal? Everything waits in a local vault and syncs later. Then the cloud takes over. Gemini watches the whole video, claim by claim, while a judge, a skeptic and a scorer read the frames.
+Then the cloud takes over. Gemini watches the whole video, claim by claim, and a judge, a skeptic and a scorer read the frames. But AI only proposes. A Cloud Function re-checks the chain, the timing and the physics, and only that code can write the seal.
 
-But AI only proposes. A Cloud Function re-checks the chain, the timing and the physics, compares the score with the bar, and only that code can write the seal.
+And a fake? Here's an AI-generated fish, filmed off my laptop. The skeptic spots the screen, and it's rejected. Faking one frame is easy. Faking a whole session is hard.
 
-Now a fake: an AI-generated trophy fish, filmed off a laptop. The skeptic sees the screen, there's no real motion, and it's rejected. Faking one frame is easy. Faking a whole session is hard.
+Push-ups are just one example. Any intent works: a run, a repair, a recipe, a song.
 
-Push-ups are just one example. The factory takes any intent: a run, a repair, a recipe, a song, a summit.
+And it's one app on three platforms: iPhone, Android and Chrome, all through one Firebase AI Logic hybrid SDK. On-device when the phone has a model, cloud when it doesn't, and every answer shows you which one ran.
 
-It runs on iOS, Android and Chrome through one Firebase AI Logic hybrid SDK: on-device when the phone has a model, cloud when it doesn't, and every answer shows which ran.
+Proof is free. When the stakes are high, you can buy extra checks, but paying buys scrutiny, never a score.
 
-Proof is free. When stakes are high, owners can buy extra checks. Paying buys scrutiny, never a score.
-
-Verified. Say it. Do it. Prove it.
+This is Verified. Say it. Do it. Prove it.
