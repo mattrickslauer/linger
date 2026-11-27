@@ -70,6 +70,37 @@ nonisolated struct ProofFrame: Sendable {
     return CGImageSourceCreateImageAtIndex(src, 0, nil)
   }
 
+  /// Decodes a stored base64 JPEG and turns it by the Moment's `displayRotation` (clockwise degrees). 0 is exactly
+  /// `cgImage(fromBase64:)`.
+  static func cgImage(fromBase64 b64: String, rotation: Int) -> CGImage? {
+    guard let image = cgImage(fromBase64: b64) else { return nil }
+    return rotated(image, clockwise: rotation)
+  }
+
+  /// The image itself turned `degrees` clockwise (as seen on screen) in quarter turns, so whatever shows it (fit,
+  /// blurred fill) sees the true rotated aspect. 0 or an invalid angle returns `image` unchanged; a failed redraw
+  /// falls back to the unrotated image.
+  static func rotated(_ image: CGImage, clockwise degrees: Int) -> CGImage {
+    let r = normalizeDisplayRotation(degrees)
+    guard r != 0 else { return image }
+    let w = image.width, h = image.height
+    let quarter = r % 180 != 0
+    let outW = quarter ? h : w, outH = quarter ? w : h
+    guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+          let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return image }
+    ctx.interpolationQuality = .none  // whole-pixel quarter turns: no resampling
+    // CoreGraphics is y-up, so a clockwise turn on screen is a negative angle.
+    switch r {
+    case 90: ctx.translateBy(x: 0, y: CGFloat(outH)); ctx.rotate(by: -.pi / 2)
+    case 180: ctx.translateBy(x: CGFloat(outW), y: CGFloat(outH)); ctx.rotate(by: .pi)
+    default: ctx.translateBy(x: CGFloat(outW), y: 0); ctx.rotate(by: .pi / 2)  // 270
+    }
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return ctx.makeImage() ?? image
+  }
+
   /// Simulator only (no camera): a synthetic test frame so the whole flow can be exercised.
   static func syntheticImage() -> CGImage? {
     let w = 640, h = 480

@@ -88,8 +88,8 @@ fun rememberFeedPlayer(): ExoPlayer {
 
 /** A [PlayerView] on a TextureView (res/layout/video_player.xml), so it fades and scrolls like any composable. */
 @androidx.annotation.OptIn(UnstableApi::class)
-private fun inflatePlayerView(ctx: android.content.Context, controls: Boolean): PlayerView =
-    (LayoutInflater.from(ctx).inflate(R.layout.video_player, null) as PlayerView).apply {
+private fun inflatePlayerView(ctx: android.content.Context, controls: Boolean, layout: Int = R.layout.video_player): PlayerView =
+    (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
         useController = controls
         // Always FIT: the whole frame at its true aspect, never cropped. With controls the letterbox is the dark media
         // background; the muted feed clip letterboxes over the (fit) hero photo and its blurred backdrop.
@@ -103,7 +103,7 @@ private fun inflatePlayerView(ctx: android.content.Context, controls: Boolean): 
  * in the foreground, so leaving the slide or the app stops it. No URL (offline, rules) → nothing, the photo stays.
  */
 @Composable
-fun FeedVideo(clip: SharedClip, player: ExoPlayer, muted: Boolean, modifier: Modifier = Modifier) {
+fun FeedVideo(clip: SharedClip, player: ExoPlayer, muted: Boolean, modifier: Modifier = Modifier, rotation: Int = 0) {
     val url by produceState<Uri?>(null, clip.path) { value = ClipUrls.get(clip.path) }
     var shown by remember(clip.path) { mutableStateOf(false) }
     val u = url ?: return
@@ -126,7 +126,8 @@ fun FeedVideo(clip: SharedClip, player: ExoPlayer, muted: Boolean, modifier: Mod
         factory = { inflatePlayerView(it, controls = false).also { v -> v.player = player } },
         update = { it.player = player },
         onRelease = { it.player = null },
-        modifier = modifier.graphicsLayer { alpha = if (shown) 1f else 0f },
+        // displayRotation: the stored clip is never changed; the view is turned (and re-fitted) to show it upright.
+        modifier = modifier.rotateFit(rotation).graphicsLayer { alpha = if (shown) 1f else 0f },
     )
 }
 
@@ -153,7 +154,7 @@ fun SharedVideoSection(d: MomentDetail) {
     if (d.sharedClips.isEmpty()) return
     var open by remember(d.card.id) { mutableStateOf<String?>(null) }
     BlockTitle(Glyph.Video, "Video") { Text("${d.sharedClips.size}", style = Tnum.merge(MaterialTheme.typography.titleMedium), color = Ink2) }
-    d.sharedClips.firstOrNull { it.path == open }?.let { ClipPlayer(it) }
+    d.sharedClips.firstOrNull { it.path == open }?.let { ClipPlayer(it, d.card.displayRotation) }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(d.sharedClips) { i, c ->
             val on = open == c.path
@@ -185,7 +186,7 @@ fun SharedVideoSection(d: MomentDetail) {
 
 /** One clip with controls; its own player, released when it leaves, paused when the app goes to the background. */
 @Composable
-private fun ClipPlayer(c: SharedClip) {
+private fun ClipPlayer(c: SharedClip, rotation: Int = 0) {
     val ctx = LocalContext.current
     // null while loading, Uri.EMPTY when the URL could not be had (offline, rules).
     val url by produceState<Uri?>(null, c.path) { value = ClipUrls.get(c.path) ?: Uri.EMPTY }
@@ -209,9 +210,32 @@ private fun ClipPlayer(c: SharedClip) {
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs); player.release() }
     }
-    AndroidView(
-        factory = { inflatePlayerView(it, controls = true).also { v -> v.player = player } },
-        onRelease = { it.player = null },
-        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)).background(MediaBg),
-    )
+    val box = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)).background(MediaBg)
+    if (rotation % 360 == 0) {
+        AndroidView(
+            factory = { inflatePlayerView(it, controls = true).also { v -> v.player = player } },
+            onRelease = { it.player = null },
+            modifier = box,
+        )
+        return
+    }
+    // displayRotation: only the picture is turned (a control-less view, re-fitted to the box); the controls sit
+    // upright on top in a surface-less PlayerView on the same player, so they stay usable.
+    Box(box) {
+        AndroidView(
+            factory = { inflatePlayerView(it, controls = false).also { v -> v.player = player } },
+            onRelease = { it.player = null },
+            modifier = Modifier.matchParentSize().rotateFit(rotation),
+        )
+        AndroidView(
+            factory = {
+                inflatePlayerView(it, controls = false, layout = R.layout.video_controls).also { v ->
+                    v.useController = true
+                    v.player = player
+                }
+            },
+            onRelease = { it.player = null },
+            modifier = Modifier.matchParentSize(),
+        )
+    }
 }

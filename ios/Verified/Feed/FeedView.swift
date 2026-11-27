@@ -357,7 +357,7 @@ private struct FeedSlide: View {
     let ok = item.isVerified
     let shown = revealed || reduceMotion
     ZStack(alignment: .bottomTrailing) {
-      SlideBackdrop(b64: item.heroJpegB64, desaturate: !ok, clip: clip)
+      SlideBackdrop(b64: item.heroJpegB64, rotation: item.displayRotation, desaturate: !ok, clip: clip)
       // Short screens / large text: drop the extras and the one-line reason, then shorten the intent, rather than
       // push the result under the tab bar.
       ViewThatFits(in: .vertical) {
@@ -594,6 +594,8 @@ private struct RailLabel: View {
 /// The proof photo, whole (fit on a blurred copy of itself), under a top and bottom ink scrim. Rejected Moments desaturate; no photo is a lake.
 private struct SlideBackdrop: View {
   let b64: String?
+  /// The Moment's `displayRotation` (clockwise degrees), for the photo and the clip.
+  var rotation = 0
   let desaturate: Bool
   /// v4.12: the feed clip plays over the photo, which stays as the poster until a frame can show.
   var clip: FeedClipPlayer? = nil
@@ -601,13 +603,13 @@ private struct SlideBackdrop: View {
   var body: some View {
     ZStack {
       FeedInk.lake
-      if let b64, let cg = ProofFrame.cgImage(fromBase64: b64) {
+      if let b64, let cg = ProofFrame.cgImage(fromBase64: b64, rotation: rotation) {
         FitImage(cgImage: cg)
           .saturation(desaturate ? 0.15 : 1)
       }
       if let clip {
         // Aspect fit on a dark letterbox: the whole clip, never cropped.
-        PlayerLayerView(player: clip.player) { clip.markReady() }
+        PlayerLayerView(player: clip.player, rotation: rotation) { clip.markReady() }
           .background(Color.black)
           .opacity(clip.ready ? 1 : 0)
           .animation(.easeIn(duration: 0.25), value: clip.ready)
@@ -778,9 +780,11 @@ private struct RecordButton: View {
 struct HeroImage: View {
   let b64: String?
   let category: String
+  /// The Moment's `displayRotation` (clockwise degrees); 0 shows the photo as stored.
+  var rotation = 0
 
   var body: some View {
-    if let b64, let cg = ProofFrame.cgImage(fromBase64: b64) {
+    if let b64, let cg = ProofFrame.cgImage(fromBase64: b64, rotation: rotation) {
       FitImage(cgImage: cg)
     } else {
       ZStack {

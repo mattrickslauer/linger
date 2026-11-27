@@ -2,6 +2,7 @@ package com.mattricks.verified.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.os.Build
 import android.util.Base64
 import androidx.compose.foundation.Canvas
@@ -43,6 +44,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,9 +62,39 @@ fun decodeB64(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let {
     runCatching { Base64.decode(it, Base64.DEFAULT).let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) } }.getOrNull()
 }
 
+/** [bmp] turned [degrees] clockwise (0/90/180/270, see normalizeDisplayRotation); 0 returns [bmp] itself. */
+fun rotateBitmap(bmp: Bitmap, degrees: Int): Bitmap =
+    if (degrees % 360 == 0) bmp
+    else runCatching {
+        Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
+    }.getOrDefault(bmp)
+
+/** The size a [w]x[h] picture takes once turned [degrees] clockwise: quarter turns swap the sides. */
+fun rotatedSize(w: Int, h: Int, degrees: Int): Pair<Int, Int> = if (degrees % 180 == 0) w to h else h to w
+
+/** The decoded proof shot turned by the Moment's displayRotation, remembered per (b64, rotation). */
 @Composable
-fun B64Image(b64: String?, modifier: Modifier = Modifier) {
-    val bmp = remember(b64) { decodeB64(b64)?.asImageBitmap() }
+fun rememberB64Bitmap(b64: String?, rotation: Int = 0): ImageBitmap? =
+    remember(b64, rotation) { decodeB64(b64)?.let { rotateBitmap(it, rotation) }?.asImageBitmap() }
+
+/**
+ * Turns the content [degrees] clockwise (0/90/180/270) so it still fits this box: for quarter turns the child is
+ * measured with the incoming width and height swapped, then rotated about its centre. 0 is a no-op.
+ */
+fun Modifier.rotateFit(degrees: Int): Modifier = when {
+    degrees % 360 == 0 -> this
+    degrees % 180 == 0 -> this.graphicsLayer { rotationZ = degrees.toFloat() }
+    else -> this.layout { m, c ->
+        val p = m.measure(Constraints(minWidth = c.minHeight, maxWidth = c.maxHeight, minHeight = c.minWidth, maxHeight = c.maxWidth))
+        layout(p.height, p.width) {
+            p.placeWithLayer((p.height - p.width) / 2, (p.width - p.height) / 2) { rotationZ = degrees.toFloat() }
+        }
+    }
+}
+
+@Composable
+fun B64Image(b64: String?, modifier: Modifier = Modifier, rotation: Int = 0) {
+    val bmp = rememberB64Bitmap(b64, rotation)
     if (bmp != null) FitImage(bmp, null, modifier)
     else Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         Icon(Glyph.Frames, "No frame", tint = MaterialTheme.colorScheme.outline)

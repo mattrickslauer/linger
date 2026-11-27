@@ -126,9 +126,21 @@ data class MomentCard(
     val witnessAnswered: Int = 0,
     /** v4.12: feed.video.clips, the uploaded clips in chain order ([] before v4.12). */
     val clips: List<SharedClip> = emptyList(),
+    /** Clockwise degrees (0/90/180/270) to turn this Moment's media when displaying (feed/moments `displayRotation`). */
+    val displayRotation: Int = 0,
 ) {
     /** v4.12 feed clip: the last clip whose hash is not known to mismatch; autoplayed muted on the feed slide. */
     val feedClip: SharedClip? get() = clips.lastOrNull { it.hashOk != false }
+}
+
+/**
+ * `displayRotation` on feed/{id} and moments/{id}: clockwise degrees to turn the media when displaying (the stored,
+ * hash-chained files are never changed). Whole multiples of 90 are reduced to 0/90/180/270; anything else → 0.
+ */
+fun normalizeDisplayRotation(v: Any?): Int {
+    val d = (v as? Number)?.toDouble() ?: return 0
+    if (d.isNaN() || d.isInfinite() || d % 90.0 != 0.0) return 0
+    return ((d.toLong() % 360 + 360) % 360).toInt()
 }
 
 /** An uploaded clip anyone who can see the Moment can play (v4.12); [path] is its Cloud Storage path. */

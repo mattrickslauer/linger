@@ -123,8 +123,13 @@ body.immersive .theme {
 .slide-video.is-on {
   opacity: 1;
 }
-.slide-no .slide-video {
+.slide-no .slide-video,
+.slide-no .slide-video-box {
   filter: none;
+}
+/* A turned feed clip: the box takes the photo's place (.slide-photo) but shows nothing until the video plays. */
+.slide-video-box {
+  pointer-events: none;
 }
 .slide-shade {
   position: absolute;

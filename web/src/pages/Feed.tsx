@@ -11,7 +11,8 @@ import type { FeedEntry } from "../types";
 import { ago, jpegSrc, Link, TrackSketch } from "../ui";
 import "../feed.css";
 import { FeedVideo, feedClip } from "../components/SharedVideo";
-import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, ScoreRing, Stats } from "../kit";
+import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, RotImg, ScoreRing, Stats } from "../kit";
+import { rot } from "../rotate";
 
 type Filter = "all" | "sealed" | "rejected";
 const FILTERS: [Filter, string][] = [
@@ -82,6 +83,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
   const reason = e.cheating ? (e.cheatingSignals?.[0] ?? e.sealReason) : sealed ? (e.scoreReasons?.[0] ?? e.judgeReasons?.[0]) : e.sealReason;
   const ladder = e.ladder?.length ?? 0;
   const clip = feedClip(e.video?.clips);
+  const turn = rot(e.displayRotation);
   const [muted, setMuted] = useState(true);
   useEffect(() => {
     if (!active) setMuted(true);
@@ -120,15 +122,15 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
       aria-label={`${e.intention.text}, ${sealed ? "verified" : "not verified"}`}
     >
       <div className="slide-back" aria-hidden="true">
-        {e.heroJpegB64 && <img src={jpegSrc(e.heroJpegB64)} alt="" />}
+        {e.heroJpegB64 && <RotImg src={jpegSrc(e.heroJpegB64)} rotate={turn} alt="" />}
       </div>
       <div className="slide-frame">
         {e.heroJpegB64 ? (
-          <FitImg className="slide-photo" src={jpegSrc(e.heroJpegB64)} alt={`Proof shot: ${e.intention.text}`} />
+          <FitImg className="slide-photo" src={jpegSrc(e.heroJpegB64)} rotate={turn} alt={`Proof shot: ${e.intention.text}`} />
         ) : (
           <div className="slide-photo slide-nophoto" />
         )}
-        {clip && <FeedVideo clip={clip} active={active} muted={muted} />}
+        {clip && <FeedVideo clip={clip} active={active} muted={muted} rotate={turn} />}
         <div className="slide-shade" aria-hidden="true" />
         {/* The whole slide opens the room; the buttons below stop the click. */}
         <button className="slide-hit" onClick={open} aria-label={`Inspect the evidence for: ${e.intention.text}`} tabIndex={-1} />

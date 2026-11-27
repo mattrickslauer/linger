@@ -1,5 +1,9 @@
 import AVFoundation
+#if os(iOS)
+import CoreMotion
+#endif
 import SwiftUI
+import VerifiedCore
 
 enum CameraError: LocalizedError {
   case notRunning, noData, busy
@@ -24,9 +28,16 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
   private let queue = DispatchQueue(label: "verified.camera")
   private var configured = false
   private var input: AVCaptureDeviceInput?
-  /// Tracks how the phone is held (gravity, so it works with the portrait-locked UI): photos and clips are saved
-  /// upright even when the phone is turned landscape. Remade whenever the camera input changes.
+  /// How the phone is held, from our own gravity reading (works with the portrait-locked UI), in the classic angle
+  /// convention of `captureRotationAngle` (90 = portrait). Turned into the angle for *this* camera by `rotation`:
+  /// cameras are mounted differently (the iPhone 17-generation front sensor is upright at 0°, older ones at 90°),
+  /// so a fixed angle table saves some cameras' shots sideways.
+  #if os(iOS)
+  private let motion = CMMotionManager()
+  /// Per-camera angle source; remade whenever the camera input changes.
   private var rotation: AVCaptureDevice.RotationCoordinator?
+  #endif
+  private var rotationAngle: Double = 90
   private var audioInput: AVCaptureDeviceInput?
   private var flashMode: AVCaptureDevice.FlashMode = .off
   private var videoMode = false
@@ -70,22 +81,52 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     }
   }
 
-  /// Must run on `queue`. A rotation coordinator for the current camera (horizon-level capture angle).
+  /// Must run on `queue`.
   private func refreshRotation() {
+    #if os(iOS)
     rotation = input.map { AVCaptureDevice.RotationCoordinator(device: $0.device, previewLayer: nil) }
+    #endif
   }
 
   /// Must run on `queue`. Points `conn` so the saved photo / clip is upright for how the phone is held right now
-  /// (portrait when the coordinator is missing).
+  /// (portrait without a motion reading: simulator, or motion not started yet).
   private func applyCaptureRotation(_ conn: AVCaptureConnection?) {
     guard let conn else { return }
-    let angle = rotation?.videoRotationAngleForHorizonLevelCapture ?? 90
+    var angle = rotationAngle
+    #if os(iOS)
+    if let g = motion.deviceMotion?.gravity {
+      rotationAngle = captureRotationAngle(gravityX: g.x, y: g.y, z: g.z, prev: rotationAngle)
+    }
+    angle = rotationAngle
+    if let rc = rotation {
+      if #available(iOS 27.0, *) {
+        // Our orientation, this camera's mounting (Apple's per-camera table).
+        angle = rc.videoRotationAngleRelative(toDeviceOrientation: Self.videoOrientation(classicAngle: rotationAngle))
+      } else {
+        // iOS 26: the coordinator's own gravity-tracked angle, also per camera.
+        angle = rc.videoRotationAngleForHorizonLevelCapture
+      }
+    }
+    #endif
     if conn.isVideoRotationAngleSupported(angle) {
       conn.videoRotationAngle = angle
     } else if conn.isVideoRotationAngleSupported(90) {
       conn.videoRotationAngle = 90
     }
   }
+
+  #if os(iOS)
+  /// `captureRotationAngle` value (90 portrait, 0 top-left, 180 top-right, 270 upside down) as the orientation
+  /// `videoRotationAngleRelative(toDeviceOrientation:)` takes.
+  static func videoOrientation(classicAngle: Double) -> AVCaptureVideoOrientation {
+    switch Int(classicAngle.rounded()) {
+    case 0: .landscapeRight
+    case 180: .landscapeLeft
+    case 270: .portraitUpsideDown
+    default: .portrait
+    }
+  }
+  #endif
 
   /// Photo: the flash mode for the next capture. Video: `.on` lights the torch (Auto acts as Off), as on Android.
   func setFlash(_ mode: AVCaptureDevice.FlashMode) {
@@ -149,6 +190,13 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     queue.async {
       self.configureIfNeeded()
       if self.configured, !self.session.isRunning { self.session.startRunning() }
+      #if os(iOS)
+      // Polled at each shot (no handler): just the latest gravity sample.
+      if self.motion.isDeviceMotionAvailable, !self.motion.isDeviceMotionActive {
+        self.motion.deviceMotionUpdateInterval = 0.1
+        self.motion.startDeviceMotionUpdates()
+      }
+      #endif
     }
   }
 
@@ -156,6 +204,9 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     queue.async {
       if self.movie.isRecording { self.movie.stopRecording() }
       if self.session.isRunning { self.session.stopRunning() }
+      #if os(iOS)
+      if self.motion.isDeviceMotionActive { self.motion.stopDeviceMotionUpdates() }
+      #endif
     }
   }
 
