@@ -106,7 +106,7 @@ Film nothing until each of these is checked on the real phones and the live site
 
 - [x] Storage rules deployed (anyone who can see a Moment can play its video).
 - [x] PR #10 (web clip audio) and PR #8 ("End & verify" on mobile) merged and deployed.
-- [ ] Fresh builds installed on the iPhone (latest TestFlight) and the Poco.
+- [ ] Fresh builds installed on the iPhone (latest TestFlight, public link https://testflight.apple.com/join/8SGF1Pqr) and the Poco.
 - [ ] A dry run of the hero at home: say "20 push-ups in my living room", record ≥ 20 s, check it seals
       **Verified** with the video reviewed. If counting fails, the script still works with "10 push-ups".
 - [ ] Airplane mode on the iPhone: does the coach answer **On-device** with no signal? (Apple Intelligence on.)
