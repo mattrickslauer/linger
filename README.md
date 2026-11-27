@@ -12,7 +12,7 @@
 |---|---|
 | **Live app** (opens as a guest, no sign-in) | **https://verified-99e74.web.app** |
 | **Demo video** (≤ 3 min) | *YouTube link added before 30 Nov 2026* |
-| **iOS** | *TestFlight public link added before 30 Nov 2026* |
+| **iOS** (TestFlight public beta) | **https://testflight.apple.com/join/8SGF1Pqr** |
 | **Android** | *APK on the [Releases](https://github.com/mattrickslauer/verified/releases) page before 30 Nov 2026* |
 | **Contract** (data model, hashing, prompts, seal rules) | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | **License** | [Apache 2.0](LICENSE) |
