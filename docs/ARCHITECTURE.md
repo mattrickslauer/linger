@@ -434,7 +434,11 @@ where `sha256` is the `video` event's hash (lowercase hex); content type `video/
 first, then call `runLadderModule` with `clipSha`. The function re-hashes the bytes; a mismatch fails the call with
 no charge.
 
-**Credits** — free demo credits only (no Stripe, no purchase). Written **only** by Cloud Functions:
+**Credits** — free demo credits to start, then packs bought through pay.mattrickslauer.com (`buyCredits` →
+hosted checkout → `confirmCreditPurchase` / signed `payWebhook`, see functions/src/purchases.ts). Web redirects to
+the checkout; iOS (SFSafariViewController) and Android (Custom Tab) open it in-app with
+`returnUrl = https://<project>.web.app/me?from=app` and settle the purchase themselves when the browser closes.
+Written **only** by Cloud Functions:
 ```
 credits/{uid} = { balance: number, granted: number, spent: number, createdAtServer, updatedAtServer }
 credits/{uid}/ledger/{entryId} = {

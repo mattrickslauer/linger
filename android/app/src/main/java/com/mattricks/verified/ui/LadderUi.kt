@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
@@ -143,7 +144,7 @@ fun LadderSection(d: MomentDetail, isOwner: Boolean, onOpenLadder: () -> Unit) {
     BlockTitle(Glyph.Ladder, "Ladder") {
         InfoButton("Verification ladder") {
             Text("Paying never buys a score: it buys more scrutiny. Modules that fail lower the score.")
-            Text("Free demo credits only during the hackathon — no purchases.", style = MaterialTheme.typography.bodySmall, color = Ink2)
+            Text("Credits start free; buy more from the credits pill (checkout on pay.mattrickslauer.com).", style = MaterialTheme.typography.bodySmall, color = Ink2)
         }
     }
     d.verification?.let { v ->
@@ -246,8 +247,10 @@ fun LadderSheet(
     var progress by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<Ladder.Run?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var buying by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val view = LocalView.current
+    if (buying) BuyCreditsSheet { buying = false }
     LaunchedEffect(uid) {
         // First use grants the free demo credits (server-side, idempotent).
         runCatching { Ladder.getCredits() }.onSuccess { granted = it }.onFailure { creditsError = Ladder.errorMessage(it) }
@@ -273,15 +276,21 @@ fun LadderSheet(
                     Text(d.card.intention, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("score ${p?.let(V3Math::fmt) ?: "–"} · bar ${bar?.let(V3Math::fmt) ?: "–"}", style = Tnum.merge(MaterialTheme.typography.labelLarge), color = Ink2)
                 }
-                Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50)) {
+                Surface(
+                    onClick = { buying = true }, enabled = running == null,
+                    color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Glyph.Credits, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                         Spacer(Modifier.width(4.dp))
                         Text(
                             when { balance != null -> "$balance"; creditsError != null -> "–"; else -> "…" },
                             fontWeight = FontWeight.Bold, style = Tnum, color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.semantics { contentDescription = balance?.let { "$it credits" } ?: "credits unavailable" },
+                            modifier = Modifier.semantics { contentDescription = (balance?.let { "$it credits" } ?: "credits unavailable") + ". Buy credits" },
                         )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Filled.Add, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
                 }
             }
@@ -395,29 +404,24 @@ private fun ModuleCard(
     }
 }
 
-/** Me: the credit balance (server-written, owner-readable) as a compact pill. */
+/** Me: the credit balance (server-written, owner-readable) as a compact pill; tap to buy more. */
 @Composable
 fun CreditsPill() {
     val uid = Firebase.auth.currentUser?.uid ?: return
     val c by remember(uid) { Ladder.credits(uid) }.collectAsState(initial = null)
-    var info by remember { mutableStateOf(false) }
+    var buying by remember { mutableStateOf(false) }
     Surface(
-        onClick = { info = true }, color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50),
+        onClick = { buying = true }, color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(50),
         modifier = Modifier.heightIn(min = 48.dp).padding(vertical = 4.dp)
-            .semantics { contentDescription = c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting" },
+            .semantics { contentDescription = (c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting") + ". Buy credits" },
     ) {
         Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Glyph.Credits, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
             Spacer(Modifier.width(6.dp))
             Text(c?.balance?.toString() ?: "${Ladder.freeCredits}", fontWeight = FontWeight.Bold, style = Tnum, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Filled.Add, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
         }
     }
-    if (info) InfoSheet("Credits", { info = false }, icon = Glyph.Credits) {
-        Text(c?.let { "${it.balance} credits" } ?: "${Ladder.freeCredits} free credits waiting", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            c?.let { "${it.granted} granted · ${it.spent} spent on verification" } ?: "Granted the first time you open the verification ladder.",
-            color = Ink2,
-        )
-        Text("Credits buy more scrutiny on the verification ladder, never a score. Free demo credits only, no purchases.", style = MaterialTheme.typography.bodyMedium)
-    }
+    if (buying) BuyCreditsSheet { buying = false }
 }

@@ -20,13 +20,23 @@ nonisolated struct LadderCatalog: Decodable, Sendable {
     var backKinds: [String] { backs ?? ClaimKind.allCases.map(\.rawValue) }
   }
 
+  /// A credit pack sold through pay.mattrickslauer.com (`buyCredits`); the function re-reads the price.
+  struct CreditPack: Decodable, Sendable, Identifiable, Equatable {
+    let id: String
+    let credits: Int
+    let priceCents: Int
+    let label: String
+  }
+
   let freeCredits: Int
+  let creditPacks: [CreditPack]?
   let passConfidence: Double
   let modules: [Module]
   /// Human-readable description of each `needs` key.
   let needs: [String: String]
 
   func module(_ id: String) -> Module? { modules.first { $0.id == id } }
+  var packs: [CreditPack] { creditPacks ?? [] }
 
   static let shared: LadderCatalog = {
     guard let url = Bundle.main.url(forResource: "ladder", withExtension: "json"),
