@@ -20,7 +20,7 @@ final class RecorderModel {
 
   // Form
   var intention = ""
-  var category: Category = .fishing
+  var category: Category = .other
   /// The voice interview's structured intention (v3.2), nil for a typed one. Its `text`/`category` are copied into
   /// the form fields, which stay editable.
   var structured: StructuredIntention?
