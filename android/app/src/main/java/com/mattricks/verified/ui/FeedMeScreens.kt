@@ -109,6 +109,7 @@ import com.mattricks.verified.ai.Ai
 import com.mattricks.verified.auth.Auth
 import com.mattricks.verified.auth.Gate
 import com.mattricks.verified.data.Claims
+import com.mattricks.verified.data.HeroCache
 import com.mattricks.verified.data.MomentCard
 import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.Vault
@@ -567,7 +568,10 @@ fun MeScreen(user: FirebaseUser?, onOpen: (String) -> Unit) {
         when {
             all == null -> items(4) { Skeleton(Modifier.fillMaxWidth().aspectRatio(0.78f)) }
             all.isEmpty() -> item(span = { full }, key = "empty") { EmptyState(Glyph.Proof, "Your Moments show up here.") }
-            else -> items(all, key = { it.id }) { c ->
+            else -> items(all, key = { it.id }) { raw ->
+                // moments/{id} docs carry no photo: fill it from the feed or the chain (see HeroCache).
+                val c = HeroCache.fill(raw)
+                if (c.heroJpegB64.isNullOrEmpty()) LaunchedEffect(raw.id) { HeroCache.load(raw) }
                 val canDelete = (c.local || canDeleteMoment(c, user?.uid, recordingId)) && c.id != recordingId
                 val canUpload = c.local && c.status == "submitted" && c.id !in uploading
                 MomentTile(
