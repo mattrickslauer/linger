@@ -1,5 +1,9 @@
 import AVFoundation
+#if os(iOS)
+import CoreMotion
+#endif
 import SwiftUI
+import VerifiedCore
 
 enum CameraError: LocalizedError {
   case notRunning, noData, busy
@@ -24,9 +28,13 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
   private let queue = DispatchQueue(label: "verified.camera")
   private var configured = false
   private var input: AVCaptureDeviceInput?
-  /// Tracks how the phone is held (gravity, so it works with the portrait-locked UI): photos and clips are saved
-  /// upright even when the phone is turned landscape. Remade whenever the camera input changes.
-  private var rotation: AVCaptureDevice.RotationCoordinator?
+  /// How the phone is held, from gravity (works with the portrait-locked UI): photos and clips are saved upright,
+  /// landscape when shot landscape. Our own reading, not AVCaptureDevice.RotationCoordinator (wrong by 90° on
+  /// iPhone 17-generation cameras, which saved portrait shots sideways). See `captureRotationAngle`.
+  #if os(iOS)
+  private let motion = CMMotionManager()
+  #endif
+  private var rotationAngle: Double = 90
   private var audioInput: AVCaptureDeviceInput?
   private var flashMode: AVCaptureDevice.FlashMode = .off
   private var videoMode = false
@@ -65,21 +73,20 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
         self.session.addInput(old)
       }
       self.session.commitConfiguration()
-      self.refreshRotation()
       self.applyTorch()
     }
   }
 
-  /// Must run on `queue`. A rotation coordinator for the current camera (horizon-level capture angle).
-  private func refreshRotation() {
-    rotation = input.map { AVCaptureDevice.RotationCoordinator(device: $0.device, previewLayer: nil) }
-  }
-
   /// Must run on `queue`. Points `conn` so the saved photo / clip is upright for how the phone is held right now
-  /// (portrait when the coordinator is missing).
+  /// (portrait without a motion reading: simulator, or motion not started yet).
   private func applyCaptureRotation(_ conn: AVCaptureConnection?) {
     guard let conn else { return }
-    let angle = rotation?.videoRotationAngleForHorizonLevelCapture ?? 90
+    #if os(iOS)
+    if let g = motion.deviceMotion?.gravity {
+      rotationAngle = captureRotationAngle(gravityX: g.x, y: g.y, z: g.z, prev: rotationAngle)
+    }
+    #endif
+    let angle = rotationAngle
     if conn.isVideoRotationAngleSupported(angle) {
       conn.videoRotationAngle = angle
     } else if conn.isVideoRotationAngleSupported(90) {
@@ -149,6 +156,13 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     queue.async {
       self.configureIfNeeded()
       if self.configured, !self.session.isRunning { self.session.startRunning() }
+      #if os(iOS)
+      // Polled at each shot (no handler): just the latest gravity sample.
+      if self.motion.isDeviceMotionAvailable, !self.motion.isDeviceMotionActive {
+        self.motion.deviceMotionUpdateInterval = 0.1
+        self.motion.startDeviceMotionUpdates()
+      }
+      #endif
     }
   }
 
@@ -156,6 +170,9 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     queue.async {
       if self.movie.isRecording { self.movie.stopRecording() }
       if self.session.isRunning { self.session.stopRunning() }
+      #if os(iOS)
+      if self.motion.isDeviceMotionActive { self.motion.stopDeviceMotionUpdates() }
+      #endif
     }
   }
 
@@ -176,7 +193,6 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     output.maxPhotoQualityPrioritization = .speed
     movie.maxRecordedDuration = CMTime(seconds: Self.maxClipSeconds, preferredTimescale: 600)
     session.commitConfiguration()
-    refreshRotation()
     configured = true
   }
 
