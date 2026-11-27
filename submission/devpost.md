@@ -13,7 +13,7 @@ Verified
 
 > An on-device intent & evidence factory. Say what you'll do; Gemini Nano / Apple Foundation Models plan and coach the proof offline, Gemini in the cloud reads it, code seals it.
 
-(190 characters)
+(176 characters)
 
 ## Platforms (select all)
 
