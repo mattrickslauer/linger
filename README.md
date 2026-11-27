@@ -1,12 +1,17 @@
-# Verified: proof that a moment really happened
+# Verified: an on-device intent and evidence factory
 
-> A photo is no longer proof. **Verified** records the moment itself (live GPS, motion, video and proof shots,
-> hash-chained as they are captured), lets an **on-device AI coach you** while you record, lets **cloud AI judge
-> it** afterwards, and lets **deterministic code seal it**. The result is a public record nobody can call fake.
+> A photo is no longer proof. **Verified** works the other way round: you **say what you're about to do**, and the
+> app turns that intent into **claims** that can each be checked and an **evidence plan** for each one. Then it
+> **collects the evidence on your phone** while you do it: GPS, motion, video and proof shots, hash-chained as
+> they are captured, coached by an on-device model that can only ever say "retake". Afterwards **cloud AI reads it**
+> and **deterministic code seals it**.
+>
+> **Intent in, proof out**, for any intent: *"20 push-ups at the top of the hill"*, *"clap 50 times"*, *"sing the
+> alphabet"*, *"catch and release a bass"*.
 >
 > Built for Firebase **#BuildHybridAI 2026** on **iOS, Android and Web**. Every client AI call goes through
 > **Firebase AI Logic hybrid inference**: Gemini Nano in Chrome and on Android, Apple Foundation Models on iOS,
-> with Gemini in the cloud as the fallback and for heavy reads.
+> with Gemini in the cloud as the fallback and for the heavy reads.
 
 | | |
 |---|---|
@@ -37,75 +42,103 @@
 | Criterion | The short answer | Evidence |
 |---|---|---|
 | **Technological implementation** | 9 client AI jobs and 3 server AI jobs. Each one is placed on-device or in the cloud *for a stated reason*, on three platforms, with the routing recorded per call | [Hybrid routing table](#why-hybrid-and-where-each-model-runs) · [call sites](#where-firebase-ai-logic-is-called) · SHA-256 chain checked against [shared vectors](shared/test-vectors.json) on all platforms · `npm test` (unit, rules, emulator e2e) |
-| **Design** | A complete product rather than a demo: guest mode, voice interview, live evidence checklist, realtime witness, offline-first sync, public feed, owner delete, paid verification ladder | [How it works](#how-it-works) · open the [live app](https://verified-99e74.web.app) |
-| **Potential impact** | Fishing tournaments, fitness challenges and sponsored contests pay out on "pics or it didn't happen", and generated images have broken that. Verified gives them evidence they can audit | [The problem](#the-problem) · [business model](#business-model) |
-| **Quality of the idea** | The on-device model is **deliberately weak**: it can say "retake", never "verified". Hybrid here is a trust boundary as well as a cost trade-off. AI proposes and code decides | [Trust model](#trust-model-honestly) |
+| **Design** | A complete product rather than a demo: guest mode, voice interview, evidence plan with a live checklist, realtime witness, offline-first sync, public feed, owner delete, paid verification ladder | [The factory, station by station](#the-factory-station-by-station) · open the [live app](https://verified-99e74.web.app) |
+| **Potential impact** | Anything that runs on "pics or it didn't happen" (fitness challenges, fishing derbies, sponsor contests, community bets) now runs on trust. Verified produces evidence for *any* intent that anyone can audit | [The problem](#the-problem) · [business model](#business-model) |
+| **Quality of the idea** | It plans the proof *before* the moment instead of judging a photo after it. And the on-device model is **deliberately weak**: it can say "retake", never "verified". Hybrid here is a trust boundary as well as a cost trade-off. AI proposes and code decides | [The idea](#the-idea-plan-the-proof-before-the-moment) · [trust model](#trust-model-honestly) |
 
 ---
 
 ## The problem
 
-Anyone can now generate a photo, stage one, or photograph a screen. That breaks every place where people pay or
-compete on photo proof:
+Anyone can now generate a photo, stage one, or photograph a screen. That breaks everything that pays or competes on
+photo proof:
 
-- **Fishing derbies** pay prize money for a catch photo.
 - **Fitness and outdoor challenges** ("50 push-ups", "summit before sunrise") are honour-system.
+- **Tournaments and derbies** pay prize money for a photo of a catch or a finish.
 - **Brands and sponsors** pay out on contests they cannot audit.
+- **Friends and communities** settle bets and streaks on screenshots.
 
 Organisers fall back on trust or slow manual review, and honest people get doubted along with the cheats.
+Detecting fakes after the fact is an arms race that the detectors lose.
 
-**Faking one frame is easy. Faking a session is hard.** That means minutes of GPS, motion, timing, video and
-several camera frames that all agree with each other, bound by a hash chain that breaks if anything is touched.
-Verified records the session.
+## The idea: plan the proof before the moment
 
-## How it works
+Verified doesn't judge a photo after the fact. It **starts from the intent** and works out, up front, what evidence
+would convince a fair skeptic. Then it collects exactly that, live, on the device.
+
+**Faking one frame is easy. Faking a planned session is hard.** That means minutes of GPS, motion, timing and video
+that all agree with each other and with the plan, bound by a hash chain that breaks if anything is touched.
+
+The same pipeline takes any intent. Nothing in it is specific to one sport or use case:
+
+| Intent | Claims the factory extracts | Evidence plan it writes |
+|---|---|---|
+| "20 push-ups at the top of the hill" | `place` · `action` · `count: 20` | GPS track ending on the hill · one continuous video of all 20 |
+| "Clap 50 times" | `action` · `count: 50` | one continuous video of all 50 claps, ≥ 20 s |
+| "Sing the alphabet" | `action` | one continuous video with audio, the whole song |
+| "Catch and release a bass" | `object` · `action` · `outcome` | the fish on video in hand, the release, GPS at the water |
+
+## The factory, station by station
 
 ```mermaid
 flowchart LR
-  A["Say it<br/>voice interview"] --> B["Record it<br/>GPS · motion · video · shots<br/>SHA-256 chain every 5 s"]
-  B --> C{"On-device coach<br/>Nano / Apple FM"}
-  C -- "retake" --> B
-  B --> W["Realtime witness<br/>'show me the scale'"]
-  W --> B
-  B --> D["Offline-first sync<br/>Firestore + raw vault"]
-  D --> E["Cloud AI reads<br/>judge · skeptic · scorer<br/>+ video review"]
-  E --> F["Cloud Function<br/>deterministic seal"]
-  F --> G["Public feed<br/>Verified ✓ / Rejected"]
+  I(["Intent<br/>'20 push-ups at the<br/>top of the hill'"]) --> S1
+  subgraph device["On the device (works offline)"]
+    S1["1 · Interview<br/>on-device model"] --> S2["2 · Claims +<br/>evidence plan + bar"]
+    S2 --> S3["3 · Collect evidence<br/>GPS · motion · video<br/>SHA-256 chain every 5 s"]
+    S3 <--> C{"Coach<br/>can only say 'retake'"}
+    S3 <--> W["Witness<br/>'show me the view'"]
+  end
+  S3 --> V["Raw vault +<br/>offline-first sync"]
+  subgraph cloud["Cloud"]
+    V --> R["4 · AI reads<br/>video review · judge<br/>skeptic · scorer"]
+    R --> X["5 · Code seals<br/>chain · physics · bar"]
+  end
+  X --> P(["Proof<br/>public, auditable<br/>Verified ✓ / Rejected"])
 ```
 
-1. **No sign-in wall.** All three apps open straight onto the public feed as a guest. Guests browse and record.
-   Sign-in (Google) is requested only when something must be written to the server.
-2. **Say what you're about to do.** A short **voice interview** (or one typed sentence) turns "going fishing" into
-   a structured intention made of **claims** you can check one at a time (`clapping` · `50 claps`), plus an
-   **evidence plan**: the minimum evidence that would convince a fair skeptic ("one continuous video of all 50
-   claps, ≥ 20 s"). Follow-up questions run on the device. The final structuring runs in the cloud.
-3. **Record a Moment.** GPS (~1 Hz), accelerometer and gyroscope (10 Hz), video clips and proof shots are captured.
-   Every 5 s the data closes into a chunk that is **SHA-256-chained** to the previous one. A live checklist ticks
-   each requirement as its evidence is *captured* (never "verified": only the server decides that).
-4. **On-device coach (hybrid).** Each proof shot is checked against the intention **on the device** in under a
-   second, with no signal, without the image leaving the phone. It can only say **"keep going"** or **"retake:
-   fish not visible"**. When no local model exists, the same call falls back to Gemini in the cloud.
-5. **Realtime witness.** An AI witness asks out loud and on screen for what a skeptic would want ("hold the fish
-   next to the ruler"), unmet plan items first. **Show** opens the camera, and the shot is tagged and chained. With
-   the phone locked, it sends a notification. Drafts run on the device. A cloud refine sharpens them when online.
-6. **Offline-first.** Firestore offline persistence plus a local **raw vault**. At a lake with no signal the Moment
-   keeps recording and syncs later. Raw data is deleted from the device only after the server provably holds all
-   of it.
-7. **Cloud reads.** A Cloud Function re-hashes every uploaded clip against the chain and sends the **whole video**
-   to Gemini (`videoReview`) for a verdict per claim, free. Three separate Gemini calls read the proof shots: the
-   **judge** (is the evidence consistent with each claim?), the **skeptic** (staging, screen photos, AI images,
-   place/time mismatch) and the **scorer** (P(true) from a cheater-heavy 0.2 prior).
-8. **AI sets the bar, code seals.** `barAndClaims` asks Gemini how hard the claim is (a 10 lb bass in Norway in
-   December is not one from a stocked pond), and code maps that to a required score between 0.50 and 0.95. The
-   seal function then recomputes the hash chain, timing, physics (no GPS jump > 70 m/s) and frame hashes and
-   scores each claim. Minimum evidence plus no cheating signal earns the bar. Any cheating signal caps every claim
-   at 0.1. **Only this function can write the seal and the feed entry.**
-9. **Verification ladder.** After the free review the owner can buy extra scrutiny: a second opinion, place & time
-   from the sun angle, witness review, count & measure, or full-video review. Each check backs specific claim kinds
-   and previews its effect ("if it passes → 0.58 · if it fails → 0.28"). Pass: `p' = p + s(1 − p)`. Fail:
-   `p' = p(1 − s)`. Credits are spent either way. **Paying buys scrutiny, never a score.**
-10. **Public feed.** Anyone can open a sealed Moment: map track, video, frame timeline, motion chart, AI reasons,
-    every seal check, the bar, the score, one row per claim, and every ladder result.
+**On the device**
+
+1. **Intent in.** All three apps open straight onto the public feed as a guest; **Record a Moment** starts the
+   factory. Sign-in (Google) is requested only when something must be written to the server.
+2. **Interview → claims → evidence plan.** A short **voice interview** (or one typed sentence) runs on the device
+   and turns the intent into **claims** that can each be checked (action, count, measure, place, time, object,
+   outcome) plus an **evidence plan**: the minimum evidence per claim that would convince a fair skeptic. The final
+   structuring runs in the cloud when online; offline, the on-device draft is kept. The app also previews the
+   **bar** this intent will have to clear.
+3. **Collect the evidence.** The plan decides how the record screen opens (Video or Photo). GPS (~1 Hz),
+   accelerometer and gyroscope (10 Hz), video clips and proof shots are captured. Every 5 s the data closes into a
+   chunk **SHA-256-chained** to the previous one. A live checklist ticks each requirement as its evidence is
+   *captured* (never "verified": only the server decides that).
+4. **On-device coach.** Each proof shot is checked against the plan **on the device** in under a second, with no
+   signal, without the image leaving the phone. It can only say **"keep going"** or **"retake: body not in
+   frame"**. When there is no local model, the same call falls back to Gemini in the cloud.
+5. **Realtime witness.** An AI witness asks out loud and on screen for whatever the plan still lacks ("show me the
+   view behind you"). **Show** opens the camera, and the shot is tagged and chained. With the phone locked, it sends
+   a notification. Drafts run on the device; a cloud refine sharpens them when online.
+6. **Offline-first.** Firestore offline persistence plus a local **raw vault**. With no signal the Moment keeps
+   recording and syncs later. Raw data is deleted from the device only after the server provably holds all of it.
+
+**In the cloud**
+
+7. **AI reads the evidence.** A Cloud Function re-hashes every uploaded clip against the chain and sends the
+   **whole video** to Gemini (`videoReview`) for a verdict per claim, free. Three separate Gemini calls read the
+   proof shots: the **judge** (is the evidence consistent with each claim?), the **skeptic** (staging, screen
+   photos, AI images, place/time mismatch) and the **scorer** (P(true) from a cheater-heavy 0.2 prior).
+8. **AI sets the bar, code seals.** `barAndClaims` asks Gemini how hard the intent is (a 10 lb bass in Norway in
+   December is not one from a stocked pond), and code maps that to a required score between 0.50 and 0.95. The seal
+   function then recomputes the hash chain, timing, physics (no GPS jump > 70 m/s) and frame hashes, and scores
+   each claim. The planned evidence plus no cheating signal earns the bar. Any cheating signal caps every claim at
+   0.1. **Only this function can write the seal and the feed entry.**
+
+**Proof out**
+
+9. **Public, auditable proof.** Anyone can open a sealed Moment: map track, video, frame timeline, motion chart,
+   AI reasons, every seal check, the bar, the score, one row per claim, and every ladder result.
+10. **Verification ladder.** When the stakes are high, the owner can buy extra scrutiny: a second opinion, place &
+    time from the sun angle, witness review, count & measure, or full-video review. Each check backs specific
+    claim kinds and previews its effect ("if it passes → 0.58 · if it fails → 0.28"). Pass: `p' = p + s(1 − p)`.
+    Fail: `p' = p(1 − s)`. Credits are spent either way. **Paying buys scrutiny, never a score.**
 
 ## Why hybrid, and where each model runs
 
@@ -171,7 +204,7 @@ All prompts and JSON schemas live in **one file shared by every platform and the
 ## Business model
 
 - **Free baseline**: record, the free video review, the seal and a public post.
-- **Verification ladder**: owners pay credits for extra scrutiny when the stakes are high (a prize catch, a sponsor
+- **Verification ladder**: owners pay credits for extra scrutiny when the stakes are high (a prize, a sponsor
   payout). Credits are spent whether the check passes or fails, so money never buys a result. Every owner gets
   10 free credits; more are bought in packs through [pay](https://pay.mattrickslauer.com) (card, ACH, crypto), at the
   catalog price in [`shared/ladder.json`](shared/ladder.json), never a client's.
