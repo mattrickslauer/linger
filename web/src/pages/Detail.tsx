@@ -5,7 +5,8 @@ import ChainViewer from "../components/ChainViewer";
 import DeleteMoment from "../components/DeleteMoment";
 import Ladder from "../components/Ladder";
 import LocalClips from "../components/LocalClips";
-import { MomentVideos } from "../components/SharedVideo";
+import { ClipPlayer, roomClips } from "../components/SharedVideo";
+import Modal from "../components/Modal";
 import { evidenceOf } from "../ladder";
 import { LADDER_DEMO } from "../credits";
 import MotionChart from "../components/MotionChart";
@@ -22,6 +23,7 @@ import { ago, jpegSrc, Link, Stamp } from "../ui";
 import { CheckPips, FitImg, Glyph, GlyphChip, Hybrid, MODULE_GLYPH, More, Preview, RotImg, ScoreRing, Stats, type CheckKey, type GlyphName } from "../kit";
 import { rot } from "../rotate";
 import "../room.css";
+import "../room-tight.css";
 import ClaimsPanel from "../components/Claims";
 import { claimViews, factsOf, videoCoverage, videoStatusText } from "../v4";
 import { offersV4 } from "../ladder";
@@ -52,6 +54,8 @@ const CHECKS_V4: typeof CHECKS = [
 ];
 
 type Tone = "ok" | "bad" | "meh";
+/** What the evidence room's pop-out viewer shows. */
+type View = { k: "clip"; i: number } | { k: "proof" } | { k: "route" } | { k: "chain" };
 const VERDICT_GLYPH: Record<Tone, GlyphName> = { ok: "check", bad: "close", meh: "info" };
 
 /** One AI opinion as a compact card: who, a verdict glyph, one line, confidence; the reasons behind "Why?". */
@@ -335,21 +339,8 @@ export default function Detail({ id }: { id: string }) {
   );
   const activeSeq = pickedSeq ?? chunks?.find((c) => c.t0 <= abs && abs <= c.t1)?.seq ?? null;
 
-  // The jump bar follows the section on screen.
-  const [onSection, setOnSection] = useState("intent");
-  const roomRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const root = roomRef.current;
-    if (!root) return;
-    const io = new IntersectionObserver(
-      (items) => {
-        for (const it of items) if (it.isIntersecting) setOnSection(it.target.id);
-      },
-      { rootMargin: "-40% 0px -55% 0px" },
-    );
-    root.querySelectorAll("section.room-wp").forEach((n) => io.observe(n));
-    return () => io.disconnect();
-  }, [bundle]);
+  // The piece of evidence open in the pop-out viewer, if any.
+  const [view, setView] = useState<View | null>(null);
   // The filmstrip keeps the current shot in view.
   const strip = useRef<HTMLDivElement>(null);
 
@@ -428,27 +419,20 @@ export default function Detail({ id }: { id: string }) {
   const coverage = videoCoverage(summary?.durationMs ?? 0, chainClips.length ? chainClips : (moment?.videoReview?.clips ?? []));
   const uploadedClips = (moment?.videoReview?.clips ?? []).filter((c) => c.uploaded).map((c) => c.sha256);
   const tone = pending ? undefined : sealed ? "ok" : "bad";
-  const jump = (k: string) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    document.getElementById(k)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    history.replaceState(history.state, "", `#${k}`);
-  };
+  const clips = roomClips(id, moment?.ownerUid, moment?.videoReview);
+  const retakes = decoded.frames.filter((f) => f.ok === false).length;
+  const shotCount = decoded.frames.length || summary?.frameCount || 0;
+  const close = () => setView(null);
+  const openClip = view?.k === "clip" ? clips[view.i] : null;
 
   return (
-    <article ref={roomRef} className={`page detail room ${pending ? "" : sealed ? "room-ok" : "room-no"}`}>
+    <article className={`page detail room ${pending ? "" : sealed ? "room-ok" : "room-no"}`}>
       <div className="detail-bar">
         <Link to={fromMe ? "/me" : "/"} className="back" aria-label={fromMe ? "Back to my Moments" : "Back to the feed"}>
           <Glyph name="back" />
           <span>{fromMe ? "Mine" : "Feed"}</span>
         </Link>
-        <nav className="room-nav" aria-label="Evidence room">
-          {(["intent", "proof", "result"] as const).map((k) => (
-            <a key={k} href={`#${k}`} onClick={jump(k)} aria-current={onSection === k ? "true" : undefined} className={onSection === k ? "on" : ""}>
-              <span className={`wpdot wpdot-${k} ${tone === "bad" ? "wpdot-bad" : ""}`} aria-hidden="true" />
-              {k === "intent" ? "Intent" : k === "proof" ? "Proof" : "Result"}
-            </a>
-          ))}
-        </nav>
+        <span className="room-bar-title">Evidence room</span>
         {deletable && <DeleteMoment id={id} label={intention.text} className="btn btn-small btn-danger-quiet room-delete" />}
       </div>
       {local && (
@@ -460,194 +444,275 @@ export default function Detail({ id }: { id: string }) {
         />
       )}
 
-      {/* Intent, and the whole Moment at a glance: the proof photo with the verdict laid over it. */}
+      {/* Intent and the verdict at a glance: a small proof photo (tap to view) beside what was set out and what was decided. */}
       <section id="intent" className="room-wp room-intent" aria-labelledby="intent-h">
-        <h2 id="intent-h" className="sr-only">
-          Intent
-        </h2>
-        <header className={`detail-head room-hero on-media ${heroSrc ? "" : "room-hero-nophoto"}`}>
-          {heroSrc && <FitImg className="hero-img" src={heroSrc} rotate={turn} alt={`Proof shot: ${intention.text}`} decoding="async" />}
-          <div className="hero-top">
-            <span className="gchip">
-              <Glyph name="intent" />
-              {intention.category}
-            </span>
-            <Hybrid mode={mode} />
-          </div>
-          <div className="hero-body">
-            <p className="hero-who">
-              <span className={`wpdot wpdot-intent`} aria-hidden="true" /> {owner?.name ?? "You, as a guest"} set out to
+        <header className="room-sum">
+          <button
+            type="button"
+            className="room-sum-media on-media"
+            onClick={() => setView(clips.length ? { k: "clip", i: 0 } : { k: "proof" })}
+            aria-label={clips.length ? "Play the video" : "View the proof shots"}
+          >
+            {heroSrc ? (
+              <FitImg className="room-sum-img" src={heroSrc} rotate={turn} alt={`Proof shot: ${intention.text}`} decoding="async" />
+            ) : (
+              <Glyph name="frames" />
+            )}
+            {clips.length > 0 && (
+              <span className="play-badge" aria-hidden="true">
+                <Glyph name="play" />
+              </span>
+            )}
+          </button>
+          <div className="room-sum-body">
+            <p className="room-sum-who">
+              <span className="gchip">
+                <Glyph name="intent" />
+                {intention.category}
+              </span>
+              <Hybrid mode={mode} />
             </p>
-            <h1 className="room-intent-text">{intention.text}</h1>
+            <h1 id="intent-h" className="room-intent-text">
+              {intention.text}
+            </h1>
             <p className="hero-meta">
-              {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)} · {platform === "ios" ? "iOS" : platform === "android" ? "Android" : "Web"}
+              {owner?.name ?? "You, as a guest"} · {ago(feed?.sealedAtServer ?? moment?.endedAt ?? null)} ·{" "}
+              {platform === "ios" ? "iOS" : platform === "android" ? "Android" : "Web"}
               {moment?.device ? ` · ${moment.device.model}` : ""}
             </p>
-            <div className="hero-verdict">
-              {!pending && <Stamp sealed={sealed} size="lg" />}
-              <ScoreRing value={shownScore} bar={barValue} sealed={pending ? null : sealed} size={76} />
-              <div className="hero-checks">
-                <CheckPips checks={checks} keys={pipKeys} size="sm" />
-                <span className="hero-chips">
-                  {claimsTotal > 0 && (
-                    <GlyphChip glyph="intent" tone={!pending && claimsBacked >= claimsTotal ? "ok" : undefined}>
-                      {claimsBacked}/{claimsTotal} claims
-                    </GlyphChip>
-                  )}
-                  {witness && witness.asked > 0 && (
-                    <GlyphChip glyph="witness">
-                      {witness.answered}/{witness.asked}
-                    </GlyphChip>
-                  )}
-                  {cheatingSignals && cheatingSignals.length > 0 && (
-                    <GlyphChip glyph="cheating" tone="bad">
-                      cheating
-                    </GlyphChip>
-                  )}
-                </span>
-              </div>
-            </div>
-            {summary && (
-              <Stats
-                overlay
-                className="hero-stats"
-                items={[
-                  { glyph: "timing", value: fmtDuration(summary.durationMs), label: "session" },
-                  ...(coverage.videoMs > 0 ? [{ glyph: "video" as const, value: fmtDuration(coverage.videoMs), label: "on video" }] : []),
-                  { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
-                  { glyph: "frames", value: summary.frameCount, label: "shots" },
-                  ...(moment ? [{ glyph: "device" as const, value: moment.onDevice.retakes ? `${moment.onDevice.checks} · ${moment.onDevice.retakes}↻` : moment.onDevice.checks, label: "live checks" }] : []),
-                ]}
-              />
-            )}
           </div>
+          <div className="room-sum-verdict">
+            {!pending && <Stamp sealed={sealed} />}
+            <ScoreRing value={shownScore} bar={barValue} sealed={pending ? null : sealed} size={56} />
+            <div className="hero-checks">
+              <CheckPips checks={checks} keys={pipKeys} size="sm" />
+              <span className="hero-chips">
+                {claimsTotal > 0 && (
+                  <GlyphChip glyph="intent" tone={!pending && claimsBacked >= claimsTotal ? "ok" : undefined}>
+                    {claimsBacked}/{claimsTotal} claims
+                  </GlyphChip>
+                )}
+                {witness && witness.asked > 0 && (
+                  <GlyphChip glyph="witness">
+                    {witness.answered}/{witness.asked}
+                  </GlyphChip>
+                )}
+                {cheatingSignals && cheatingSignals.length > 0 && (
+                  <GlyphChip glyph="cheating" tone="bad">
+                    cheating
+                  </GlyphChip>
+                )}
+              </span>
+            </div>
+          </div>
+          {summary && (
+            <Stats
+              className="room-sum-stats"
+              items={[
+                { glyph: "timing", value: fmtDuration(summary.durationMs), label: "session" },
+                ...(coverage.videoMs > 0 ? [{ glyph: "video" as const, value: fmtDuration(coverage.videoMs), label: "on video" }] : []),
+                { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
+                { glyph: "frames", value: summary.frameCount, label: "shots" },
+                ...(moment ? [{ glyph: "device" as const, value: moment.onDevice.retakes ? `${moment.onDevice.checks} · ${moment.onDevice.retakes}↻` : moment.onDevice.checks, label: "live checks" }] : []),
+              ]}
+            />
+          )}
         </header>
       </section>
 
+      {/* Evidence: one tile per piece; each opens in the pop-out viewer. */}
       <section id="proof" className="room-wp room-proof" aria-labelledby="proof-h">
         <div className="room-label">
           <span className="wpdot wpdot-proof" aria-hidden="true" />
-          <h2 id="proof-h">Proof</h2>
-          <span className="room-hint">captured live, hashed every 5 s</span>
+          <h2 id="proof-h">Evidence</h2>
+          <span className="room-hint">captured live, hashed every 5 s · tap to open</span>
         </div>
-        <section className="viewer" aria-label="Proof shots, track and motion">
-          <div className="viewer-main">
-            <div className="frame-stage on-media">
-              {frame ? (
-                <>
-                  <FitImg className="frame-img" src={jpegSrc(frame.jpegB64)} rotate={turn} alt={frame.label || "Proof frame"} decoding="async" />
-                  <p className="frame-cap">
-                    <span>
-                      <Glyph name="timing" /> {fmtDuration(frame.t - start)}
-                    </span>
-                    {frame.label && <span>{frame.label}</span>}
-                    {frame.ok === false ? (
-                      <span className="coach coach-bad">
-                        <Glyph name="close" /> retake
-                      </span>
-                    ) : frame.ok ? (
-                      <span className="coach">
-                        <Glyph name="check" /> passed live check
-                      </span>
-                    ) : null}
-                    {frame.mode !== "none" && <Hybrid mode={frame.mode === "on_device" ? "on_device" : "cloud"} />}
-                  </p>
-                </>
-              ) : feed?.heroJpegB64 ? (
-                <FitImg className="frame-img" src={jpegSrc(feed.heroJpegB64)} rotate={turn} alt="Hero proof frame" />
-              ) : (
-                <div className="frame-empty">
-                  <Glyph name="frames" />
-                  {chunks ? "No proof frames" : "Loading frames…"}
-                </div>
-              )}
-            </div>
-            <div className="timeline">
-              {decoded.frames.length > 0 && (
-                <div className="thumbs" ref={strip} role="group" aria-label="Proof shots">
-                  {decoded.frames.map((f) => (
-                    <button
-                      key={f.seq}
-                      className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
-                      aria-pressed={frame?.seq === f.seq}
-                      onClick={(e) => {
-                        setT(f.t - start);
-                        setPickedSeq(null);
-                        e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
-                      }}
-                      aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
-                    >
-                      <RotImg src={jpegSrc(f.jpegB64)} rotate={turn} alt="" loading="lazy" decoding="async" width={88} height={66} />
-                      <span className="thumb-t">{fmtDuration(f.t - start)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="scrub-row">
-                <span>{fmtDuration(t)}</span>
-                <input
-                  type="range"
-                  className="scrub"
-                  min={0}
-                  max={duration}
-                  step={100}
-                  value={t}
-                  onChange={(e) => {
-                    setT(Number(e.target.value));
-                    setPickedSeq(null);
-                  }}
-                  aria-label="Scrub through the session"
-                  aria-valuetext={fmtDuration(t)}
-                />
-                <span>{fmtDuration(duration)}</span>
-              </div>
-            </div>
-            <MotionChart
-              motion={decoded.motion}
-              start={start}
-              duration={duration}
-              frames={decoded.frames.map((f) => f.t)}
-              t={t}
-              onSeek={(ms) => {
-                setT(ms);
-                setPickedSeq(null);
-              }}
-            />
-          </div>
-          <aside className="viewer-side">
-            <div className="map-wrap">
-              <Suspense fallback={<div className="map skel" />}>
-                <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
-              </Suspense>
-              {summary && (
-                <Stats
-                  overlay
-                  className="map-stats on-media"
-                  items={[
-                    { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
-                    { glyph: "gps", value: summary.gpsCount.toLocaleString(), label: "GPS fixes" },
-                    { glyph: "motion", value: summary.motionCount.toLocaleString(), label: "motion" },
-                  ]}
-                />
-              )}
-            </div>
-          </aside>
-        </section>
+        <ul className="ev-grid">
+          {clips.map((c, i) => (
+            <li key={c.sha256}>
+              <button type="button" className="ev-tile ev-tile-media" onClick={() => setView({ k: "clip", i })}>
+                <span className="ev-thumb on-media">
+                  {heroSrc && <FitImg src={heroSrc} rotate={turn} alt="" backdrop={false} loading="lazy" />}
+                  <span className="play-badge" aria-hidden="true">
+                    <Glyph name="play" />
+                  </span>
+                </span>
+                <span className="ev-text">
+                  <span className="ev-title">
+                    <Glyph name="video" /> {clips.length > 1 ? `Video ${i + 1}` : "Video"}
+                  </span>
+                  <span className="ev-stat">
+                    {c.durationMs > 0 ? fmtDuration(c.durationMs) : "clip"}
+                    {c.hashOk === true ? <span className="ok"> · ✓ chain</span> : c.hashOk === false ? <span className="bad"> · ✗ hash</span> : null}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+          <li>
+            <button type="button" className="ev-tile ev-tile-media" onClick={() => setView({ k: "proof" })}>
+              <span className="ev-thumb on-media">
+                {heroSrc ? <FitImg src={heroSrc} rotate={turn} alt="" backdrop={false} loading="lazy" /> : <Glyph name="frames" />}
+              </span>
+              <span className="ev-text">
+                <span className="ev-title">
+                  <Glyph name="frames" /> Proof shots
+                </span>
+                <span className="ev-stat">
+                  {shotCount} {shotCount === 1 ? "shot" : "shots"}
+                  {retakes > 0 && <span className="bad"> · {retakes}↻</span>} · motion
+                </span>
+              </span>
+            </button>
+          </li>
+          <li>
+            <button type="button" className="ev-tile" onClick={() => setView({ k: "route" })}>
+              <span className="ev-icon" aria-hidden="true">
+                <Glyph name="route" />
+              </span>
+              <span className="ev-text">
+                <span className="ev-title">Route</span>
+                <span className="ev-stat">
+                  {summary ? `${fmtDistance(summary.distanceM)} · ${summary.gpsCount.toLocaleString()} GPS` : "map"}
+                </span>
+              </span>
+            </button>
+          </li>
+          <li>
+            <button type="button" className="ev-tile" onClick={() => setView({ k: "chain" })} disabled={!chunks?.length}>
+              <span className="ev-icon" aria-hidden="true">
+                <Glyph name="hash" />
+              </span>
+              <span className="ev-text">
+                <span className="ev-title">Hash chain</span>
+                <span className="ev-stat">{chunks ? `${chunks.length} links${checks ? (checks.chain ? " · ✓ intact" : " · ✗ broken") : ""}` : "loading…"}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
 
         {coverage.videoMs > 0 && coverage.sessionMs > 0 && coverage.ratio < 0.8 && (
-          <p className="notice small coverage-note" role="note">
-            <Glyph name="video" /> The video covers {fmtDuration(coverage.videoMs)} of this {fmtDuration(coverage.sessionMs)} session (
-            {Math.round(coverage.ratio * 100)}%). Only what is on video can back claims about something that happens over time, like a song, reps or a
-            duration.
+          <p className="coverage-note small muted" role="note">
+            <Glyph name="video" /> Video covers {fmtDuration(coverage.videoMs)} of the {fmtDuration(coverage.sessionMs)} session ({Math.round(coverage.ratio * 100)}%). Only what is on
+            video can back claims that happen over time.
           </p>
         )}
-
-        <MomentVideos momentId={id} ownerUid={moment?.ownerUid} review={moment?.videoReview} rotate={turn} />
 
         {(local || (!!user && moment?.ownerUid === user.uid)) && (
           <LocalClips momentId={id} chained={evidenceOf(chunks ?? [], null).videos} hide={uploadedClips} />
         )}
+      </section>
 
+      <Modal open={!!openClip} media title={clips.length > 1 && view?.k === "clip" ? `Video ${view.i + 1} of ${clips.length}` : "Video"} sub={intention.text} onClose={close}>
+        {openClip && <ClipPlayer key={openClip.sha256} clip={openClip} rotate={turn} />}
+      </Modal>
+
+      <Modal open={view?.k === "proof"} wide media title="Proof shots" sub="Captured live, each hashed into the chain" onClose={close}>
+        <div className="viewer-main">
+          <div className="frame-stage on-media">
+            {frame ? (
+              <>
+                <FitImg className="frame-img" src={jpegSrc(frame.jpegB64)} rotate={turn} alt={frame.label || "Proof frame"} decoding="async" />
+                <p className="frame-cap">
+                  <span>
+                    <Glyph name="timing" /> {fmtDuration(frame.t - start)}
+                  </span>
+                  {frame.label && <span>{frame.label}</span>}
+                  {frame.ok === false ? (
+                    <span className="coach coach-bad">
+                      <Glyph name="close" /> retake
+                    </span>
+                  ) : frame.ok ? (
+                    <span className="coach">
+                      <Glyph name="check" /> passed live check
+                    </span>
+                  ) : null}
+                  {frame.mode !== "none" && <Hybrid mode={frame.mode === "on_device" ? "on_device" : "cloud"} />}
+                </p>
+              </>
+            ) : feed?.heroJpegB64 ? (
+              <FitImg className="frame-img" src={jpegSrc(feed.heroJpegB64)} rotate={turn} alt="Hero proof frame" />
+            ) : (
+              <div className="frame-empty">
+                <Glyph name="frames" />
+                {chunks ? "No proof frames" : "Loading frames…"}
+              </div>
+            )}
+          </div>
+          <div className="timeline">
+            {decoded.frames.length > 0 && (
+              <div className="thumbs" ref={strip} role="group" aria-label="Proof shots">
+                {decoded.frames.map((f) => (
+                  <button
+                    key={f.seq}
+                    className={`thumb ${frame?.seq === f.seq ? "thumb-on" : ""} ${f.ok === false ? "thumb-retake" : ""}`}
+                    aria-pressed={frame?.seq === f.seq}
+                    onClick={(e) => {
+                      setT(f.t - start);
+                      setPickedSeq(null);
+                      e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+                    }}
+                    aria-label={`Proof shot at ${fmtDuration(f.t - start)}${f.label ? ": " + f.label : ""}`}
+                  >
+                    <RotImg src={jpegSrc(f.jpegB64)} rotate={turn} alt="" loading="lazy" decoding="async" width={88} height={66} />
+                    <span className="thumb-t">{fmtDuration(f.t - start)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="scrub-row">
+              <span>{fmtDuration(t)}</span>
+              <input
+                type="range"
+                className="scrub"
+                min={0}
+                max={duration}
+                step={100}
+                value={t}
+                onChange={(e) => {
+                  setT(Number(e.target.value));
+                  setPickedSeq(null);
+                }}
+                aria-label="Scrub through the session"
+                aria-valuetext={fmtDuration(t)}
+              />
+              <span>{fmtDuration(duration)}</span>
+            </div>
+          </div>
+          <MotionChart
+            motion={decoded.motion}
+            start={start}
+            duration={duration}
+            frames={decoded.frames.map((f) => f.t)}
+            t={t}
+            onSeek={(ms) => {
+              setT(ms);
+              setPickedSeq(null);
+            }}
+          />
+        </div>
+      </Modal>
+
+      <Modal open={view?.k === "route"} wide title="Route" sub="GPS track; dots mark proof shots" onClose={close}>
+        <div className="map-wrap">
+          <Suspense fallback={<div className="map skel" />}>
+            <TrackMap track={track} cursor={cursor} frames={frameMarkers} />
+          </Suspense>
+          {summary && (
+            <Stats
+              overlay
+              className="map-stats on-media"
+              items={[
+                { glyph: "route", value: fmtDistance(summary.distanceM), label: "moved" },
+                { glyph: "gps", value: summary.gpsCount.toLocaleString(), label: "GPS fixes" },
+                { glyph: "motion", value: summary.motionCount.toLocaleString(), label: "motion" },
+              ]}
+            />
+          )}
+        </div>
+      </Modal>
+
+      <Modal open={view?.k === "chain"} wide title="Hash chain" sub="Every 5 s chunk, hashed and linked to the one before" onClose={close}>
         {chunks && chunks.length > 0 && (
           <ChainViewer
             momentId={id}
@@ -662,7 +727,7 @@ export default function Detail({ id }: { id: string }) {
             }}
           />
         )}
-      </section>
+      </Modal>
 
       <section id="result" className="room-wp room-result" aria-labelledby="result-h">
         <div className="room-label">
@@ -671,10 +736,7 @@ export default function Detail({ id }: { id: string }) {
           <span className="room-hint">AI proposes, code decides</span>
         </div>
         <div className={`room-verdict seal ${pending ? "" : sealed ? "rv-ok" : "rv-bad"}`}>
-          <div className="rv-top">
-            {!pending && <Stamp sealed={sealed} size="lg" />}
-            <ScoreRing value={shownScore} bar={barValue} sealed={pending ? null : sealed} size={92} caption="likely true" />
-          </div>
+          {/* The stamp and score ring sit in the summary card at the top; here, why, and the checks behind it. */}
           <div className="rv-body">
             <p className={`seal-reason ${sealed ? "" : "seal-reason-bad"}`}>{sealReason}</p>
             <CheckPips checks={checks} keys={pipKeys} labels size="md" />

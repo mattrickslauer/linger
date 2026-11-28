@@ -1,6 +1,6 @@
 // v4.12 shared video: the clips uploaded at submit, played from Cloud Storage by anyone who can see the Moment
 // (storage.rules: the owner, or anyone once the Moment is sealed/rejected). The feed autoplays the post's feed clip
-// muted on the current slide; the evidence room lists every uploaded clip with controls.
+// muted on the current slide; the evidence room opens each uploaded clip in a pop-out player.
 
 import { useEffect, useRef, useState } from "react";
 import { getDownloadURL, ref } from "firebase/storage";
@@ -8,11 +8,15 @@ import type { FeedVideoClip } from "../types";
 import type { VideoReview } from "../v4";
 import { bucket } from "../upload";
 import { rot, videoRotClass, type Rot } from "../rotate";
+import { Glyph } from "../kit";
+import { FIXTURES } from "../firebase";
 
 const urls = new Map<string, Promise<string>>();
 
 /** Download URL for a clip path, cached for the session; a failure is forgotten so a later call retries. */
 export function clipUrl(path: string): Promise<string> {
+  // Fixture builds have no Storage: VITE_FIXTURE_CLIP (a dev-only URL) stands in for every clip.
+  if (FIXTURES && import.meta.env.VITE_FIXTURE_CLIP) return Promise.resolve(import.meta.env.VITE_FIXTURE_CLIP as string);
   let p = urls.get(path);
   if (!p) {
     try {
@@ -103,60 +107,36 @@ export function SpeakerIcon({ muted }: { muted: boolean }) {
   );
 }
 
-/** Evidence room: every uploaded clip of the Moment, playable with controls. */
-export function MomentVideos({
-  momentId,
-  ownerUid,
-  review,
-  rotate = 0,
-}: {
-  momentId: string;
-  ownerUid: string | null | undefined;
-  review: VideoReview | null | undefined;
-  /** The Moment's displayRotation (clockwise degrees). */
-  rotate?: number;
-}) {
-  const turn = rot(rotate);
-  const clips = (review?.clips ?? []).filter((c) => c.uploaded && c.ext && ownerUid);
-  if (!clips.length) return null;
-  return (
-    <section className="clips shared-clips" aria-labelledby="shared-clips-h">
-      <div className="section-head">
-        <h2 id="shared-clips-h">Video</h2>
-        <p className="muted small">Uploaded with the Moment. Anyone who can see it can watch; the chain holds each clip's fingerprint.</p>
-      </div>
-      <div className="clip-grid">
-        {clips.map((c) => (
-          <SharedClip key={c.sha256} path={`clips/${ownerUid}/${momentId}/${c.sha256}.${c.ext}`} sha256={c.sha256} durationMs={c.durationMs} hashOk={c.hashOk} turn={turn} />
-        ))}
-      </div>
-    </section>
-  );
+/** One uploaded clip of a Moment, as the evidence room lists it. */
+export type RoomClip = { path: string; sha256: string; durationMs: number; hashOk: boolean | null };
+
+/** Evidence room: every uploaded clip of the Moment (storage path + what the chain says about it). */
+export function roomClips(momentId: string, ownerUid: string | null | undefined, review: VideoReview | null | undefined): RoomClip[] {
+  if (!ownerUid) return [];
+  return (review?.clips ?? [])
+    .filter((c) => c.uploaded && c.ext)
+    .map((c) => ({ path: `clips/${ownerUid}/${momentId}/${c.sha256}.${c.ext}`, sha256: c.sha256, durationMs: c.durationMs, hashOk: c.hashOk }));
 }
 
-function SharedClip({ path, sha256, durationMs, hashOk, turn }: { path: string; sha256: string; durationMs: number; hashOk: boolean | null; turn: Rot }) {
-  const url = useClipUrl(path, true);
+/** A clip in the evidence room's pop-out: the player at the clip's upright shape, then its fingerprint. */
+export function ClipPlayer({ clip, rotate = 0 }: { clip: RoomClip; rotate?: number }) {
+  const turn = rot(rotate);
+  const url = useClipUrl(clip.path, true);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    clipUrl(path).catch(() => live && setFailed(true));
+    clipUrl(clip.path).catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [clip.path]);
   return (
-    <figure className="clip">
-      {url && turn ? (
-        <TurnedPlayer url={url} turn={turn} />
-      ) : url ? (
-        <video src={url} controls playsInline preload="metadata" />
-      ) : (
-        <div className="clip-wait">{failed ? "Video unavailable" : "Loading video…"}</div>
-      )}
+    <figure className="clip-view">
+      {url ? <OrientedPlayer url={url} turn={turn} /> : <div className="clip-wait">{failed ? "Video unavailable" : "Loading video…"}</div>}
       <figcaption className="small">
-        {durationMs > 0 && <span>{Math.round(durationMs / 1000)} s · </span>}
-        <code title={sha256}>sha256 {sha256.slice(0, 12)}…</code>
-        {hashOk === false ? <span className="bad">✗ Hash does not match the chain</span> : hashOk === true ? <span className="ok">✓ matches the chain</span> : null}
+        {clip.durationMs > 0 && <span>{Math.round(clip.durationMs / 1000)} s</span>}
+        <code title={clip.sha256}>sha256 {clip.sha256.slice(0, 12)}…</code>
+        {clip.hashOk === false ? <span className="bad">✗ Hash does not match the chain</span> : clip.hashOk === true ? <span className="ok">✓ matches the chain</span> : null}
       </figcaption>
     </figure>
   );
@@ -165,25 +145,44 @@ function SharedClip({ path, sha256, durationMs, hashOk, turn }: { path: string; 
 const mmss = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
 
 /**
- * A clip stored sideways, shown turned upright. Native controls would turn with the <video>, so the video plays
- * without them inside a size container (CSS-rotated, still contained) and a small upright control bar sits under it:
- * play/pause, seek, time, sound. Tapping the picture also plays/pauses.
+ * A clip shown upright at its own shape, whole (never cropped), sized to fit the pop-out. The browser already applies
+ * the file's rotation metadata, so videoWidth/videoHeight are the shape it plays at; the Moment's displayRotation
+ * (clockwise) is applied on top, swapping the shape for quarter turns.
+ *
+ * Upright clips use the native controls. A turned clip plays without them (native controls would turn with the
+ * <video>) inside a size container, with a small upright control bar under it; tapping the picture plays/pauses.
  */
-function TurnedPlayer({ url, turn }: { url: string; turn: Rot }) {
+function OrientedPlayer({ url, turn }: { url: string; turn: Rot }) {
   const el = useRef<HTMLVideoElement>(null);
+  const [aspect, setAspect] = useState<number | null>(null); // shown width / height
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [t, setT] = useState(0);
   const [dur, setDur] = useState(0);
+  const quarter = turn === 90 || turn === 270;
+  const onMeta = (v: HTMLVideoElement) => {
+    if (v.videoWidth && v.videoHeight) setAspect(quarter ? v.videoHeight / v.videoWidth : v.videoWidth / v.videoHeight);
+    setDur(v.duration);
+    v.play().catch(() => {}); // opened by a tap: start playing (a browser may still want another tap)
+  };
   const toggle = () => {
     const v = el.current;
     if (!v) return;
     if (v.paused) v.play().catch(() => {});
     else v.pause();
   };
+  const a = aspect ?? 9 / 16;
+  // As wide as fits while the height stays within the stage's max height (--clip-max-h), never wider than the box.
+  const width = `min(100%, calc(var(--clip-max-h) * ${a.toFixed(4)}))`;
+  if (!turn)
+    return (
+      <div className="clip-stage" style={{ aspectRatio: String(a), width }}>
+        <video ref={el} src={url} controls playsInline preload="metadata" onLoadedMetadata={(e) => onMeta(e.currentTarget)} />
+      </div>
+    );
   return (
-    <div className="turned-player">
-      <div className="clip-rot rot-box" onClick={toggle}>
+    <div className="turned-player" style={{ width }}>
+      <div className="clip-stage rot-box" style={{ aspectRatio: String(a) }} onClick={toggle}>
         <video
           ref={el}
           className={videoRotClass(turn)}
@@ -195,13 +194,18 @@ function TurnedPlayer({ url, turn }: { url: string; turn: Rot }) {
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
-          onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
+          onLoadedMetadata={(e) => onMeta(e.currentTarget)}
           onDurationChange={(e) => setDur(e.currentTarget.duration)}
         />
+        {!playing && (
+          <span className="clip-big-play" aria-hidden="true">
+            <Glyph name="play" />
+          </span>
+        )}
       </div>
       <div className="turned-bar">
         <button type="button" className="btn btn-small" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>
-          {playing ? "❚❚" : "▶"}
+          <Glyph name={playing ? "pause" : "play"} />
         </button>
         <input
           type="range"

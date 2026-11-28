@@ -37,6 +37,7 @@ export default function TrackMap({ track, cursor, frames }: Props) {
   useEffect(() => {
     if (track.length < 2 || !el.current) return;
     let disposed = false;
+    let ro: ResizeObserver | null = null;
     Promise.all([import("leaflet"), import("leaflet/dist/leaflet.css")])
       .then(([mod]) => {
         if (disposed || !el.current) return;
@@ -52,6 +53,9 @@ export default function TrackMap({ track, cursor, frames }: Props) {
         const cur = L.circleMarker(track[0], { className: "lf-cursor", radius: 7, weight: 3, fillOpacity: 1 }).addTo(m);
         m.fitBounds(line.getBounds(), { padding: [24, 24] });
         map.current = { L, map: m, cursor: cur };
+        // Shown in a pop-out that can resize (rotation, window): keep the tiles filling the box.
+        ro = new ResizeObserver(() => m.invalidateSize());
+        ro.observe(el.current);
       })
       .catch((e) => {
         console.warn("map unavailable", e);
@@ -59,6 +63,7 @@ export default function TrackMap({ track, cursor, frames }: Props) {
       });
     return () => {
       disposed = true;
+      ro?.disconnect();
       map.current?.map.remove();
       map.current = null;
     };
