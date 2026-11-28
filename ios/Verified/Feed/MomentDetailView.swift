@@ -3,25 +3,43 @@ import MapKit
 import SwiftUI
 import VerifiedCore
 
-/// The evidence room (feed v5, visual-first pass): the proof photo as the hero with the stamp, score ring and key
-/// stats overlaid; then the Moment under the feed's three waypoints, Intent / Proof / Result, with the dashed track
-/// down the left and a sticky segmented jump bar. Nothing from the old detail is gone: map track, frame filmstrip,
-/// motion chart, video review, judge/skeptic/score, claims, bar, ladder, seal checklist, guest upload and owner
-/// delete. Prose lives behind taps (info popovers, "More" sheets, disclosure). Follows the app theme.
+/// The evidence room (tight pass, 2026-11-28): a compact summary card (aspect-fit media thumbnail, intention, who /
+/// when / platform, stamp + score ring + claims, check pips), one row of stats, then an "Evidence" grid of tiles
+/// that each open the full view in a modal (video and proof shots full screen; route, motion, hash chain and
+/// witness as sheets), then the Result: verdict, claims, bar, AI opinions, ladder. Nothing from the old detail is
+/// gone; it moved behind a tap. Video plays with upright controls (the picture alone is turned by
+/// `displayRotation`). Follows the app theme.
 struct MomentDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var model: MomentDetailModel
-  @State private var selectedFrame: MomentDetailModel.Frame?
   @State private var confirmingDelete = false
   @State private var deleteError: String?
-  @State private var activeSection: Waypoint = .intent
   @State private var opinion: OpinionKind?
   @State private var checksOpen = false
-  @State private var chainOpen = false
+  @State private var media: MediaModal?
+  @State private var evidenceSheet: EvidenceSheet?
   /// Opened from "My Moments": the only place delete is offered (never from the feed).
   private let fromMyMoments: Bool
+
+  /// Full-screen media modals.
+  enum MediaModal: Identifiable, Hashable {
+    case clip(Int), photo, shots
+    var id: String {
+      switch self {
+      case .clip(let i): "clip-\(i)"
+      case .photo: "photo"
+      case .shots: "shots"
+      }
+    }
+  }
+
+  /// Sheet modals (detents) for the non-media evidence.
+  enum EvidenceSheet: String, Identifiable {
+    case route, motion, chain, witness
+    var id: String { rawValue }
+  }
 
   init(initial: MomentCardData, fromMyMoments: Bool = false) {
     _model = State(initialValue: MomentDetailModel(initial: initial))
@@ -30,34 +48,25 @@ struct MomentDetailView: View {
 
   var body: some View {
     let m = model.card
-    let muted = m.status == "rejected"
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          hero(m)
-          if m.local { localBox(m) }
-          VStack(alignment: .leading, spacing: 30) {
-            intentSection(m).id(Waypoint.intent)
-            proofSection(m).id(Waypoint.proof)
-            resultSection(m).id(Waypoint.result)
-          }
-          .scrollTargetLayout()
-          .waypointTrack(muted ? Color.secondary.opacity(0.6) : Theme.track)
-        }
-        .padding(16)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        summaryCard(m)
+        statsRow(m)
+        if m.local { localBox(m) }
+        if let s = m.structured { IntentionDetails(intention: s).surfaceCard(padding: 12) }
+        evidenceSection(m)
+        resultSection(m)
       }
-      .onScrollTargetVisibilityChange(idType: Waypoint.self, threshold: 0.05) { visible in
-        if let first = Waypoint.allCases.first(where: { visible.contains($0) }) { activeSection = first }
-      }
-      .safeAreaInset(edge: .top, spacing: 0) { jumpBar(proxy) }
+      .padding(16)
     }
     .background(Theme.paper)
     .navigationTitle("Evidence")
     .navigationBarTitleDisplayMode(.inline)
     .task { model.start() }
     .onDisappear { model.stop() }
-    .sheet(item: $selectedFrame) { f in FrameSheet(frame: f) }
     .sheet(item: $opinion) { kind in OpinionSheet(kind: kind, card: m) }
+    .sheet(item: $evidenceSheet) { kind in evidenceSheetView(kind, m) }
+    .fullScreenCover(item: $media) { modal in mediaView(modal, m) }
     // The seal lands while the room is open: a success / error tap.
     .sensoryFeedback(trigger: m.status) { old, new in
       if new == "sealed" && old != "sealed" { return .success }
@@ -101,99 +110,106 @@ struct MomentDetailView: View {
     }
   }
 
-  /// Sticky Intent / Proof / Result segmented jump bar.
-  private func jumpBar(_ proxy: ScrollViewProxy) -> some View {
-    Picker("Jump to", selection: Binding(get: { activeSection }, set: { w in
-      activeSection = w
-      if reduceMotion {
-        proxy.scrollTo(w, anchor: .top)
-      } else {
-        withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(w, anchor: .top) }
-      }
-    })) {
-      ForEach(Waypoint.allCases) { w in Text(w.title).tag(w) }
-    }
-    .pickerStyle(.segmented)
-    .padding(.horizontal, 16).padding(.vertical, 8)
-    .background(.bar)
-  }
+  // MARK: Summary card
 
-  // MARK: Hero: the proof photo with the verdict overlaid
-
-  private func hero(_ m: MomentCardData) -> some View {
+  /// Thumbnail left (opens the media viewer); intention, who / when / platform, stamp + ring + claims, pips right.
+  private func summaryCard(_ m: MomentCardData) -> some View {
     let decided = m.status == "sealed" || m.status == "rejected"
-    return HeroImage(b64: m.heroJpegB64, category: m.category, rotation: m.displayRotation)
-      .frame(height: 300).frame(maxWidth: .infinity).clipped()
-      .saturation(m.status == "rejected" ? 0.2 : 1)
-      .overlay {
-        LinearGradient(stops: [.init(color: Theme.media.opacity(0.55), location: 0),
-                               .init(color: .clear, location: 0.3),
-                               .init(color: .clear, location: 0.45),
-                               .init(color: Theme.media.opacity(0.92), location: 1)],
-                       startPoint: .top, endPoint: .bottom)
-      }
-      .overlay(alignment: .topLeading) {
-        HStack(spacing: 6) {
-          StatusBadge(status: m.badgeStatus)
-          if !m.videoClips.isEmpty {
-            StatChip(icon: Glyph.video, value: "\(m.videoClips.count)", tint: .white, onMedia: true)
-              .accessibilityLabel("\(m.videoClips.count) video \(m.videoClips.count == 1 ? "clip" : "clips")")
-          }
+    return HStack(alignment: .top, spacing: 12) {
+      Button { media = m.videoClips.isEmpty ? .photo : .clip(playableClipIndex(m)) } label: { summaryThumb(m) }
+        .buttonStyle(.plain)
+        .accessibilityLabel(m.videoClips.isEmpty ? "Proof photo" : "Play video")
+        .accessibilityHint("Opens full screen")
+      VStack(alignment: .leading, spacing: 6) {
+        Text(m.intention)
+          .font(.headline.weight(.heavy))
+          .lineLimit(4)
+          .fixedSize(horizontal: false, vertical: true)
+        Text(metaLine(m))
+          .font(.caption).foregroundStyle(.secondary)
+          .lineLimit(2)
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) { verdictRow(m, decided: decided) }
+          VStack(alignment: .leading, spacing: 8) { verdictRow(m, decided: decided) }
         }
-        .padding(12)
+        .padding(.top, 2)
+        CheckPips(checks: m.checks, size: 22)
+          .accessibilityLabel(m.checks.isEmpty ? "Seal checks pending"
+                              : "\(CheckPips.passed(m.checks)) of 5 seal checks passed")
       }
-      .overlay(alignment: .bottom) {
-        HStack(alignment: .bottom, spacing: 12) {
-          VStack(alignment: .leading, spacing: 12) {
-            SealStamp(verified: m.isVerified, pending: !decided, fontSize: 18)
-            heroStats(m)
-          }
-          Spacer(minLength: 0)
-          if m.displayScore != nil || m.bar != nil {
-            ScoreRing(p: m.displayScore, bar: m.bar?.value, pending: !decided && m.displayScore == nil, size: 84)
-          }
-        }
-        .padding(14)
-      }
-      .foregroundStyle(.white)
-      .environment(\.colorScheme, .dark)
-      .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .surfaceCard(padding: 12)
   }
 
-  private struct HeroStat: Identifiable {
+  @ViewBuilder private func verdictRow(_ m: MomentCardData, decided: Bool) -> some View {
+    SealStamp(verified: m.isVerified, pending: !decided, fontSize: 13)
+    if m.displayScore != nil || m.bar != nil {
+      ScoreRing(p: m.displayScore, bar: m.bar?.value, pending: !decided && m.displayScore == nil, size: 44, caption: nil)
+    }
+    if m.claimsTotal > 0 {
+      let text = m.claimsBacked.map { "\($0)/\(m.claimsTotal) claims" } ?? "\(m.claimsTotal) claims"
+      Chip(text: text, systemImage: Glyph.claims, color: Theme.lake)
+        .fixedSize()
+        .accessibilityLabel(m.claimsBacked.map { "\($0) of \(m.claimsTotal) claims backed" } ?? "\(m.claimsTotal) claims")
+    }
+  }
+
+  /// The hero photo turned by `displayRotation`, whole (aspect fit), with a play badge when there's video.
+  private func summaryThumb(_ m: MomentCardData) -> some View {
+    HeroImage(b64: m.heroJpegB64, category: m.category, rotation: m.displayRotation)
+      .frame(width: 104, height: 138)
+      .saturation(m.status == "rejected" ? 0.2 : 1)
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay { if !m.videoClips.isEmpty { PlayBadge(size: 40) } }
+      .overlay(alignment: .topLeading) {
+        StatusBadge(status: m.badgeStatus, compact: true).padding(6)
+      }
+      .contentShape(Rectangle())
+  }
+
+  private func metaLine(_ m: MomentCardData) -> String {
+    var parts = [m.ownerName]
+    let date = m.sealedAt ?? (m.startedAt > 0 ? Date(timeIntervalSince1970: Double(m.startedAt) / 1000) : nil)
+    if let date { parts.append(date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))) }
+    parts.append(platformName(m.platform))
+    return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+  }
+
+  /// The clip the thumbnail opens: the feed's (last with a good hash), else the first.
+  private func playableClipIndex(_ m: MomentCardData) -> Int {
+    if let f = m.feedClip, let i = m.videoClips.firstIndex(of: f) { return i }
+    return 0
+  }
+
+  // MARK: Stats row
+
+  private struct Stat: Identifiable {
     let icon: String
     let value: String
     let label: String
-    var id: String { icon }
+    var id: String { label }
   }
 
-  private func heroStats(_ m: MomentCardData) -> some View {
-    var stats: [HeroStat] = []
+  /// Duration, distance, proof shots and where the coach ran, as one compact row (wraps when it must).
+  private func statsRow(_ m: MomentCardData) -> some View {
+    var stats: [Stat] = []
     if let s = m.summary {
-      stats.append(HeroStat(icon: Glyph.timing, value: formatDuration(ms: s.durationMs), label: "duration"))
-      stats.append(HeroStat(icon: Glyph.gps, value: formatDistance(s.distanceM), label: "distance"))
-      stats.append(HeroStat(icon: Glyph.shots, value: "\(s.frameCount)", label: "proof shots"))
+      stats.append(Stat(icon: Glyph.timing, value: formatDuration(ms: s.durationMs), label: "duration"))
+      stats.append(Stat(icon: Glyph.gps, value: formatDistance(s.distanceM), label: "distance"))
+      stats.append(Stat(icon: Glyph.shots, value: "\(s.frameCount)", label: "proof shots"))
     }
-    if m.claimsTotal > 0 {
-      if let backed = m.claimsBacked {
-        stats.append(HeroStat(icon: Glyph.claims, value: "\(backed)/\(m.claimsTotal)", label: "claims backed"))
-      } else {
-        stats.append(HeroStat(icon: Glyph.claims, value: "\(m.claimsTotal)", label: "claims"))
+    return FlowChips {
+      ForEach(stats) { s in
+        StatChip(icon: s.icon, value: s.value, tint: Theme.track)
+          .accessibilityLabel("\(s.value) \(s.label)")
       }
+      if m.onDeviceMode == "on_device" { HybridBadge(onDevice: true, text: "coach on device") }
+      if m.onDeviceMode == "cloud" { HybridBadge(onDevice: false, text: "coach in cloud") }
+      if m.recordedAsGuest { Chip(text: "guest", systemImage: "person.crop.circle.badge.questionmark") }
+      if m.hasPendingWrites { Chip(text: "queued", systemImage: "icloud.slash", color: Theme.warn) }
     }
-    return ViewThatFits(in: .horizontal) {
-      HStack(spacing: 12) { ForEach(stats) { heroStat($0) } }
-      VStack(alignment: .leading, spacing: 4) { ForEach(stats) { heroStat($0) } }
-    }
-  }
-
-  private func heroStat(_ s: HeroStat) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: s.icon).font(.caption.weight(.bold)).foregroundStyle(Theme.track)
-      Text(s.value).font(.subheadline.weight(.bold).monospacedDigit()).lineLimit(1).fixedSize()
-    }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(s.value) \(s.label)")
+    .padding(.horizontal, 4)
   }
 
   /// Guest Moment: one line + the upload action.
@@ -216,110 +232,182 @@ struct MomentDetailView: View {
     .surfaceCard(padding: 12)
   }
 
-  // MARK: 1. Intent
+  // MARK: Evidence grid
 
-  private func intentSection(_ m: MomentCardData) -> some View {
-    let cat = Category(rawValue: m.category) ?? .other
-    return waypointSection(.intent, m) {
-      VStack(alignment: .leading, spacing: 10) {
-        Label(cat.label, systemImage: cat.icon)
-          .font(.caption.weight(.bold)).foregroundStyle(Theme.track)
-        Text("\(Text("“").foregroundStyle(Theme.track))\(m.intention)\(Text("”").foregroundStyle(Theme.track))")
-          .font(.title2.weight(.heavy))
-          .fixedSize(horizontal: false, vertical: true)
-        HStack(spacing: 8) {
-          Avatar(url: m.ownerPhotoURL, name: m.ownerName, size: 26)
-          Text(m.ownerName).font(.subheadline.weight(.semibold))
-          if let when = startedText(m) { Text(when).font(.subheadline).foregroundStyle(.secondary) }
-        }
-        .accessibilityElement(children: .combine)
-        FlowChips {
-          Chip(text: platformName(m.platform), systemImage: platformIcon(m.platform))
-          if m.onDeviceMode == "on_device" { HybridBadge(onDevice: true, text: "coach on device") }
-          if m.onDeviceMode == "cloud" { HybridBadge(onDevice: false, text: "coach in cloud") }
-          if m.recordedAsGuest { Chip(text: "guest", systemImage: "person.crop.circle.badge.questionmark") }
-          if m.hasPendingWrites { Chip(text: "queued", systemImage: "icloud.slash", color: Theme.warn) }
-        }
-      }
-      if let s = m.structured { IntentionDetails(intention: s).surfaceCard() }
-      if !m.claims.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
-          GlyphHeader(icon: Glyph.claims, title: m.claimsFromServer ? "Claims" : "Draft claims") {
-            Text("\(m.claims.count)").font(.subheadline.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
-          }
-          ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) { ForEach(m.claims) { ClaimChip(claim: $0, tint: Theme.lake) } }
-          }
-        }
-      }
-    }
-  }
-
-  // MARK: 2. Proof
-
-  private func proofSection(_ m: MomentCardData) -> some View {
+  private func evidenceSection(_ m: MomentCardData) -> some View {
     let answered = max(m.witnessAnswered, model.witnessAnswers)
-    return waypointSection(.proof, m) {
-      filmstrip
-      mapCard(m)
-      motionCard
-      HStack(spacing: 10) {
-        if m.witnessAsked > 0 || answered > 0 {
-          StatTile(icon: Glyph.witness, value: m.witnessAsked > 0 ? "\(answered)/\(m.witnessAsked)" : "\(answered)",
-                   label: m.witnessSkipped > 0 ? "witness · \(m.witnessSkipped) skipped" : "witness")
-        }
-        chainTile
-      }
-      if chainOpen {
-        ChainRecheckLine(chainVerified: model.chainVerified, chunkCount: model.chunkCount)
-          .surfaceCard(padding: 12)
-          .transition(.opacity)
-      }
-      if !m.local {
-        VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
-      }
-      if !m.videoClips.isEmpty {
-        // v4.12: the uploaded clips, for anyone who can see the Moment.
-        VStack(alignment: .leading, spacing: 10) {
-          GlyphHeader(icon: Glyph.video, title: "Video") {
-            Text("\(m.videoClips.count)").font(.subheadline.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
-          }
-          SharedClipsSection(clips: m.videoClips, rotation: m.displayRotation)
-        }
-      }
-    }
-  }
-
-  /// Proof frames as a horizontal filmstrip: time and coach verdict overlaid on each thumbnail.
-  @ViewBuilder private var filmstrip: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      GlyphHeader(icon: Glyph.frames, title: "Frames") {
-        if !model.frames.isEmpty {
-          Text("\(model.frames.count)").font(.subheadline.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
-        }
-      }
-      if model.frames.isEmpty {
-        Label(model.loading ? "Loading…" : "No proof frames", systemImage: model.loading ? "hourglass" : "photo.badge.exclamationmark")
-          .font(.footnote).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, minHeight: 80)
-          .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-      } else {
-        ScrollView(.horizontal, showsIndicators: false) {
-          LazyHStack(spacing: 8) {
-            ForEach(model.frames) { f in
-              Button { selectedFrame = f } label: { FrameThumb(frame: f) }
-                .buttonStyle(.plain)
+    let retakes = model.frames.filter { $0.check?.ok == false }.count
+    let shotCount = model.frames.isEmpty ? (m.summary?.frameCount ?? 0) : model.frames.count
+    return VStack(alignment: .leading, spacing: 10) {
+      sectionHeader("Evidence", icon: Glyph.proof)
+      LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+        ForEach(Array(m.videoClips.enumerated()), id: \.element.id) { i, clip in
+          Button { media = .clip(i) } label: {
+            EvidenceTile(icon: Glyph.video,
+                         title: m.videoClips.count > 1 ? "Video \(i + 1)" : "Video",
+                         value: clip.durationMs > 0 ? formatDuration(ms: clip.durationMs) : "Clip",
+                         detail: clip.hashOk == false ? "hash mismatch" : clip.hashOk == true ? "hash matches" : "hash pending",
+                         status: clip.hashOk) {
+              mediaPreview(m, play: true)
             }
           }
+          .buttonStyle(.plain)
+          .accessibilityHint("Plays the clip full screen")
         }
-        .scrollClipDisabled()
+        Button { media = .shots } label: {
+          EvidenceTile(icon: Glyph.shots, title: "Proof shots", value: "\(shotCount)",
+                       detail: retakes > 0 ? "\(retakes) retake\(retakes == 1 ? "" : "s")" : model.loading ? "loading" : "no retakes",
+                       status: nil) {
+            mediaPreview(m, play: false)
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the proof shots full screen")
+        Button { evidenceSheet = .route } label: {
+          EvidenceTile(icon: Glyph.gps, title: "Route",
+                       value: m.summary.map { formatDistance($0.distanceM) } ?? "–",
+                       detail: model.track.isEmpty ? (model.loading ? "loading" : "no GPS fixes") : "\(model.track.count) GPS fixes",
+                       status: nil) {
+            TrackSketch(track: m.track.isEmpty ? model.track.map { LatLng(lat: $0.latitude, lng: $0.longitude) } : m.track,
+                        width: 132, height: 80)
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the map")
+        Button { evidenceSheet = .motion } label: {
+          EvidenceTile(icon: Glyph.motion, title: "Motion",
+                       value: model.motion.map(\.mag).max().map { String(format: "%.1f", $0) } ?? "–",
+                       detail: model.motion.isEmpty ? (model.loading ? "loading" : "no samples") : "peak m/s²",
+                       status: nil) {
+            motionSparkline
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the motion chart")
+        Button { evidenceSheet = .chain } label: {
+          EvidenceTile(icon: Glyph.chain, title: "Hash chain", value: "\(model.chunkCount)",
+                       detail: model.chainVerified == nil ? "re-checking" : model.chainVerified == true ? "links valid" : "BROKEN",
+                       status: model.chainVerified) {
+            chainLinks
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the chain re-check")
+        if m.witnessAsked > 0 || answered > 0 {
+          Button { evidenceSheet = .witness } label: {
+            EvidenceTile(icon: Glyph.witness, title: "Witness",
+                         value: m.witnessAsked > 0 ? "\(answered)/\(m.witnessAsked)" : "\(answered)",
+                         detail: m.witnessSkipped > 0 ? "\(m.witnessSkipped) skipped" : "answered",
+                         status: nil) {
+              Image(systemName: Glyph.witness).font(.system(size: 30, weight: .semibold)).foregroundStyle(Theme.lake)
+            }
+          }
+          .buttonStyle(.plain)
+          .accessibilityHint("Shows the witness answers")
+        }
+      }
+      if !m.local {
+        // The video-coverage note: one small line.
+        VideoStatusLine(momentId: m.id, review: m.videoReview, status: m.status)
+          .padding(.horizontal, 4)
+      }
+    }
+  }
+
+  /// A tile preview: the hero photo, whole, optionally with a play badge.
+  private func mediaPreview(_ m: MomentCardData, play: Bool) -> some View {
+    HeroImage(b64: m.heroJpegB64, category: m.category, rotation: m.displayRotation)
+      .overlay { if play { PlayBadge(size: 34) } }
+  }
+
+  @ViewBuilder private var motionSparkline: some View {
+    if model.motion.isEmpty {
+      Image(systemName: Glyph.motion).font(.system(size: 30, weight: .semibold)).foregroundStyle(.secondary)
+    } else {
+      Chart(model.motion) { p in
+        LineMark(x: .value("Seconds", p.s), y: .value("|a| m/s²", p.mag))
+          .foregroundStyle(Theme.lake)
+          .lineStyle(StrokeStyle(lineWidth: 1.2))
+      }
+      .chartXAxis(.hidden)
+      .chartYAxis(.hidden)
+      .padding(8)
+    }
+  }
+
+  /// A row of chain links tinted by the on-phone re-check.
+  private var chainLinks: some View {
+    HStack(spacing: -3) {
+      let n = min(max(model.chunkCount, 1), 6)
+      ForEach(0..<n, id: \.self) { _ in
+        Image(systemName: Glyph.chain).font(.title3.weight(.heavy))
+      }
+      if model.chunkCount > 6 { Text("+").font(.title3.weight(.heavy)).padding(.leading, 4) }
+    }
+    .foregroundStyle(chainTint)
+  }
+
+  private var chainTint: Color {
+    switch model.chainVerified {
+    case .some(true): Theme.ok
+    case .some(false): Theme.bad
+    case .none: .secondary
+    }
+  }
+
+  // MARK: Modals
+
+  @ViewBuilder private func mediaView(_ modal: MediaModal, _ m: MomentCardData) -> some View {
+    switch modal {
+    case .clip(let i):
+      ClipViewer(clips: m.videoClips, start: i, rotation: m.displayRotation)
+    case .photo:
+      PhotoViewer(b64: m.heroJpegB64, category: m.category, rotation: m.displayRotation)
+    case .shots:
+      ProofShotsViewer(model: model)
+    }
+  }
+
+  @ViewBuilder private func evidenceSheetView(_ kind: EvidenceSheet, _ m: MomentCardData) -> some View {
+    let answered = max(m.witnessAnswered, model.witnessAnswers)
+    switch kind {
+    case .route:
+      EvidenceSheetFrame(title: "Route", detents: [.medium, .large]) {
+        mapCard(m)
+      }
+    case .motion:
+      EvidenceSheetFrame(title: "Motion", detents: [.medium]) {
+        motionCard
+      }
+    case .chain:
+      EvidenceSheetFrame(title: "Hash chain", detents: [.medium]) {
+        VStack(alignment: .leading, spacing: 14) {
+          chainLinks
+          ChainRecheckLine(chainVerified: model.chainVerified, chunkCount: model.chunkCount)
+          if let ok = m.checks["chain"] {
+            HStack(spacing: 10) {
+              CheckPip(check: .chain, ok: ok, size: 24)
+              Text("Seal: hash chain \(ok ? "intact" : "broken")").font(.subheadline)
+            }
+            .accessibilityElement(children: .combine)
+          }
+        }
+        .surfaceCard()
+      }
+    case .witness:
+      EvidenceSheetFrame(title: "Witness", detents: [.medium]) {
+        HStack(spacing: 10) {
+          StatTile(icon: Glyph.witness, value: "\(answered)", label: "answered")
+          if m.witnessAsked > 0 { StatTile(icon: "questionmark.bubble", value: "\(m.witnessAsked)", label: "asked") }
+          if m.witnessSkipped > 0 { StatTile(icon: "forward", value: "\(m.witnessSkipped)", label: "skipped", tint: Theme.warn) }
+        }
       }
     }
   }
 
   /// The GPS track with distance / time / fixes overlaid on the map.
   private func mapCard(_ m: MomentCardData) -> some View {
-    TrackMap(track: model.track, height: 210)
+    TrackMap(track: model.track, height: 360)
       .overlay(alignment: .bottomLeading) {
         if !model.track.isEmpty, let s = m.summary {
           HStack(spacing: 6) {
@@ -341,7 +429,7 @@ struct MomentDetailView: View {
 
   @ViewBuilder private var motionCard: some View {
     VStack(alignment: .leading, spacing: 8) {
-      GlyphHeader(icon: Glyph.motion, title: "Motion") {
+      GlyphHeader(icon: Glyph.motion, title: "Acceleration") {
         if let peak = model.motion.map(\.mag).max() {
           Text(String(format: "peak %.1f m/s²", peak)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
@@ -359,60 +447,22 @@ struct MomentDetailView: View {
         }
         .chartYAxis(.hidden)
         .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
-        .frame(height: 90)
+        .frame(height: 160)
         .accessibilityLabel("Motion over time")
       }
     }
     .surfaceCard()
   }
 
-  /// The hash chain, collapsed: a row of links tinted by the on-phone re-check. Tap for the sentence.
-  private var chainTile: some View {
-    Button { withAnimation(reduceMotion ? nil : .snappy) { chainOpen.toggle() } } label: {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: -3) {
-          let n = min(max(model.chunkCount, 1), 6)
-          ForEach(0..<n, id: \.self) { _ in
-            Image(systemName: Glyph.chain).font(.caption.weight(.heavy))
-          }
-          if model.chunkCount > 6 { Text("+").font(.caption.weight(.heavy)).padding(.leading, 4) }
-        }
-        .foregroundStyle(chainTint)
-        .frame(height: 30, alignment: .leading)
-        HStack(spacing: 4) {
-          Text("\(model.chunkCount)").font(.title3.weight(.heavy).monospacedDigit())
-          Text("chunks").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-          Spacer(minLength: 0)
-          CheckIcon(ok: model.chainVerified)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(12)
-      .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Hash chain, \(model.chunkCount) chunks, "
-                        + (model.chainVerified == nil ? "re-checking" : model.chainVerified == true ? "valid" : "broken"))
-    .accessibilityHint(chainOpen ? "Hide details" : "Show details")
-  }
-
-  private var chainTint: Color {
-    switch model.chainVerified {
-    case .some(true): Theme.ok
-    case .some(false): Theme.bad
-    case .none: .secondary
-    }
-  }
-
-  // MARK: 3. Result
+  // MARK: Result
 
   private func resultSection(_ m: MomentCardData) -> some View {
-    waypointSection(.result, m) {
+    VStack(alignment: .leading, spacing: 10) {
+      sectionHeader("Result", icon: Glyph.result)
       verdictCard(m)
-      if ClaimsSection.visible(m) { ClaimsSection(model: model).surfaceCard() }
+      if ClaimsSection.visible(m) { ClaimsSection(model: model).surfaceCard(padding: 12) }
       if m.bar != nil || m.displayScore != nil || m.structured?.preview != nil {
-        BarScoreCard(card: m).surfaceCard()
+        BarScoreCard(card: m).surfaceCard(padding: 12)
       }
       opinions(m)
       if LadderSection.visible(m, uid: app.auth.user?.uid) {
@@ -420,19 +470,19 @@ struct MomentDetailView: View {
           GlyphHeader(icon: Glyph.ladder, title: "Ladder")
           LadderSection(model: model)
         }
-        .surfaceCard()
+        .surfaceCard(padding: 12)
       }
     }
   }
 
-  /// Ring + stamp + one line of why, then the check pips; tap the pips for the full seal checklist.
+  /// Stamp + one line of why, then the labelled check pips; tap the pips for the full seal checklist.
   private func verdictCard(_ m: MomentCardData) -> some View {
     let decided = m.status == "sealed" || m.status == "rejected"
-    return VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .center, spacing: 16) {
-        ScoreRing(p: m.displayScore, bar: m.bar?.value, pending: !decided && m.displayScore == nil, size: 104)
-        VStack(alignment: .leading, spacing: 8) {
-          SealStamp(verified: m.isVerified, pending: !decided, fontSize: 17)
+    return VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .center, spacing: 14) {
+        ScoreRing(p: m.displayScore, bar: m.bar?.value, pending: !decided && m.displayScore == nil, size: 72)
+        VStack(alignment: .leading, spacing: 6) {
+          SealStamp(verified: m.isVerified, pending: !decided, fontSize: 15)
           if let reason = m.sealReason, !reason.isEmpty {
             Text(reason).font(.footnote)
               .foregroundStyle(m.isVerified ? Theme.ok : decided ? Theme.bad : Color.secondary)
@@ -442,7 +492,7 @@ struct MomentDetailView: View {
       }
       Button { withAnimation(reduceMotion ? nil : .snappy) { checksOpen.toggle() } } label: {
         HStack(alignment: .center) {
-          CheckPips(checks: m.checks, size: 32, labeled: true)
+          CheckPips(checks: m.checks, size: 28, labeled: true)
           Spacer(minLength: 4)
           Image(systemName: "chevron.down").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
             .rotationEffect(.degrees(checksOpen ? 180 : 0))
@@ -455,11 +505,11 @@ struct MomentDetailView: View {
                           : "\(CheckPips.passed(m.checks)) of 5 seal checks passed")
       .accessibilityHint(checksOpen ? "Hide the checklist" : "Show the checklist")
       if checksOpen {
-        SealChecklist(card: m, chainVerified: model.chainVerified, chunkCount: model.chunkCount, showsChain: false)
+        SealChecklist(card: m, chainVerified: model.chainVerified, chunkCount: model.chunkCount, showsChain: true)
           .transition(.opacity)
       }
     }
-    .surfaceCard(padding: 16, radius: 22)
+    .surfaceCard(padding: 14, radius: 20)
   }
 
   /// Judge, skeptic and scorer side by side: verdict glyph + number + one line; "More" opens a sheet.
@@ -480,26 +530,195 @@ struct MomentDetailView: View {
 
   // MARK: Building blocks
 
-  /// One waypoint: dot + title, then its content.
-  private func waypointSection<Content: View>(_ w: Waypoint, _ m: MomentCardData,
-                                               @ViewBuilder _ content: () -> Content) -> some View {
-    HStack(alignment: .top, spacing: 10) {
-      WaypointDot(kind: w, muted: m.status == "rejected",
-                  pending: w == .result && m.status != "sealed" && m.status != "rejected",
-                  fill: Theme.paper)
-        .padding(.top, 4)
-      VStack(alignment: .leading, spacing: 14) {
-        Text(w.title).font(.title3.weight(.heavy))
-          .accessibilityAddTraits(.isHeader)
-        content()
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
+  private func sectionHeader(_ title: String, icon: String) -> some View {
+    Label(title, systemImage: icon)
+      .font(.title3.weight(.heavy))
+      .labelStyle(SectionLabelStyle())
+      .padding(.top, 6)
+      .accessibilityAddTraits(.isHeader)
+  }
+}
+
+private struct SectionLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 8) {
+      configuration.icon.foregroundStyle(Theme.track).font(.headline.weight(.bold))
+      configuration.title
     }
   }
+}
 
-  private func startedText(_ m: MomentCardData) -> String? {
-    let date = m.startedAt > 0 ? Date(timeIntervalSince1970: Double(m.startedAt) / 1000) : m.sealedAt
-    return date?.formatted(date: .abbreviated, time: .shortened)
+/// A round play badge over a media preview.
+private struct PlayBadge: View {
+  var size: CGFloat = 40
+  var body: some View {
+    Image(systemName: "play.fill")
+      .font(.system(size: size * 0.4, weight: .bold))
+      .foregroundStyle(.white)
+      .frame(width: size, height: size)
+      .background(.black.opacity(0.5), in: Circle())
+      .accessibilityHidden(true)
+  }
+}
+
+/// One evidence tile: a preview area on top, then glyph + title, the big value and a one-line detail.
+private struct EvidenceTile<Preview: View>: View {
+  let icon: String
+  let title: String
+  let value: String
+  let detail: String
+  /// ✓ / ✗ / nothing, shown next to the value.
+  let status: Bool?
+  @ViewBuilder var preview: Preview
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      ZStack {
+        Theme.raised
+        preview
+      }
+      .frame(height: 88)
+      .frame(maxWidth: .infinity)
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      Label(title, systemImage: icon)
+        .font(.caption.weight(.bold)).foregroundStyle(Theme.lake)
+        .lineLimit(1)
+      HStack(spacing: 6) {
+        Text(value).font(.title3.weight(.heavy).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
+        Spacer(minLength: 0)
+        if let status { CheckIcon(ok: status) }
+      }
+      Text(detail).font(.caption).foregroundStyle(status == false ? Theme.bad : .secondary).lineLimit(1)
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(title): \(value), \(detail)")
+    .accessibilityAddTraits(.isButton)
+  }
+}
+
+/// A sheet modal of the evidence room: title, Done, the content, the given detents.
+private struct EvidenceSheetFrame<Content: View>: View {
+  let title: String
+  let detents: Set<PresentationDetent>
+  @ViewBuilder var content: Content
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        content.padding(16)
+      }
+      .background(Theme.paper)
+      .navigationTitle(title)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+    .presentationDetents(detents)
+    .presentationDragIndicator(.visible)
+  }
+}
+
+/// The hero photo full screen, whole, turned by `displayRotation`.
+private struct PhotoViewer: View {
+  let b64: String?
+  let category: String
+  var rotation = 0
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(spacing: 12) {
+      HStack {
+        Text("Proof photo").font(.headline)
+        Spacer()
+        ModalCloseButton { dismiss() }
+      }
+      Spacer(minLength: 0)
+      if let b64, let cg = ProofFrame.cgImage(fromBase64: b64, rotation: rotation) {
+        Image(decorative: cg, scale: 1).resizable().scaledToFit()
+          .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          .accessibilityLabel("Proof photo")
+      } else {
+        HeroImage(b64: nil, category: category).frame(height: 240)
+          .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(16)
+    .background(Theme.media.ignoresSafeArea())
+    .environment(\.colorScheme, .dark)
+  }
+}
+
+/// Proof shots full screen: the selected shot on a stage (whole, never cropped) with its time and coach verdict, a
+/// scrubber across the shots, and the filmstrip.
+private struct ProofShotsViewer: View {
+  let model: MomentDetailModel
+  @State private var index = 0
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    let frames = model.frames
+    VStack(spacing: 12) {
+      HStack {
+        Text(frames.isEmpty ? "Proof shots" : "Shot \(min(index, frames.count - 1) + 1) of \(frames.count)")
+          .font(.headline.monospacedDigit())
+        Spacer()
+        ModalCloseButton { dismiss() }
+      }
+      if frames.isEmpty {
+        Spacer()
+        Label(model.loading ? "Loading…" : "No proof frames",
+              systemImage: model.loading ? "hourglass" : "photo.badge.exclamationmark")
+          .font(.footnote).foregroundStyle(.secondary)
+        Spacer()
+      } else {
+        let f = frames[min(index, frames.count - 1)]
+        Group {
+          if let img = f.image {
+            Image(decorative: img, scale: 1).resizable().scaledToFit()
+              .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          } else {
+            Theme.raised.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("Proof frame at \(formatDuration(ms: Int64(max(0, f.offsetS) * 1000)))")
+        FrameInfo(frame: f)
+        if frames.count > 1 {
+          Slider(value: Binding(get: { Double(min(index, frames.count - 1)) }, set: { index = Int($0.rounded()) }),
+                 in: 0...Double(frames.count - 1), step: 1)
+            .tint(Theme.track)
+            .accessibilityLabel("Proof shot")
+            .accessibilityValue("\(index + 1) of \(frames.count)")
+        }
+        ScrollViewReader { proxy in
+          ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 8) {
+              ForEach(Array(frames.enumerated()), id: \.element.id) { i, frame in
+                Button { index = i } label: {
+                  FrameThumb(frame: frame)
+                    .overlay {
+                      RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(i == index ? Theme.track : .clear, lineWidth: 3)
+                    }
+                }
+                .buttonStyle(.plain)
+                .id(i)
+              }
+            }
+          }
+          .frame(height: 138)
+          .onChange(of: index) { _, i in withAnimation { proxy.scrollTo(i, anchor: .center) } }
+        }
+      }
+    }
+    .padding(16)
+    .background(Theme.media.ignoresSafeArea())
+    .environment(\.colorScheme, .dark)
   }
 }
 
@@ -832,14 +1051,11 @@ struct CheckIcon: View {
   }
 }
 
-private struct FrameSheet: View {
+/// Under the proof-shot stage: the shot's time and link, and the live coach's verdict.
+private struct FrameInfo: View {
   let frame: MomentDetailModel.Frame
   var body: some View {
-    VStack(spacing: 14) {
-      if let img = frame.image {
-        Image(decorative: img, scale: 1).resizable().scaledToFit()
-          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-      }
+    VStack(spacing: 8) {
       HStack(spacing: 12) {
         StatChip(icon: Glyph.timing, value: "+\(formatDuration(ms: Int64(max(0, frame.offsetS) * 1000)))")
         StatChip(icon: Glyph.chain, value: Chain.docId(frame.seq))
@@ -856,10 +1072,9 @@ private struct FrameSheet: View {
           }
         }
         Text(c.ok ? c.label : c.reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+          .lineLimit(3)
       }
     }
-    .padding(20)
-    .presentationDetents([.medium, .large])
   }
 }
 
