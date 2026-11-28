@@ -14,7 +14,7 @@
 | **Demo video** (≤ 3 min) | *YouTube link added before 30 Nov 2026* |
 | **Get the apps** (TestFlight + APK in one place) | **https://verified-99e74.web.app/download** |
 | **iOS** (TestFlight public beta) | **https://testflight.apple.com/join/8SGF1Pqr** |
-| **Android** | *APK on the [Releases](https://github.com/mattrickslauer/verified/releases) page before 30 Nov 2026* |
+| **Android** (APK, Android 10+) | **https://github.com/mattrickslauer/verified/releases/latest/download/Verified.apk** ([release notes](https://github.com/mattrickslauer/verified/releases/latest)) |
 | **Contract** (data model, hashing, prompts, seal rules) | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | **License** | [Apache 2.0](LICENSE) |
 
