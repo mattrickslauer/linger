@@ -86,6 +86,8 @@ enum ClipUpload {
                      progress: (@MainActor (Int64) -> Void)? = nil) async throws {
     let meta = StorageMetadata()
     meta.contentType = contentType
+    // Named by sha256 and never overwritten (rules: create only), so viewers may cache the clip for good.
+    meta.cacheControl = "private, max-age=31536000, immutable"
     let ref = Storage.storage().reference(withPath: path)
     try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
       let task = ref.putFile(from: url, metadata: meta) { _, error in

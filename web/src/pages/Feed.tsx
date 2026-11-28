@@ -1,7 +1,7 @@
 // The feed: one Moment a screen, swiped up like TikTok. Every slide is the same template, read top to
 // bottom as a thread with three waypoints: what they said they would do (intent), what the phone
 // captured (proof), and what the seal decided (result). Tap through to the Moment's evidence room.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { subscribeFeed } from "../data";
 import { FIXTURES } from "../firebase";
 import { fmtDistance, fmtDuration } from "../geo";
@@ -77,13 +77,24 @@ function Share({ e }: { e: FeedEntry }) {
   );
 }
 
-function Slide({ e, index, active }: { e: FeedEntry; index: number; active: boolean }) {
+/** Slides within this many of the current one keep their photos mounted; further ones render without them. */
+const NEAR = 2;
+
+/** The next slide's clip may buffer ahead, except on Data Saver. */
+const canWarm = () => !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+
+/**
+ * One slide. `near`: within NEAR of the current slide, so its photo is mounted (60 heroes aren't all decoded up
+ * front). `warm`: the next slide, whose clip buffers hidden and paused so a swipe starts it at once.
+ */
+const Slide = memo(function Slide({ e, index, active, near, warm }: { e: FeedEntry; index: number; active: boolean; near: boolean; warm: boolean }) {
   const sealed = e.status === "sealed";
   const score = pct(e.verificationScore);
   const reason = e.cheating ? (e.cheatingSignals?.[0] ?? e.sealReason) : sealed ? (e.scoreReasons?.[0] ?? e.judgeReasons?.[0]) : e.sealReason;
   const ladder = e.ladder?.length ?? 0;
   const clip = feedClip(e.video?.clips);
   const turn = rot(e.displayRotation);
+  const hero = useMemo(() => (e.heroJpegB64 ? jpegSrc(e.heroJpegB64) : null), [e.heroJpegB64]);
   const [muted, setMuted] = useState(true);
   useEffect(() => {
     if (!active) setMuted(true);
@@ -122,15 +133,17 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
       aria-label={`${e.intention.text}, ${sealed ? "verified" : "not verified"}`}
     >
       <div className="slide-back" aria-hidden="true">
-        {e.heroJpegB64 && <RotImg src={jpegSrc(e.heroJpegB64)} rotate={turn} alt="" />}
+        {hero && near && <RotImg src={hero} rotate={turn} alt="" decoding="async" />}
       </div>
       <div className="slide-frame">
-        {e.heroJpegB64 ? (
-          <FitImg className="slide-photo" src={jpegSrc(e.heroJpegB64)} rotate={turn} alt={`Proof shot: ${e.intention.text}`} />
+        {hero && near ? (
+          <FitImg className="slide-photo" src={hero} rotate={turn} alt={`Proof shot: ${e.intention.text}`} decoding="async" />
+        ) : hero ? (
+          <div className="slide-photo" />
         ) : (
           <div className="slide-photo slide-nophoto" />
         )}
-        {clip && <FeedVideo clip={clip} active={active} muted={muted} rotate={turn} />}
+        {clip && <FeedVideo clip={clip} active={active} warm={warm} muted={muted} rotate={turn} />}
         <div className="slide-shade" aria-hidden="true" />
         {/* The whole slide opens the room; the buttons below stop the click. */}
         <button className="slide-hit" onClick={open} aria-label={`Inspect the evidence for: ${e.intention.text}`} tabIndex={-1} />
@@ -215,7 +228,7 @@ function Slide({ e, index, active }: { e: FeedEntry; index: number; active: bool
       </div>
     </section>
   );
-}
+});
 
 const TILES: { k: "intent" | "proof" | "result"; glyph: "intent" | "proof" | "seal"; name: string; line: string }[] = [
   { k: "intent", glyph: "intent", name: "Intent", line: "Said before starting" },
@@ -305,6 +318,14 @@ export default function Feed({ user }: { user: User | null }) {
 
   const shown = useMemo(() => (entries ?? []).filter((e) => filter === "all" || e.status === filter), [entries, filter]);
   const sealedCount = entries?.filter((e) => e.status === "sealed").length ?? 0;
+  // Index of the current slide in `shown`: -1 on the intro (so the first slides are near), past the end on the end card.
+  const at = useMemo(() => {
+    if (!active || active === "intro") return -1;
+    if (active === "end") return shown.length;
+    const i = shown.findIndex((e) => e.momentId === active);
+    return i < 0 ? -1 : i;
+  }, [active, shown]);
+  const warmOk = useMemo(canWarm, []);
 
   // Which slide is on screen: drives the one reveal and the keyboard.
   useEffect(() => {
@@ -386,7 +407,14 @@ export default function Feed({ user }: { user: User | null }) {
         )}
         {!entries && !error && <section className="slide slide-msg slide-skeleton" aria-busy="true" />}
         {shown.map((e, i) => (
-          <Slide key={e.momentId} e={e} index={i} active={active === e.momentId} />
+          <Slide
+            key={e.momentId}
+            e={e}
+            index={i}
+            active={active === e.momentId}
+            near={Math.abs(i - at) <= NEAR}
+            warm={i === at + 1 && warmOk}
+          />
         ))}
         {entries && (
           <section className="slide slide-msg" data-id="end">
