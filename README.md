@@ -11,7 +11,7 @@
 | | |
 |---|---|
 | **Live app** (opens as a guest, no sign-in) | **https://verified-99e74.web.app** |
-| **Demo video** (≤ 3 min) | *YouTube link added before 30 Nov 2026* |
+| **Demo video** (≤ 3 min) | **https://youtu.be/q_gJDhiZ5Sw** |
 | **Get the apps** (TestFlight + APK in one place) | **https://verified-99e74.web.app/download** |
 | **iOS** (TestFlight public beta) | **https://testflight.apple.com/join/8SGF1Pqr** |
 | **Android** (APK, Android 10+) | **https://github.com/mattrickslauer/verified/releases/latest/download/Verified.apk** ([release notes](https://github.com/mattrickslauer/verified/releases/latest)) |
