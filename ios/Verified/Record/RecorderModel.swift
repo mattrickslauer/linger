@@ -44,6 +44,8 @@ final class RecorderModel {
   private(set) var videoCount = 0
   /// Start time (ms) of the clip being recorded right now, nil when not recording video.
   private(set) var clipStartedAt: Int64?
+  /// v4.14: how the clip being recorded is encoded (from the plan's longest video requirement).
+  private(set) var clipProfile: ClipProfile = .live
   /// v4.2: the evidence plan this Moment records against (from the interview), nil for a typed intention.
   private(set) var plan: EvidencePlan?
   private(set) var claims: [Claim] = []
@@ -336,9 +338,14 @@ final class RecorderModel {
     let t = nowMs()
     clipStartedAt = t  // also blocks double taps while the camera starts
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(VideoClip.fileName(momentId: id, startedAt: t))
+    // v4.14: the plan sets how long a clip may run (a 30-minute meditation records whole) and so how it is encoded.
+    // Never below the 5 minutes phones always allowed (web keeps its 60 s default).
+    let cap = max(300, ClipProfile.capSeconds(plan: plan))
+    let profile = ClipProfile.forCap(seconds: cap)
+    clipProfile = profile
     Task {
       do {
-        try await camera.startRecording(to: url) { url, failure in
+        try await camera.startRecording(to: url, maxSeconds: cap, lowRate: profile.fps != nil) { url, failure in
           Task { @MainActor in self.clipFinished(url: url, failure: failure, startedAt: t) }
         }
         guard self.phase == .recording else { return }
@@ -377,11 +384,16 @@ final class RecorderModel {
     shooting = true
     coach = Coach(kind: .checking, text: LiveCoach.onDeviceAvailable ? "Checking clip on-device…" : "Checking clip…")
     let intentionText = intention
+    let profile = clipProfile
     shotTask = Task { [weak self] in
       guard let self else { return }
       defer { self.shooting = false }
       let processed: VideoClipFile.Processed
       do {
+        // Compressed before it is hashed: the chain, the gallery copy and the upload are all the small file.
+        self.coach = Coach(kind: .checking, text: "Compressing clip…")
+        _ = await Task.detached { await ClipCompressor.compress(url: url, profile: profile) }.value
+        self.coach = Coach(kind: .checking, text: LiveCoach.onDeviceAvailable ? "Checking clip on-device…" : "Checking clip…")
         processed = try await Task.detached {
           try await VideoClipFile.process(url: url, startedAt: startedAt, endedAt: endedAt, posterT: endedAt)
         }.value

@@ -134,6 +134,21 @@ export function fakeVideoAnswer(intentionText: string, claims: Claim[]): Record<
   };
 }
 
+/**
+ * How the reviewer samples the footage (v4.14). Gemini reads video at 1 frame/s by default, ~258 tokens a frame: a
+ * 30-minute meditation would be ~460k tokens and outlive the call timeout. Short footage (<= 2 min) keeps the
+ * default; longer footage is sampled so all clips together give at most REVIEW_FRAME_BUDGET frames (never below one
+ * every 10 s), at low resolution past 5 min. Audio is always heard in full.
+ */
+export const REVIEW_FRAME_BUDGET = 360;
+export function reviewSampling(totalMs: number): { fps: number | null; mediaResolution?: "low"; timeoutMs: number } {
+  const s = Math.max(0, totalMs) / 1000;
+  const timeoutMs = Math.round(Math.min(300_000, Math.max(90_000, 90_000 + s * 100)));
+  if (s <= 120) return { fps: null, timeoutMs };
+  const fps = Math.round(Math.max(0.1, Math.min(1, REVIEW_FRAME_BUDGET / s)) * 1000) / 1000;
+  return { fps, ...(s > 300 ? { mediaResolution: "low" as const } : {}), timeoutMs };
+}
+
 export interface VideoReviewCall {
   moment: MomentDoc;
   facts: ChainFacts;
@@ -147,7 +162,11 @@ export interface VideoReviewCall {
 export async function runVideoReview(call: VideoReviewCall, engine: AiEngine = getEngine()): Promise<VideoAnswer> {
   const intention = intentionWithoutDraft(intentionForModel(call.moment.intention));
   const startT = call.facts.startT ?? 0;
-  const media: Part[] = call.clips.map((c) => ({ fileData: { fileUri: c.gsUri, mimeType: CLIP_TYPES[c.ext ?? "mp4"] ?? "video/mp4" } }));
+  const sampling = reviewSampling(call.clips.reduce((a, c) => a + (c.durationMs || 0), 0));
+  const media: Part[] = call.clips.map((c) => ({
+    fileData: { fileUri: c.gsUri, mimeType: CLIP_TYPES[c.ext ?? "mp4"] ?? "video/mp4" },
+    ...(sampling.fps ? { videoMetadata: { fps: sampling.fps } } : {}),
+  }));
   const { requirements, recordMode, note } = call.plan;
   const { data, model } = await engine.generateJson({
     prompt: "videoReview",
@@ -162,6 +181,8 @@ export async function runVideoReview(call: VideoReviewCall, engine: AiEngine = g
       ),
     },
     media,
+    mediaResolution: sampling.mediaResolution,
+    timeoutMs: sampling.timeoutMs,
     fake: () => fakeVideoAnswer(String(intention.text ?? ""), call.claims),
   });
   if (!Array.isArray(data.claims)) throw new Error("model answer has no claims list");

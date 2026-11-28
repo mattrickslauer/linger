@@ -862,6 +862,34 @@ controls (not autoplayed), from `moments/{id}.videoReview.clips` where `uploaded
 {sha256}.{ext}`), so the owner sees them before the seal too. A clip with `hashOk == false` is labelled "Hash does
 not match the chain". The on-device clip list (owner, recording device) stays, below it, for clips not uploaded.
 
+### v4.14 Long, compressed video (all platforms)
+
+A `video` requirement may now be as long as the activity: up to **2 hours** (`minSeconds` <= 7200; "meditate for
+30 minutes" is one 30-minute clip). Clips are made small **before they are hashed and chained**, so the chain, the
+gallery copy and the upload are the same small file (compressing at upload would break the SHA-256 check).
+
+**Clip cap** = longest `video` `minSeconds` x 1.05 + 15 s, clamped to [60 s (web) / 300 s (phones), 7200 s].
+
+**Encoding profile** from the cap (web `clipProfile`, iOS/Android `ClipProfile`):
+
+| tier | cap | frames | longest edge | video | audio |
+|------|-----|--------|--------------|-------|-------|
+| live | <= 5 min | camera rate | 1280 | 1.2 Mbit/s | 64 kbit/s |
+| long | <= 20 min | 5 fps | 960 | 350 kbit/s | 32 kbit/s |
+| slow | <= 2 h | 1 fps | 720 | 110 kbit/s | 24 kbit/s |
+
+Time is never sped up: the clip's duration and continuous audio stay evidence. Web draws the camera into a canvas
+at the profile's rate (`captureStream(fps)` + the mic track) for long/slow, and keeps <= 48 candidate middle frames
+in memory. iOS records the movie (sensor lowered to ~10 fps for long/slow), then `ClipCompressor` re-encodes it
+(H.264 at the profile's size/bitrate, frames thinned to `fps`, mono AAC); on any failure the original is kept.
+Android encodes at capture (CameraX bitrate, SD for long/slow, the lowest supported sensor range), with a duration
+limit at the cap and a 190 MB file-size guard.
+
+**Review sampling** (`reviewSampling` in functions/src/video.ts). Footage <= 2 min: the model's default sampling.
+Longer: `videoMetadata.fps` = 360 frames / total seconds (0.1 to 1 fps), low media resolution past 5 min, model
+timeout 90 s + 0.1 s per second of footage (<= 300 s). Audio is always heard in full. The reviewer prompt says a low
+frame rate is deliberate, not a cut or loop.
+
 ## Repo layout
 
 ```
