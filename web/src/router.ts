@@ -1,7 +1,7 @@
 // A 30-line path router: five routes do not need a dependency.
 import { useEffect, useState } from "react";
 
-export type Route = { name: "feed" } | { name: "moment"; id: string } | { name: "record" } | { name: "me" } | { name: "embed" } | { name: "missing" };
+export type Route = { name: "feed" } | { name: "moment"; id: string } | { name: "record" } | { name: "me" } | { name: "embed" } | { name: "download" } | { name: "missing" };
 
 export function parse(path: string): Route {
   if (path === "/" || path === "") return { name: "feed" };
@@ -10,6 +10,7 @@ export function parse(path: string): Route {
   if (/^\/record\/?$/.test(path)) return { name: "record" };
   if (/^\/me\/?$/.test(path)) return { name: "me" };
   if (/^\/embed\/?$/.test(path)) return { name: "embed" };
+  if (/^\/(download|get)\/?$/.test(path)) return { name: "download" };
   return { name: "missing" };
 }
 

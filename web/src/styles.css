@@ -2343,3 +2343,76 @@ path.lf-cursor {
   border-radius: var(--r-sm);
   border: 1px solid var(--rule);
 }
+
+/* -------- /download: native apps */
+.dl {
+  max-width: 880px;
+  display: grid;
+  gap: 24px;
+}
+.dl-hero {
+  display: grid;
+  gap: 10px;
+}
+.dl-hero h1,
+.dl-hero .lede {
+  margin: 0;
+}
+.dl-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 14px;
+}
+.dl-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 20px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+}
+.dl-mine {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold);
+}
+.dl-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dl-head h2,
+.dl-head p,
+.dl-card > p {
+  margin: 0;
+}
+.dl-head .chip {
+  margin-left: auto;
+}
+.dl-glyph {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--gold-ink);
+}
+.dl-glyph .glyph {
+  width: 24px;
+  height: 24px;
+}
+.dl-btn {
+  justify-content: center;
+}
+.dl-steps {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.dl-web {
+  margin: 0;
+}
