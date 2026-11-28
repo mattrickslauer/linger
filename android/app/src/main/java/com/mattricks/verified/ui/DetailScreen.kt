@@ -1,6 +1,21 @@
 package com.mattricks.verified.ui
 
-import android.text.format.DateUtils
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.mattricks.verified.data.SharedClip
+import kotlin.math.roundToInt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,7 +43,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,37 +67,28 @@ import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -102,7 +107,6 @@ import com.mattricks.verified.data.Store
 import com.mattricks.verified.data.V3Math
 import com.mattricks.verified.record.RecordViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) {
@@ -148,53 +152,60 @@ fun DetailScreen(momentId: String, fromMe: Boolean = false, onBack: () -> Unit) 
             d != null -> DetailBody(d, onBack, if (canDelete) ({ confirmDelete = true }) else null) {
                 com.mattricks.verified.auth.Gate.require("run a verification module") { ladderOpen = true }
             }
-            error != null -> {
-                EmptyState(Glyph.Warning, "Couldn't open this Moment.", Modifier.align(Alignment.Center)) {
-                    Text(error ?: "", color = Ink2, style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { error = null; refresh++ }) { Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Retry") }
+            error != null -> Column(Modifier.fillMaxSize()) {
+                RoomChrome(onBack = onBack, onDelete = null)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    EmptyState(Glyph.Warning, "Couldn't open this Moment.", Modifier.align(Alignment.Center)) {
+                        Text(error ?: "", color = Ink2, style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { error = null; refresh++ }) { Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Retry") }
+                    }
                 }
-                RoomChrome(collapsed = true, current = -1, onJump = null, onBack = onBack, onDelete = null)
             }
-            else -> {
-                Column(Modifier.fillMaxSize()) {
-                    Skeleton(Modifier.fillMaxWidth().height(420.dp))
-                    Spacer(Modifier.height(16.dp))
-                    repeat(3) { Skeleton(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(72.dp)) }
-                }
-                RoomChrome(collapsed = false, current = -1, onJump = null, onBack = onBack, onDelete = null)
+            else -> Column(Modifier.fillMaxSize()) {
+                RoomChrome(onBack = onBack, onDelete = null)
+                Skeleton(Modifier.padding(16.dp).fillMaxWidth().height(160.dp))
+                repeat(3) { Skeleton(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(72.dp)) }
             }
         }
     }
 }
 
-private val SECTIONS = listOf(Triple(Wp.Intent, "Intent", Glyph.Intent), Triple(Wp.Proof, "Proof", Glyph.Proof), Triple(Wp.Result, "Result", Glyph.Result))
+private val SECTIONS = listOf(Triple(Wp.Intent, "Intent", Glyph.Intent), Triple(Wp.Proof, "Evidence", Glyph.Proof), Triple(Wp.Result, "Result", Glyph.Result))
+
+/** What the summary thumbnail or an evidence tile opens: media in a full-screen modal, the rest in a sheet. */
+internal sealed interface Viewer {
+    data class Clip(val path: String) : Viewer
+    data class Shots(val index: Int) : Viewer
+    data object Route : Viewer
+    data object Motion : Viewer
+    data object Chain : Viewer
+    data object Witness : Viewer
+}
 
 /**
- * The evidence room (feed v5 + visual-first): hero proof shot with the stamp, score ring and key stats overlaid; a
- * filmstrip; then Intent / Proof / Result behind a segmented jump bar. Prose lives in sheets. Follows the app theme.
+ * The evidence room, tight: a compact summary card (aspect-fit thumbnail, the intention, stamp + score + claims, the
+ * pips) over one row of stats; then Intent; Evidence as a grid of tiles, each opening the full view in a modal; then
+ * the Result. Follows the app theme.
  */
 @Composable
 internal fun DetailBody(d: MomentDetail, onBack: () -> Unit, onDelete: (() -> Unit)?, onOpenLadder: () -> Unit) {
-    var selected by remember(d.frames.size) { mutableIntStateOf((d.frames.size - 1).coerceAtLeast(0)) }
     val ok = d.card.status == "sealed" && !d.card.cheating
     val checks = d.seal?.checks?.takeIf { it.isNotEmpty() } ?: d.feedChecks
     val isOwner = d.ownerUid.isNotEmpty() && d.ownerUid == runCatching { Firebase.auth.currentUser?.uid }.getOrNull()
+    var viewer by remember(d.card.id) { mutableStateOf<Viewer?>(null) }
 
     val intent = buildList<@Composable ColumnScope.() -> Unit> {
         if (d.local) add { LocalBanner(d) }
         add { IntentionChips(d) }
     }
 
-    val proof = buildList<@Composable ColumnScope.() -> Unit> {
-        add { MapWithStats(d) }
+    val evidence = buildList<@Composable ColumnScope.() -> Unit> {
         // v4: the free video review sits with the evidence it reviewed.
         if (isV4(d)) add { VideoReviewCard(d) }
         else if (!d.local && d.card.status == "recording" && d.videos.isNotEmpty()) add { VideoUploadLine(d.card.id) }
-        // v4.12: every uploaded clip, playable by anyone who can see the Moment.
-        if (d.sharedClips.isNotEmpty()) add { SharedVideoSection(d) }
-        if (d.witness.isNotEmpty()) add { WitnessStrip(d) }
-        if (d.motion.isNotEmpty()) add { MotionBlock(d) }
-        add { ChainBlock(d) }
+        val cov = videoCoverage(d)
+        if (cov.short) add { CoverageNote(cov) }
+        add { EvidenceGrid(d) { viewer = it } }
     }
 
     val result = buildList<@Composable ColumnScope.() -> Unit> {
@@ -205,163 +216,405 @@ internal fun DetailBody(d: MomentDetail, onBack: () -> Unit, onDelete: (() -> Un
         add { LadderSection(d, isOwner = isOwner, onOpenLadder = onOpenLadder) }
     }
 
-    val list = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    var chromePx by remember { mutableIntStateOf(0) }
-    // Items: hero, filmstrip (may be empty), jump bar, then the three sections in order.
-    val first = 3
-    val starts = listOf(first, first + intent.size, first + intent.size + proof.size)
-    val collapsed by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
-    val current by remember(starts) {
-        derivedStateOf {
-            val firstIdx = list.firstVisibleItemIndex + if (list.firstVisibleItemScrollOffset > 0) 1 else 0
-            when {
-                !list.canScrollForward && list.firstVisibleItemIndex > 0 -> 2
-                firstIdx >= starts[2] -> 2
-                firstIdx >= starts[1] -> 1
-                else -> 0
-            }
-        }
-    }
-    val jump: (Int) -> Unit = { i -> scope.launch { list.animateScrollToItem(starts[i], -chromePx) } }
     val nav = WindowInsets.safeBars.asPaddingValues()
-
-    // Sides clear of a landscape cutout / side nav bar; the bottom scrolls under the gesture bar but ends above it.
-    LazyColumn(Modifier.fillMaxSize().safeSides(), state = list, contentPadding = PaddingValues(bottom = 32.dp + nav.calculateBottomPadding())) {
-        item(key = "hero") { Hero(d, ok, selected) }
-        item(key = "film") { if (d.frames.size > 1) Filmstrip(d, selected) { selected = it } }
-        item(key = "jump") { JumpBar(current, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), jump) }
-        listOf(intent, proof, result).forEachIndexed { si, body ->
-            val (kind, title, _) = SECTIONS[si]
-            itemsIndexed(body, key = { i, _ -> "${kind.name}-$i" }) { i, block ->
-                RoomRow(kind, ok, header = i == 0) {
-                    if (i == 0) Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    block()
+    Column(Modifier.fillMaxSize()) {
+        RoomChrome(onBack, onDelete)
+        // Sides clear of a landscape cutout / side nav bar; the bottom scrolls under the gesture bar but ends above it.
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth().safeSides(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp + nav.calculateBottomPadding()),
+        ) {
+            item(key = "summary") { SummaryCard(d, ok, checks) { viewer = it } }
+            item(key = "stats") { StatsRow(d) }
+            listOf(intent, evidence, result).forEachIndexed { si, body ->
+                val (kind, title, _) = SECTIONS[si]
+                itemsIndexed(body, key = { i, _ -> "${kind.name}-$i" }) { i, block ->
+                    RoomRow(kind, ok, header = i == 0) {
+                        if (i == 0) Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                        block()
+                    }
                 }
             }
         }
     }
-    Box(Modifier.onSizeChanged { chromePx = it.height }) { RoomChrome(collapsed, current, jump, onBack, onDelete) }
+    viewer?.let { EvidenceViewer(d, it) { viewer = null } }
 }
 
-/** Back (and delete) floating over the hero; once scrolled, a solid bar carrying the segmented jump bar. */
+/** Back (and delete, on my own Moments) in a solid bar. */
 @Composable
-private fun RoomChrome(collapsed: Boolean, current: Int, onJump: ((Int) -> Unit)?, onBack: () -> Unit, onDelete: (() -> Unit)?) {
+private fun RoomChrome(onBack: () -> Unit, onDelete: (() -> Unit)?) {
     Row(
-        Modifier.fillMaxWidth().then(if (collapsed) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)
-            .safeTopAndSides().padding(4.dp),
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).safeTopAndSides().padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val btn = if (collapsed) IconButtonDefaults.iconButtonColors()
-        else IconButtonDefaults.iconButtonColors(containerColor = MediaBg.copy(alpha = 0.55f), contentColor = TokInk)
-        IconButton(onClick = onBack, colors = btn) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-        Box(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-            if (collapsed && onJump != null) JumpBar(current, Modifier.fillMaxWidth(), onJump, compact = true)
-            else if (collapsed) Text("Evidence room", style = MaterialTheme.typography.titleMedium)
-        }
-        if (onDelete != null) IconButton(onClick = onDelete, colors = btn) { Icon(Icons.Filled.Delete, "Delete Moment") }
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+        Text("Evidence room", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+        if (onDelete != null) IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Delete Moment") }
     }
 }
 
-@Composable
-private fun JumpBar(current: Int, modifier: Modifier, onJump: (Int) -> Unit, compact: Boolean = false) {
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
-        SECTIONS.forEachIndexed { i, (_, label, icon) ->
-            SegmentedButton(
-                selected = current == i, onClick = { onJump(i) }, shape = SegmentedButtonDefaults.itemShape(i, SECTIONS.size),
-                icon = { if (!compact) Icon(icon, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
-            ) { Text(label, maxLines = 1) }
-        }
-    }
+// ───────────────────────── Summary
+
+/** The hero proof shot: the card's hero, else the last frame. */
+private fun heroB64(d: MomentDetail): String? = d.card.heroJpegB64?.takeIf { it.isNotEmpty() } ?: d.frames.lastOrNull()?.jpegB64
+
+/** The frame the hero is (to open the proof viewer on it), else the last. */
+private fun heroFrameIndex(d: MomentDetail): Int =
+    d.frames.indexOfFirst { it.jpegB64.isNotEmpty() && it.jpegB64 == d.card.heroJpegB64 }.takeIf { it >= 0 } ?: (d.frames.size - 1).coerceAtLeast(0)
+
+/** The clip the summary thumbnail plays: the last one whose hash is not known to mismatch (like the feed), else any. */
+private fun heroClip(d: MomentDetail): SharedClip? = d.sharedClips.lastOrNull { it.hashOk != false } ?: d.sharedClips.lastOrNull()
+
+private fun dimmed(d: MomentDetail): ColorFilter? =
+    if (d.card.status != "rejected" && !d.card.cheating) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) })
+
+private fun platformLabel(p: String): String = when (p.lowercase()) {
+    "android" -> "Android"
+    "ios" -> "iPhone"
+    "web" -> "Web"
+    else -> p.replaceFirstChar { it.uppercase() }
 }
 
-/** The proof shot full-bleed, with status, intention, the score ring and the key stats overlaid. */
+/** Session time against recorded video time (web videoCoverage): the chained clips, else the uploaded ones. */
+internal data class VideoCoverage(val videoMs: Long, val sessionMs: Long) {
+    val ratio: Float get() = if (sessionMs > 0) minOf(1f, videoMs.toFloat() / sessionMs) else if (videoMs > 0) 1f else 0f
+    /** Worth a note: there is video, but it covers under 80% of the session. */
+    val short: Boolean get() = videoMs > 0 && sessionMs > 0 && ratio < 0.8f
+}
+
+internal fun videoCoverage(d: MomentDetail): VideoCoverage = VideoCoverage(
+    (d.videos.takeIf { it.isNotEmpty() }?.sumOf { maxOf(0L, it.durationMs) } ?: d.sharedClips.sumOf { maxOf(0L, it.durationMs) }),
+    d.card.summary.durationMs,
+)
+
+/** The compact header: thumbnail (tap = media viewer), the quoted intention, who/when/where, stamp + ring + claims, pips. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Hero(d: MomentDetail, ok: Boolean, selected: Int) {
-    val frame = d.frames.getOrNull(selected)
-    val b64 = frame?.jpegB64?.takeIf { it.isNotEmpty() } ?: d.card.heroJpegB64
+private fun SummaryCard(d: MomentDetail, ok: Boolean, checks: Map<String, Boolean>, onOpen: (Viewer) -> Unit) {
     val p = d.verification?.score ?: d.score?.probability ?: d.card.score
     val bar = barOf(d) ?: d.intention?.preview?.bar
-    // 440dp on a phone held upright; at most 80% of the screen in landscape, so the title and score show without scrolling.
-    val heroMin = minOf(440, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.8f).toInt()).dp
-    Box(Modifier.fillMaxWidth().heightIn(min = heroMin).background(MediaBg)) {
-        val bmp = rememberB64Bitmap(b64, d.card.displayRotation)
-        if (bmp != null) FitImage(
-            bmp, "Proof shot", Modifier.matchParentSize(),
-            colorFilter = if (d.card.status != "rejected" && !d.card.cheating) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.3f) }),
-        ) else Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color(0xFF10343B), MediaBg))), contentAlignment = Alignment.Center) {
-            if (d.track.size > 1) TrackSketch(d.track, Modifier.size(180.dp, 130.dp))
-        }
-        Box(
-            Modifier.matchParentSize().background(
-                Brush.verticalGradient(0f to MediaBg.copy(alpha = 0.7f), 0.2f to Color.Transparent, 0.42f to Color.Transparent, 1f to MediaBg.copy(alpha = 0.95f)),
-            ),
-        )
-        // The selected frame's own on-device coach result, as chips on the photo.
-        Column(
-            Modifier.align(Alignment.TopEnd).safeTopAndSides().padding(top = 60.dp, end = 12.dp),
-            horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            frame?.check?.let { c ->
-                ScrimChip(Modifier.semantics(mergeDescendants = true) {}) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (c.ok) Icons.Filled.CheckCircle else Glyph.Warning, null, Modifier.size(15.dp), tint = if (c.ok) TokOk else TokBad)
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            (if (c.ok) "keep going" else "retake: ${c.reason}") + (c.label.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp),
-                        )
-                    }
-                }
-                HybridBadge(c.mode, onMedia = true)
-            }
-            frame?.witnessAsk?.let { ask ->
-                ScrimChip {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Glyph.Witness, "Witness asked", Modifier.size(15.dp)); Spacer(Modifier.width(5.dp))
-                        Text(ask, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp))
-                    }
-                }
-            }
-        }
-        Column(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 150.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                StatusBadge(d.card.status, d.local, d.card.cheating)
-                if (!d.local) HybridBadge(d.card.onDeviceMode, onMedia = true)
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                Column(Modifier.weight(1f)) {
+    val decided = d.card.status == "sealed" || d.card.status == "rejected"
+    val clip = heroClip(d)
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row {
+                MediaThumb(
+                    d, play = clip != null, modifier = Modifier.width(104.dp),
+                    onClickLabel = if (clip != null) "Play the video" else "View the proof shots",
+                ) { onOpen(clip?.let { Viewer.Clip(it.path) } ?: Viewer.Shots(heroFrameIndex(d))) }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         buildAnnotatedString {
-                            withStyle(SpanStyle(color = if (ok) TrackOrange else TokInk2)) { append("“") }
+                            withStyle(SpanStyle(color = if (ok) TrackOrange else Ink2)) { append("“") }
                             append(d.card.intention)
-                            withStyle(SpanStyle(color = if (ok) TrackOrange else TokInk2)) { append("”") }
+                            withStyle(SpanStyle(color = if (ok) TrackOrange else Ink2)) { append("”") }
                         },
-                        color = TokInk, fontSize = 24.sp, lineHeight = 27.sp, fontWeight = FontWeight.ExtraBold, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                        fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 4, overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         listOfNotNull(
                             d.card.ownerName.ifBlank { "Someone" },
-                            d.startedAt.takeIf { it > 0 }?.let {
-                                DateUtils.formatDateTime(LocalContext.current, it, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH)
-                            },
+                            agoText(d.startedAt.takeIf { it > 0 } ?: d.card.startedAt).takeIf { it.isNotBlank() },
+                            d.card.platform.takeIf { it.isNotBlank() }?.let(::platformLabel),
                         ).joinToString(" · "),
-                        color = TokInk2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = Ink2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (decided) SealStamp(ok, Modifier.padding(vertical = 2.dp).graphicsLayer { rotationZ = -4f }, big = false)
+                        else StatusBadge(d.card.status, d.local, d.card.cheating)
+                        if (p != null || bar != null) ScoreRing(p, bar, size = 52.dp)
+                        val v4 = d.v4?.takeIf { isV4(d) }
+                        val total = v4?.claims?.size ?: d.card.claimsTotal
+                        val backed = v4?.let { it.claimsBacked ?: barOf(d)?.let { b -> it.claimScores.count { s -> s.p >= b } } } ?: d.card.claimsBacked
+                        if (total != null && total > 0) GlyphPill(Glyph.Result, "${backed ?: "–"}/$total claims", if (backed == total) FillOk else FillInk)
+                    }
+                }
+            }
+            CheckPips(checks, pip = 22.dp)
+        }
+    }
+}
+
+/** The hero proof shot, aspect-fit (never cropped), turned by displayRotation; a play badge when there is a clip. */
+@Composable
+private fun MediaThumb(d: MomentDetail, play: Boolean, modifier: Modifier, onClickLabel: String, onClick: () -> Unit) {
+    val bmp = rememberB64Bitmap(heroB64(d), d.card.displayRotation)
+    val aspect = bmp?.let { it.width.toFloat() / it.height.coerceAtLeast(1) }?.coerceIn(0.66f, 1.34f) ?: 0.75f
+    Box(
+        modifier.aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(MediaBg).clickable(onClickLabel = onClickLabel, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bmp != null) FitImage(bmp, "Proof shot", Modifier.matchParentSize(), colorFilter = dimmed(d))
+        else if (d.track.size > 1) TrackSketch(d.track, Modifier.matchParentSize())
+        else Icon(Glyph.Frames, "No proof shot", tint = TokInk2)
+        if (play) PlayBadge(36.dp)
+    }
+}
+
+@Composable
+private fun PlayBadge(size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(size).clip(CircleShape).background(TokInk.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.PlayArrow, null, tint = MediaBg, modifier = Modifier.size(size * 0.62f))
+    }
+}
+
+/** Session, on video, moved, shots, live checks: one compact row (scrolls sideways if it must). */
+@Composable
+private fun StatsRow(d: MomentDetail) {
+    val cov = videoCoverage(d)
+    val checked = d.frames.count { it.check != null }
+    val retakes = d.frames.count { it.check?.ok == false }
+    val ink = MaterialTheme.colorScheme.onSurface
+    val sub = Ink2
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatOverlay(Glyph.Time, fmtDuration(d.card.summary.durationMs), "session", tint = ink, sub = sub)
+        if (cov.videoMs > 0) StatOverlay(Glyph.Video, fmtDuration(cov.videoMs), "on video", tint = ink, sub = sub)
+        StatOverlay(Glyph.Distance, fmtDistance(d.card.summary.distanceM), "moved", tint = ink, sub = sub)
+        StatOverlay(Glyph.Frames, "${d.frames.size.takeIf { it > 0 } ?: d.card.summary.frameCount}", "shots", tint = ink, sub = sub)
+        if (checked > 0) StatOverlay(Glyph.OnDevice, if (retakes > 0) "$checked · $retakes↻" else "$checked", "live checks", tint = ink, sub = sub)
+    }
+}
+
+/** One small line when the video covers under 80% of the session. */
+@Composable
+private fun CoverageNote(c: VideoCoverage) {
+    Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Glyph.Video, null, Modifier.size(14.dp), tint = Ink2)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Video covers ${fmtDuration(c.videoMs)} of the ${fmtDuration(c.sessionMs)} session (${(c.ratio * 100).roundToInt()}%); only that part can back claims over time.",
+            style = MaterialTheme.typography.bodySmall, color = Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// ───────────────────────── Evidence grid + modals
+
+private class Tile(
+    val icon: ImageVector, val title: String, val stat: String, val clickLabel: String, val open: Viewer,
+    val status: Boolean? = null, val media: Boolean = false, val preview: @Composable BoxScope.() -> Unit,
+)
+
+/** Every kind of evidence as a small tile (2 columns on a phone, 3 when wide); a tap opens the full view. */
+@Composable
+private fun EvidenceGrid(d: MomentDetail, onOpen: (Viewer) -> Unit) {
+    val rot = d.card.displayRotation
+    val hero = rememberB64Bitmap(heroB64(d), rot)
+    val dim = dimmed(d)
+    val mediaPreview: @Composable BoxScope.(Boolean) -> Unit = { play ->
+        if (hero != null) FitImage(hero, null, Modifier.matchParentSize(), colorFilter = dim)
+        else Icon(Glyph.Frames, null, tint = TokInk2)
+        if (play) PlayBadge(30.dp)
+    }
+    val tiles = buildList {
+        d.sharedClips.forEachIndexed { i, c ->
+            val hash = when (c.hashOk) { true -> "hash ✓"; false -> "hash ✗"; null -> "uploaded" }
+            add(
+                Tile(
+                    Glyph.Video, if (d.sharedClips.size > 1) "Video ${i + 1}" else "Video",
+                    listOfNotNull(c.durationMs.takeIf { it > 0 }?.let(::fmtDuration), hash).joinToString(" · "),
+                    "Play clip ${i + 1}", Viewer.Clip(c.path), status = c.hashOk, media = true,
+                ) { mediaPreview(true) },
+            )
+        }
+        if (d.frames.isNotEmpty()) {
+            val retakes = d.frames.count { it.check?.ok == false }
+            add(
+                Tile(
+                    Glyph.Frames, "Proof shots", "${d.frames.size} shots" + if (retakes > 0) " · $retakes retake${if (retakes > 1) "s" else ""}" else "",
+                    "View the proof shots", Viewer.Shots(heroFrameIndex(d)), media = true,
+                ) { mediaPreview(false) },
+            )
+        }
+        add(
+            Tile(Glyph.Place, "Route", "${fmtDistance(d.card.summary.distanceM)} · ${d.track.size} fixes", "Open the route map", Viewer.Route, media = true) {
+                if (d.track.size > 1) TrackSketch(d.track, Modifier.matchParentSize()) else Icon(Glyph.Place, null, tint = TokInk2)
+            },
+        )
+        if (d.motion.isNotEmpty()) add(
+            Tile(Glyph.Motion, "Motion", "${d.motion.size} samples", "Open the motion chart", Viewer.Motion) {
+                MotionChart(d.motion, d.frames.map { it.t }, Modifier.matchParentSize())
+            },
+        )
+        add(
+            Tile(
+                Glyph.Chain, "Hash chain",
+                "${d.chunkCount} links · " + when (d.chainOk) { true -> "intact"; false -> "doesn't verify"; null -> "not checked" },
+                "Open the hash chain", Viewer.Chain, status = d.chainOk,
+            ) { if (d.chunkCount > 0) ChainLinks(d.chunkCount, when (d.chainOk) { true -> Ok; false -> Bad; null -> Ink2 }, max = 5) else Icon(Glyph.Chain, null, tint = Ink2) },
+        )
+        if (d.witness.isNotEmpty()) {
+            val answered = d.witness.count { it.outcome != null && it.outcome != "skipped" }
+            add(
+                Tile(Glyph.Witness, "Witness", "$answered/${d.witness.size} answered", "Open the witness requests", Viewer.Witness) {
+                    Text(
+                        "“${d.witness.first().ask}”", style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                },
+            )
+        }
+    }
+    val cols = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        tiles.chunked(cols).forEach { row ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { t -> EvidenceTile(t, Modifier.weight(1f).fillMaxHeight()) { onOpen(t.open) } }
+                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EvidenceTile(t: Tile, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClickLabel = t.clickLabel, onClick = onClick).semantics(mergeDescendants = true) {}.padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(10.dp))
+                .background(if (t.media) MediaBg else MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center, content = t.preview,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(t.icon, null, Modifier.size(16.dp), tint = Lake)
+            Spacer(Modifier.width(6.dp))
+            Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            when (t.status) {
+                true -> Icon(Icons.Filled.CheckCircle, "verified", Modifier.size(16.dp), tint = Ok)
+                false -> Icon(Glyph.Warning, "mismatch", Modifier.size(16.dp), tint = Bad)
+                null -> {}
+            }
+        }
+        Text(t.stat, style = Tnum.merge(MaterialTheme.typography.bodySmall), color = Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** The full view behind a tile: clip player, proof shots and route in a full-screen modal; motion, chain, witness in a sheet. */
+@Composable
+private fun EvidenceViewer(d: MomentDetail, v: Viewer, onDismiss: () -> Unit) {
+    when (v) {
+        is Viewer.Clip -> ClipViewer(d, v.path, onDismiss)
+        is Viewer.Shots -> MediaDialog("Proof shots", onDismiss) { ProofViewer(d, v.index) }
+        Viewer.Route -> MediaDialog("Route", onDismiss) { MapWithStats(d, Modifier.fillMaxWidth().weight(1f)) }
+        Viewer.Motion -> InfoSheet("Motion", onDismiss, icon = Glyph.Motion) { MotionBlock(d) }
+        Viewer.Chain -> InfoSheet("Hash chain", onDismiss, icon = Glyph.Chain) { ChainBlock(d) }
+        Viewer.Witness -> InfoSheet("Witness", onDismiss, icon = Glyph.Witness) { WitnessStrip(d, title = false) }
+    }
+}
+
+/** A full-screen modal on the dark media background: title + close on top, [content] filling the rest. */
+@Composable
+private fun MediaDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        MediaTheme {
+            Surface(Modifier.fillMaxSize(), color = MediaBg, contentColor = TokInk) {
+                Column(Modifier.fillMaxSize().safeDrawingPadding().padding(bottom = 12.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = MaterialTheme.typography.titleMedium, color = TokInk, modifier = Modifier.weight(1f).semantics { heading() })
+                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Close", tint = TokInk) }
+                    }
+                    Column(
+                        Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+                        horizontalAlignment = Alignment.CenterHorizontally, content = content,
                     )
                 }
-                if (p != null || bar != null) { Spacer(Modifier.width(12.dp)); ScoreRing(p, bar, size = 76.dp, onMedia = true) }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                StatOverlay(Glyph.Time, fmtDuration(d.card.summary.durationMs))
-                StatOverlay(Glyph.Distance, fmtDistance(d.card.summary.distanceM))
-                StatOverlay(Glyph.Frames, "${d.frames.size}", "shots")
-                d.v4?.takeIf { isV4(d) }?.let { v4 ->
-                    val backed = v4.claimsBacked ?: barOf(d)?.let { b -> v4.claimScores.count { it.p >= b } }
-                    StatOverlay(Glyph.Result, "${backed ?: "–"}/${v4.claims.size}", "claims")
+        }
+    }
+}
+
+/** One uploaded clip with controls, at its oriented aspect; other clips of the Moment one tap away. */
+@Composable
+private fun ClipViewer(d: MomentDetail, initial: String, onDismiss: () -> Unit) {
+    var path by remember(initial) { mutableStateOf(initial) }
+    val i = d.sharedClips.indexOfFirst { it.path == path }
+    val clip = d.sharedClips.getOrNull(i) ?: return
+    MediaDialog(if (d.sharedClips.size > 1) "Video ${i + 1} of ${d.sharedClips.size}" else "Video", onDismiss) {
+        key(clip.path) { ClipPlayer(clip, d.card.displayRotation, Modifier.fillMaxWidth().weight(1f)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            d.sharedClips.forEachIndexed { j, c ->
+                val on = j == i
+                val (icon, tint, what) = when (c.hashOk) {
+                    true -> Triple(Glyph.Chain, TokOk, "hash matches the chain")
+                    false -> Triple(Glyph.Warning, TokBad, "Hash does not match the chain")
+                    null -> Triple(Glyph.Cloud, TokInk2, "uploaded")
+                }
+                ScrimChip(
+                    Modifier.clip(RoundedCornerShape(50)).border(if (on) 2.dp else 0.dp, if (on) SealGold else Color.Transparent, RoundedCornerShape(50))
+                        .clickable(onClickLabel = "Play clip ${j + 1}") { path = c.path }
+                        .semantics(mergeDescendants = true) { contentDescription = "Clip ${j + 1}, $what" },
+                    color = TokInk.copy(alpha = 0.12f),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (d.sharedClips.size > 1) { Text("${j + 1}", fontWeight = FontWeight.Bold, fontSize = 13.sp); Spacer(Modifier.width(6.dp)) }
+                        if (c.durationMs > 0) { StatOverlay(Glyph.Time, fmtDuration(c.durationMs)); Spacer(Modifier.width(6.dp)) }
+                        Icon(icon, null, Modifier.size(14.dp), tint = tint)
+                        if (c.hashOk == false) { Spacer(Modifier.width(4.dp)); Text("mismatch", fontSize = 11.sp, color = tint) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The proof-shot stage (aspect-fit, the frame's own coach result on it), the filmstrip, and a scrubber. */
+@Composable
+private fun ColumnScope.ProofViewer(d: MomentDetail, initial: Int) {
+    val n = d.frames.size
+    var selected by remember(initial) { mutableIntStateOf(initial.coerceIn(0, (n - 1).coerceAtLeast(0))) }
+    val frame = d.frames.getOrNull(selected)
+    Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))) {
+        val bmp = rememberB64Bitmap(frame?.jpegB64?.takeIf { it.isNotEmpty() } ?: d.card.heroJpegB64, d.card.displayRotation)
+        if (bmp != null) FitImage(bmp, "Proof shot ${selected + 1} of $n", Modifier.matchParentSize(), colorFilter = dimmed(d))
+        else Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { Icon(Glyph.Frames, "No frame", tint = TokInk2) }
+        frame?.let { FrameChips(it, Modifier.align(Alignment.TopEnd).padding(8.dp)) }
+    }
+    if (n > 1) {
+        Filmstrip(d, selected) { selected = it }
+        Slider(
+            value = selected.toFloat(), onValueChange = { selected = it.roundToInt().coerceIn(0, n - 1) },
+            valueRange = 0f..(n - 1).toFloat(), steps = (n - 2).coerceAtLeast(0),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).semantics { contentDescription = "Proof shot ${selected + 1} of $n" },
+        )
+    }
+}
+
+/** The frame's on-device coach result (and the witness ask it answered), as chips on the photo. */
+@Composable
+private fun FrameChips(frame: com.mattricks.verified.data.Frame, modifier: Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        frame.check?.let { c ->
+            ScrimChip(Modifier.semantics(mergeDescendants = true) {}) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (c.ok) Icons.Filled.CheckCircle else Glyph.Warning, null, Modifier.size(15.dp), tint = if (c.ok) TokOk else TokBad)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        (if (c.ok) "keep going" else "retake: ${c.reason}") + (c.label.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp),
+                    )
+                }
+            }
+            HybridBadge(c.mode, onMedia = true)
+        }
+        frame.witnessAsk?.let { ask ->
+            ScrimChip {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Glyph.Witness, "Witness asked", Modifier.size(15.dp)); Spacer(Modifier.width(5.dp))
+                    Text(ask, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
                 }
             }
         }
@@ -409,14 +662,14 @@ private fun RoomRow(kind: Wp, ok: Boolean, header: Boolean, content: @Composable
     Row(
         Modifier.fillMaxWidth().drawBehind {
             val x = 16.dp.toPx() + 7.dp.toPx()
-            val dotY = 24.dp.toPx()
+            val dotY = 20.dp.toPx()
             if (kind != Wp.Result) dashedTrack(x, if (header) dotY + 14.dp.toPx() else 0f, size.height, if (ok) trackC else muted)
             if (header) waypointDot(kind, ok, Offset(x, dotY), hole = hole, muted = muted, bad = badC)
         }.padding(start = 16.dp + 28.dp, end = 16.dp),
     ) {
         Column(
-            Modifier.weight(1f).padding(top = if (header) 10.dp else 7.dp, bottom = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp), content = content,
+            Modifier.weight(1f).padding(top = if (header) 8.dp else 4.dp, bottom = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp), content = content,
         )
     }
 }
@@ -541,8 +794,8 @@ private fun LocalBanner(d: MomentDetail) {
 
 /** The track on the map with the numbers overlaid on it. */
 @Composable
-private fun MapWithStats(d: MomentDetail) {
-    Box(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(18.dp))) {
+private fun MapWithStats(d: MomentDetail, modifier: Modifier = Modifier.fillMaxWidth().height(240.dp)) {
+    Box(modifier.clip(RoundedCornerShape(18.dp))) {
         TrackMap(d.track, Modifier.matchParentSize())
         Row(Modifier.align(Alignment.TopStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ScrimChip { StatOverlay(Glyph.Distance, fmtDistance(d.card.summary.distanceM)) }
@@ -554,9 +807,9 @@ private fun MapWithStats(d: MomentDetail) {
 
 /** v3.4 witness requests read back from the hash chain: a horizontal strip, one card per ask. */
 @Composable
-private fun WitnessStrip(d: MomentDetail) {
+private fun WitnessStrip(d: MomentDetail, title: Boolean = true) {
     val answered = d.witness.count { it.outcome != null && it.outcome != "skipped" }
-    BlockTitle(Glyph.Witness, "Witness") { Text("$answered/${d.witness.size}", style = Tnum.merge(MaterialTheme.typography.titleMedium), color = Ink2) }
+    if (title) BlockTitle(Glyph.Witness, "Witness") { Text("$answered/${d.witness.size}", style = Tnum.merge(MaterialTheme.typography.titleMedium), color = Ink2) }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(d.witness) { w ->
             val (icon, tint) = when (w.outcome) {
@@ -641,8 +894,8 @@ private fun ChainBlock(d: MomentDetail) {
 }
 
 @Composable
-private fun ChainLinks(n: Int, tint: Color) {
-    val shown = n.coerceAtMost(12)
+private fun ChainLinks(n: Int, tint: Color, max: Int = 12) {
+    val shown = n.coerceAtMost(max)
     Row(verticalAlignment = Alignment.CenterVertically) {
         repeat(shown) { i ->
             if (i > 0) Box(Modifier.width(5.dp).height(2.dp).background(tint.copy(alpha = 0.6f)))
@@ -664,7 +917,7 @@ private fun RoomVerdict(d: MomentDetail, ok: Boolean, checks: Map<String, Boolea
     var why by remember { mutableStateOf(false) }
     val reason = (d.seal?.reason ?: d.feedReason)?.takeIf { it.isNotBlank() }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(22.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (decided) SealStamp(ok, Modifier.padding(vertical = 4.dp).graphicsLayer { rotationZ = -4f }, big = false)
@@ -683,7 +936,7 @@ private fun RoomVerdict(d: MomentDetail, ok: Boolean, checks: Map<String, Boolea
                         style = MaterialTheme.typography.bodySmall, color = Ink2,
                     )
                 }
-                ScoreRing(p, bar, size = 96.dp)
+                ScoreRing(p, bar, size = 80.dp)
             }
             if (d.card.cheating || d.v4?.cheatingDetected == true) CheatingBanner(d.v4?.cheatingSignals.orEmpty().ifEmpty { d.card.cheatingSignals })
             Row(
