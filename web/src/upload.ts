@@ -24,6 +24,9 @@ export function bucket(): FirebaseStorage {
 
 export const clipPath = (uid: string, momentId: string, sha: string, mime: string) => `clips/${uid}/${momentId}/${sha}.${clipExt(mime)}`;
 
+/** Clips are named by their sha256 and never overwritten (rules: create only), so viewers may cache them for good. */
+export const CLIP_CACHE_CONTROL = "private, max-age=31536000, immutable";
+
 // ---------------------------------------------------------------- progress, per Moment (finish screen, detail, Me)
 
 export interface UploadState {
@@ -105,7 +108,7 @@ async function run(uid: string, momentId: string, chunks: Pick<Chunk, "payload">
       }
       const base = st.sent;
       // Sequential, resumable (v4.4): one clip at a time keeps a phone's uplink usable.
-      const task = uploadBytesResumable(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
+      const task = uploadBytesResumable(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm", cacheControl: CLIP_CACHE_CONTROL });
       await new Promise<void>((resolve, reject) =>
         task.on(
           "state_changed",

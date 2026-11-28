@@ -49,12 +49,13 @@ function useClipUrl(path: string | null, enabled: boolean): string | null {
 }
 
 /**
- * Muted, looping, inline video over the slide's hero photo. Mounted only while the slide is current, so one plays at
- * a time; hidden until its first frame renders (the photo is the poster); paused while the tab is hidden.
+ * Muted, looping, inline video over the slide's hero photo. Plays only while the slide is current, so one plays at a
+ * time; hidden until its first frame renders (the photo is the poster); paused while the tab is hidden. `warm` (the
+ * next slide) mounts it paused so the browser buffers the start; the same element then plays when it turns current.
  */
-export function FeedVideo({ clip, active, muted, rotate = 0 }: { clip: FeedVideoClip; active: boolean; muted: boolean; rotate?: number }) {
+export function FeedVideo({ clip, active, warm = false, muted, rotate = 0 }: { clip: FeedVideoClip; active: boolean; warm?: boolean; muted: boolean; rotate?: number }) {
   const turn = rot(rotate);
-  const url = useClipUrl(clip.path, active);
+  const url = useClipUrl(clip.path, active || warm);
   const el = useRef<HTMLVideoElement>(null);
   const [shown, setShown] = useState(false);
 
@@ -74,16 +75,17 @@ export function FeedVideo({ clip, active, muted, rotate = 0 }: { clip: FeedVideo
     if (el.current) el.current.muted = muted;
   }, [muted, url]);
 
-  if (!active || !url) return null;
+  if (!(active || warm) || !url) return null;
+  const on = shown && active;
   const video = (
     <video
       ref={el}
-      className={turn ? `slide-video ${videoRotClass(turn)} ${shown ? "is-on" : ""}` : `slide-photo slide-video ${shown ? "is-on" : ""}`}
+      className={turn ? `slide-video ${videoRotClass(turn)} ${on ? "is-on" : ""}` : `slide-photo slide-video ${on ? "is-on" : ""}`}
       src={url}
       muted={muted}
       loop
       playsInline
-      autoPlay
+      autoPlay={active}
       preload="auto"
       disablePictureInPicture
       aria-hidden="true"

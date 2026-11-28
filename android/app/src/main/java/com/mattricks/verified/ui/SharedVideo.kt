@@ -63,7 +63,21 @@ import com.google.firebase.storage.FirebaseStorage
 import com.mattricks.verified.R
 import com.mattricks.verified.data.MomentDetail
 import com.mattricks.verified.data.SharedClip
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.InterruptedIOException
 import java.util.concurrent.ConcurrentHashMap
 
 // ───────────────────────── v4.12 shared video (docs/ARCHITECTURE.md "v4.12 Shared video")
@@ -77,11 +91,69 @@ object ClipUrls {
     }.onFailure { Log.w("VerifiedVideo", "download url $path", it) }.getOrNull()?.also { cache[path] = it }
 }
 
+/**
+ * On-disk cache of shared clips for every player in the app (LRU, 300 MB). Clips are named by their sha256 and never
+ * change, so each item is keyed by its Storage path: a replay, or a slide seen again, plays from disk, and the next
+ * slide's clip can be fetched ahead ([prefetch]).
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+object ClipCache {
+    private const val MAX_BYTES = 300L shl 20
+    /** How much of the next slide's clip [prefetch] fetches: a few seconds at phone bitrates. */
+    private const val PREFETCH_BYTES = 2L shl 20
+
+    @Volatile private var cache: SimpleCache? = null
+
+    private fun cache(ctx: android.content.Context): SimpleCache = cache ?: synchronized(this) {
+        cache ?: SimpleCache(
+            File(ctx.applicationContext.cacheDir, "clips"),
+            LeastRecentlyUsedCacheEvictor(MAX_BYTES),
+            StandaloneDatabaseProvider(ctx.applicationContext),
+        ).also { cache = it }
+    }
+
+    private fun dataSource(ctx: android.content.Context): CacheDataSource.Factory = CacheDataSource.Factory()
+        .setCache(cache(ctx))
+        .setUpstreamDataSourceFactory(DefaultDataSource.Factory(ctx.applicationContext))
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+    /**
+     * A player reading through the cache, tuned to start fast: playback begins with half a second buffered (short
+     * clips; the default waits for 2.5 s) and keeps up to 30 s ahead.
+     */
+    fun player(ctx: android.content.Context): ExoPlayer = ExoPlayer.Builder(ctx)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource(ctx)))
+        .setLoadControl(
+            DefaultLoadControl.Builder().setBufferDurationsMs(10_000, 30_000, 500, 1_500).build(),
+        )
+        .build()
+
+    /** The item for [path] at [uri]: cached under the path, so a fresh download token still hits the cache. */
+    fun item(uri: Uri, path: String): MediaItem = MediaItem.Builder().setUri(uri).setMediaId(path).setCustomCacheKey(path).build()
+
+    /** Fetches the start of [path]'s clip into the cache (cancelled with the caller, e.g. when the slide changes). */
+    suspend fun prefetch(ctx: android.content.Context, path: String) {
+        val uri = ClipUrls.get(path) ?: return
+        val app = ctx.applicationContext
+        withContext(Dispatchers.IO) {
+            val writer = CacheWriter(
+                dataSource(app).createDataSource(),
+                DataSpec.Builder().setUri(uri).setKey(path).setLength(PREFETCH_BYTES).build(),
+                null, null,
+            )
+            val job = coroutineContext[Job]
+            val stop = job?.invokeOnCompletion { writer.cancel() }
+            runCatching { writer.cache() }.onFailure { if (it !is InterruptedIOException) Log.w("VerifiedVideo", "prefetch $path", it) }
+            stop?.dispose()
+        }
+    }
+}
+
 /** The feed's one player, re-pointed at the current slide; released when the feed leaves composition. */
 @Composable
 fun rememberFeedPlayer(): ExoPlayer {
     val ctx = LocalContext.current
-    val player = remember { ExoPlayer.Builder(ctx).build().apply { repeatMode = Player.REPEAT_MODE_ONE; volume = 0f } }
+    val player = remember { ClipCache.player(ctx).apply { repeatMode = Player.REPEAT_MODE_ONE; volume = 0f } }
     DisposableEffect(player) { onDispose { player.release() } }
     return player
 }
@@ -112,7 +184,7 @@ fun FeedVideo(clip: SharedClip, player: ExoPlayer, muted: Boolean, modifier: Mod
             override fun onRenderedFirstFrame() { shown = true }
         }
         player.addListener(listener)
-        player.setMediaItem(MediaItem.Builder().setUri(u).setMediaId(clip.path).build())
+        player.setMediaItem(ClipCache.item(u, clip.path))
         player.prepare()
         player.playWhenReady = true
         onDispose {
@@ -202,7 +274,7 @@ private fun ClipPlayer(c: SharedClip, rotation: Int = 0) {
         return
     }
     val player = remember(u) {
-        ExoPlayer.Builder(ctx).build().apply { setMediaItem(MediaItem.fromUri(u)); prepare(); playWhenReady = true }
+        ClipCache.player(ctx).apply { setMediaItem(ClipCache.item(u, c.path)); prepare(); playWhenReady = true }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(player, lifecycle) {

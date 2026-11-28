@@ -62,19 +62,40 @@ nonisolated struct ProofFrame: Sendable {
     return out as Data
   }
 
-  /// Decodes a stored base64 JPEG (feed hero / chunk frame) for display.
+  /// Decodes a stored base64 JPEG (feed hero / chunk frame) for display. Decoded now (not lazily at first draw), so a
+  /// decode done off the main thread (`prewarm`) leaves nothing for the render to do.
   static func cgImage(fromBase64 b64: String) -> CGImage? {
     guard let data = Data(base64Encoded: b64),
           let src = CGImageSourceCreateWithData(data as CFData, nil)
     else { return nil }
-    return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    return CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
   }
 
-  /// Decodes a stored base64 JPEG and turns it by the Moment's `displayRotation` (clockwise degrees). 0 is exactly
-  /// `cgImage(fromBase64:)`.
+  /// Decoded, turned photos by (rotation, base64), one cache per quarter turn. Views call `cgImage(fromBase64:rotation:)`
+  /// from `body`, which SwiftUI re-runs on every state change: without this each pass re-decoded the JPEG on the
+  /// main thread. NSCache is thread-safe and empties itself under memory pressure.
+  nonisolated(unsafe) private static let decoded: [NSCache<NSString, CGImage>] = (0..<4).map { _ in
+    let c = NSCache<NSString, CGImage>()
+    c.totalCostLimit = 96 << 20  // bytes of decoded pixels, per rotation
+    return c
+  }
+
+  /// Decodes a stored base64 JPEG and turns it by the Moment's `displayRotation` (clockwise degrees), memoised for the
+  /// session. 0 is exactly `cgImage(fromBase64:)`.
   static func cgImage(fromBase64 b64: String, rotation: Int) -> CGImage? {
+    let cache = decoded[normalizeDisplayRotation(rotation) / 90 % 4]
+    let key = b64 as NSString
+    if let hit = cache.object(forKey: key) { return hit }
     guard let image = cgImage(fromBase64: b64) else { return nil }
-    return rotated(image, clockwise: rotation)
+    let out = rotated(image, clockwise: rotation)
+    cache.setObject(out, forKey: key, cost: out.bytesPerRow * out.height)
+    return out
+  }
+
+  /// Decodes a photo into the cache off the main thread, so the slide about to come on screen draws at once.
+  static func prewarm(base64 b64: String?, rotation: Int) {
+    guard let b64, !b64.isEmpty else { return }
+    Task.detached(priority: .utility) { _ = cgImage(fromBase64: b64, rotation: rotation) }
   }
 
   /// The image itself turned `degrees` clockwise (as seen on screen) in quarter turns, so whatever shows it (fit,

@@ -106,9 +106,10 @@ private struct FeedPager: View {
           FeedIntroPage(insets: insets) { go(to: shown.first?.id ?? FeedPage.end) }
             .containerRelativeFrame([.horizontal, .vertical])
             .id(FeedPage.intro)
+          let next = nextID(after: current, in: shown)
           ForEach(shown) { item in
             FeedSlide(item: item, active: current == item.id, playing: current == item.id && !paused,
-                      insets: insets) { open(item) }
+                      warm: item.id == next, insets: insets) { open(item) }
               .containerRelativeFrame([.horizontal, .vertical])
               .id(item.id)
           }
@@ -133,6 +134,14 @@ private struct FeedPager: View {
       // A new filter starts at its first Moment (or the end card when it has none).
       current = feed.items.first(where: filter.matches)?.id ?? FeedPage.end
     }
+  }
+
+  /// The slide after `current` (the first one from the intro), whose media is readied ahead.
+  private func nextID(after current: String?, in shown: [MomentCardData]) -> String? {
+    guard let current, current != FeedPage.end else { return nil }
+    if current == FeedPage.intro { return shown.first?.id }
+    guard let i = shown.firstIndex(where: { $0.id == current }), i + 1 < shown.count else { return nil }
+    return shown[i + 1].id
   }
 
   private func go(to id: String) {
@@ -345,6 +354,8 @@ private struct FeedSlide: View {
   let active: Bool
   /// v4.12: current, and the feed is on screen: the feed clip may play.
   let playing: Bool
+  /// The next slide: its photo decodes off the main thread and its clip pre-rolls (paused, hidden), so the swipe is instant.
+  var warm = false
   let insets: EdgeInsets
   let open: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -391,6 +402,14 @@ private struct FeedSlide: View {
       } else {
         clip?.pause()
       }
+    }
+    .onChange(of: warm && scenePhase == .active, initial: true) { _, now in
+      guard now else { return }
+      ProofFrame.prewarm(base64: item.heroJpegB64, rotation: item.displayRotation)
+      guard let feedClip = item.feedClip else { return }
+      let player = clip ?? FeedClipPlayer()
+      clip = player
+      player.prepare(path: feedClip.path)
     }
     .onDisappear { clip?.pause() }
   }
@@ -486,7 +505,7 @@ private struct FeedSlide: View {
         RailLabel(title: "Share", systemImage: "square.and.arrow.up", primary: false)
       }
       .accessibilityLabel("Share this Moment")
-      if let clip, clip.ready {
+      if let clip, clip.ready, clip.started {
         // v4.12: sound for this slide's clip (default muted).
         Button { clip.toggleMute() } label: {
           Image(systemName: clip.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -611,8 +630,8 @@ private struct SlideBackdrop: View {
         // Aspect fit on a dark letterbox: the whole clip, never cropped.
         PlayerLayerView(player: clip.player, rotation: rotation) { clip.markReady() }
           .background(Color.black)
-          .opacity(clip.ready ? 1 : 0)
-          .animation(.easeIn(duration: 0.25), value: clip.ready)
+          .opacity(clip.ready && clip.started ? 1 : 0)
+          .animation(.easeIn(duration: 0.25), value: clip.ready && clip.started)
       }
       VStack(spacing: 0) {
         LinearGradient(colors: [FeedInk.ink.opacity(0.9), FeedInk.ink.opacity(0)], startPoint: .top, endPoint: .bottom)

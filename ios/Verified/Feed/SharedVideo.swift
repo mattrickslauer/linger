@@ -62,10 +62,22 @@ final class FeedClipPlayer {
     player.preventsDisplaySleepDuringVideoPlayback = false
   }
 
+  /// Has played at least once: a clip only pre-rolled (`prepare`) stays hidden behind the photo.
+  private(set) var started = false
+
   func play(path: String) {
     wantsPlay = true
+    load(path)
+  }
+
+  /// The next slide: build the item and looper now, paused, so AVFoundation buffers the start and a swipe plays at once.
+  func prepare(path: String) {
+    load(path)
+  }
+
+  private func load(_ path: String) {
     if looper != nil {
-      start()
+      if wantsPlay { start() }
       return
     }
     guard !loading else { return }
@@ -99,6 +111,7 @@ final class FeedClipPlayer {
     if let other = Self.playing, other !== self { other.pause() }
     Self.playing = self
     ClipAudio.use(sound: !muted)
+    if !started { started = true }
     player.play()
   }
 }

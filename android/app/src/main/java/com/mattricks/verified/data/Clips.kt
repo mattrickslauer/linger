@@ -23,6 +23,8 @@ import java.security.MessageDigest
  */
 object Clips {
     private const val TAG = "VerifiedClips"
+    /** Clips are named by their sha256 and never overwritten (rules: create only), so viewers may cache them for good. */
+    private const val CLIP_CACHE_CONTROL = "private, max-age=31536000, immutable"
     const val MAX_BYTES = 200L * 1024 * 1024
 
     /** The chained clip on this phone, found by its gallery name. */
@@ -94,7 +96,7 @@ object Clips {
                     if (sha == null) { Log.w(TAG, "$momentId: clip ${ref.name} can't be read on this phone, not uploaded"); return@forEachIndexed }
                     if (sha != ref.sha256) { Log.w(TAG, "$momentId: clip ${ref.name} changed after it was chained, not uploaded"); return@forEachIndexed }
                     try {
-                        obj.putFile(uri, storageMetadata { contentType = contentType(ext) })
+                        obj.putFile(uri, storageMetadata { contentType = contentType(ext); cacheControl = CLIP_CACHE_CONTROL })
                             .addOnProgressListener { s -> publish(Upload(sentBefore + s.bytesTransferred, total, todo.size, i)) }
                             .await()
                         Log.i(TAG, "$momentId: uploaded clip ${ref.sha256}.$ext (${ref.bytes} bytes)")
@@ -132,7 +134,7 @@ object Clips {
         if (sha != ref.sha256) throw Ladder.RunError("clip_hash_mismatch", "This clip was changed after it was chained, so it can't be used. No credits were spent.")
         val obj = FirebaseStorage.getInstance().reference.child("clips/$uid/$momentId/$sha.mp4")
         try {
-            obj.putFile(uri, storageMetadata { contentType = "video/mp4" })
+            obj.putFile(uri, storageMetadata { contentType = "video/mp4"; cacheControl = CLIP_CACHE_CONTROL })
                 .addOnProgressListener { s -> if (s.totalByteCount > 0) onProgress((100 * s.bytesTransferred / s.totalByteCount).toInt()) }
                 .await()
         } catch (e: StorageException) {

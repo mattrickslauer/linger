@@ -154,6 +154,12 @@ fun FeedScreen(user: FirebaseUser?, onOpen: (String) -> Unit, onRecord: () -> Un
     }
     val open: (String) -> Unit = { id -> lastId = id; onOpen(id) }
 
+    // The next slide's clip (page p + 1 is shown[p]): its first seconds go to the clip cache while this one plays, so
+    // the swipe starts it from disk. A new page cancels the fetch.
+    val ctx = LocalContext.current
+    val nextClip = shown.getOrNull(pager.settledPage)?.feedClip?.path
+    LaunchedEffect(nextClip, foreground) { if (nextClip != null && foreground) ClipCache.prefetch(ctx, nextClip) }
+
     Box(Modifier.fillMaxSize().background(TokBg)) {
         VerticalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { p ->
             when {

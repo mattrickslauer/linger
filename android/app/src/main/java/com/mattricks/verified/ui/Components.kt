@@ -28,8 +28,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import android.util.LruCache
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -72,10 +77,43 @@ fun rotateBitmap(bmp: Bitmap, degrees: Int): Bitmap =
 /** The size a [w]x[h] picture takes once turned [degrees] clockwise: quarter turns swap the sides. */
 fun rotatedSize(w: Int, h: Int, degrees: Int): Pair<Int, Int> = if (degrees % 180 == 0) w to h else h to w
 
-/** The decoded proof shot turned by the Moment's displayRotation, remembered per (b64, rotation). */
+/**
+ * Decoded (and turned) proof shots for the process, so paging back and forth never re-decodes. Sized by bytes: an
+ * eighth of the heap (a 640 px hero is ~1.2 MB as ARGB), dropped oldest-first.
+ */
+object B64Bitmaps {
+    private val cache = object : LruCache<String, ImageBitmap>((Runtime.getRuntime().maxMemory() / 8).toInt().coerceAtLeast(8 shl 20)) {
+        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+    }
+
+    // String.hashCode is cached by the String itself; the length makes a collision practically impossible.
+    private fun key(b64: String, rotation: Int) = "$rotation|${b64.length}|${b64.hashCode()}"
+
+    fun cached(b64: String?, rotation: Int): ImageBitmap? = b64?.takeIf { it.isNotEmpty() }?.let { cache.get(key(it, rotation)) }
+
+    /** Decodes off the main thread (Base64 + JPEG + rotation), caching the result. */
+    suspend fun load(b64: String?, rotation: Int): ImageBitmap? {
+        if (b64.isNullOrEmpty()) return null
+        cached(b64, rotation)?.let { return it }
+        return withContext(Dispatchers.Default) {
+            decodeB64(b64)?.let { rotateBitmap(it, rotation) }?.asImageBitmap()?.also { it.prepareToDraw(); cache.put(key(b64, rotation), it) }
+        }
+    }
+}
+
+/**
+ * The decoded proof shot turned by the Moment's displayRotation: at once when already decoded, else null for the
+ * moment it takes to decode off the main thread (callers show their placeholder meanwhile).
+ */
 @Composable
-fun rememberB64Bitmap(b64: String?, rotation: Int = 0): ImageBitmap? =
-    remember(b64, rotation) { decodeB64(b64)?.let { rotateBitmap(it, rotation) }?.asImageBitmap() }
+fun rememberB64Bitmap(b64: String?, rotation: Int = 0): ImageBitmap? {
+    // The initial value is only taken on first composition, so a changed key re-reads the cache before decoding.
+    val bmp by produceState(B64Bitmaps.cached(b64, rotation), b64, rotation) {
+        value = B64Bitmaps.cached(b64, rotation)
+        if (value == null) value = B64Bitmaps.load(b64, rotation)
+    }
+    return bmp
+}
 
 /**
  * Turns the content [degrees] clockwise (0/90/180/270) so it still fits this box: for quarter turns the child is

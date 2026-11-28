@@ -7,7 +7,7 @@
 
 import { connectFunctionsEmulator, getFunctions, httpsCallable, type Functions } from "firebase/functions";
 import { getMetadata, ref, uploadBytes } from "firebase/storage";
-import { bucket, clipPath } from "./upload";
+import { bucket, CLIP_CACHE_CONTROL, clipPath } from "./upload";
 import { applyFixtureLadder, applyFixtureLadderV4 } from "./data";
 import { app, FIXTURES, USE_EMULATORS } from "./firebase";
 import { applyStep, countsAsPass, CREDIT_PACKS, FREE_CREDITS, moduleSpec } from "./ladder";
@@ -116,7 +116,7 @@ async function uploadClip(uid: string, momentId: string, sha: string, onStep: (s
   }
   onStep(`Uploading clip (${(clip.bytes / 1e6).toFixed(1)} MB)…`);
   try {
-    await uploadBytes(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm" });
+    await uploadBytes(r, clip.blob, { contentType: clip.mime.split(";")[0] || "video/webm", cacheControl: CLIP_CACHE_CONTROL });
     return "uploaded";
   } catch (e) {
     // Rules allow create only; a second upload of the same clip is refused and the first one stands. If the server
