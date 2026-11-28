@@ -44,8 +44,13 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
   private var pending: [Int64: CheckedContinuation<Data, Error>] = [:]
   private var movieDone: (@Sendable (URL, String?) -> Void)?
 
-  /// Clip length cap (AVCaptureMovieFileOutput stops by itself and reports the clip as finished).
-  static let maxClipSeconds = 300.0
+  /// Default clip length cap (AVCaptureMovieFileOutput stops by itself and reports the clip as finished);
+  /// `startRecording(maxSeconds:)` takes the session's own, `ClipProfile.capSeconds(plan:)` (v4.14).
+  static let maxClipSeconds = ClipProfile.minCapSeconds
+  /// Sensor rate while a long (low-rate profile) clip records: fewer frames to encode now and to thin out later
+  /// (ClipCompressor), still smooth enough to frame the shot. Restored when the clip ends.
+  static let longClipSensorFps = 10.0
+  private var restoreFrameRate: (min: CMTime, max: CMTime)?
 
   static var hasCamera: Bool { AVCaptureDevice.default(for: .video) != nil }
 
@@ -159,6 +164,30 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     }
   }
 
+  /// Must run on `queue`. Best effort: clamped to what the active format supports, skipped if the device is busy.
+  private func lowerSensorRate() {
+    guard let device = input?.device, restoreFrameRate == nil,
+          let range = device.activeFormat.videoSupportedFrameRateRanges.first,
+          (try? device.lockForConfiguration()) != nil
+    else { return }
+    let fps = min(range.maxFrameRate, max(range.minFrameRate, Self.longClipSensorFps))
+    restoreFrameRate = (device.activeVideoMinFrameDuration, device.activeVideoMaxFrameDuration)
+    let d = CMTime(value: 1000, timescale: CMTimeScale((fps * 1000).rounded()))
+    device.activeVideoMinFrameDuration = d
+    device.activeVideoMaxFrameDuration = d
+    device.unlockForConfiguration()
+  }
+
+  /// Must run on `queue`.
+  private func restoreSensorRate() {
+    guard let saved = restoreFrameRate else { return }
+    restoreFrameRate = nil
+    guard let device = input?.device, (try? device.lockForConfiguration()) != nil else { return }
+    device.activeVideoMinFrameDuration = saved.min
+    device.activeVideoMaxFrameDuration = saved.max
+    device.unlockForConfiguration()
+  }
+
   /// Must run on `queue`.
   private func applyTorch() {
     guard let device = input?.device, device.hasTorch else { return }
@@ -251,7 +280,8 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
 
   /// Starts recording a QuickTime clip to `url`, upright for how the phone is held at the start (track transform). `done` runs (on the camera queue) once the file is
   /// finished: after `stopRecording()`, the length cap, or an interruption; the message is nil if the file is usable.
-  func startRecording(to url: URL, done: @escaping @Sendable (URL, String?) -> Void) async throws {
+  func startRecording(to url: URL, maxSeconds: Double = CameraController.maxClipSeconds, lowRate: Bool = false,
+                      done: @escaping @Sendable (URL, String?) -> Void) async throws {
     try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
       queue.async {
         guard self.configured, self.session.isRunning, self.movie.connection(with: .video) != nil else {
@@ -264,6 +294,8 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
         }
         self.applyCaptureRotation(self.movie.connection(with: .video))
         try? FileManager.default.removeItem(at: url)
+        self.movie.maxRecordedDuration = CMTime(seconds: maxSeconds, preferredTimescale: 600)
+        if lowRate { self.lowerSensorRate() }
         self.movieDone = done
         self.movie.startRecording(to: url, recordingDelegate: self)
         cont.resume()
@@ -284,6 +316,7 @@ nonisolated final class CameraController: NSObject, AVCapturePhotoCaptureDelegat
     let finished = (error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool
     let failure: String? = (error == nil || finished == true) ? nil : error?.localizedDescription
     queue.async {
+      self.restoreSensorRate()
       let done = self.movieDone
       self.movieDone = nil
       done?(outputFileURL, failure)

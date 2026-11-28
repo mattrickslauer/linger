@@ -64,3 +64,27 @@ import Testing
     #expect(e.bytes == 0 && e.sha256 == sha256Hex(Data()))
   }
 }
+
+@Suite struct ClipProfileTests {
+  func plan(_ secs: Double...) -> EvidencePlan {
+    EvidencePlan(
+      requirements: secs.enumerated().map {
+        Requirement(id: "r\($0.offset + 1)", claimId: "c1", evidence: .video, ask: "", minSeconds: $0.element)
+      },
+      recordMode: "video", note: "")
+  }
+
+  @Test func capFollowsTheLongestVideoRequirementLikeWeb() {
+    #expect(ClipProfile.capSeconds(plan: nil) == 60)
+    #expect(ClipProfile.capSeconds(plan: plan(120)) == 141)
+    #expect(ClipProfile.capSeconds(plan: plan(1800)) == 1905)  // meditate for 30 minutes
+    #expect(ClipProfile.capSeconds(plan: plan(5 * 3600)) == 7200)
+  }
+
+  @Test func longerClipsGetLowerRates() {
+    #expect(ClipProfile.forCap(seconds: 60) == .live)
+    #expect(ClipProfile.forCap(seconds: 720) == .long)
+    #expect(ClipProfile.forCap(seconds: 1905) == .slow)
+    #expect(ClipProfile.slow.fps == 1)
+  }
+}

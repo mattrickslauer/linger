@@ -14,7 +14,7 @@ import Interview, { RouteChip } from "../components/Interview";
 import { Glyph, ScoreRing } from "../kit";
 import "../record.css";
 import { WitnessAgent } from "../witnessAgent";
-import { clipCapMs, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
+import { clipCapMs, clipProfile, ClipRecorder, clipSupported, sha256Bytes } from "../clip";
 import { captured, videoStatusText, type Requirement } from "../v4";
 import { uploadText, useClipUpload } from "../upload";
 import { PlanList } from "../components/Plan";
@@ -255,6 +255,7 @@ function Live({ session, onDone }: { session: Session; onDone: () => void }) {
           <>
             Stop video {fmtDuration(clipMs)}
             {needSec > 0 && <span className={`clip-need ${clipMs >= needSec * 1000 ? "ok" : ""}`}> / ≥ {fmtDuration(needSec * 1000)}</span>}
+            {clipProfile(capMs).fps && <span className="clip-need"> · {clipProfile(capMs).fps} fps</span>}
           </>
         ) : mode === "video" ? (
           "Record video"

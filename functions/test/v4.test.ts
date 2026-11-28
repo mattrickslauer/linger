@@ -13,7 +13,7 @@ import { evaluateSealV4, feedScoreReasons, feedV4Fields, feedVideoClips, isReady
 import { applyLadderV4, claimsBackedByModule, moduleOutcomes, scoreV4 } from "../src/score4";
 import { getModule } from "../src/shared";
 import { Claim, VIDEO_WAIT_MS } from "../src/v4";
-import { MAX_CLIP_BYTES, MAX_REVIEW_ATTEMPTS, clipList, clipsForReview, coerceVerdicts, nextReviewStep, parseClipPath, runVideoReview, tooLargeToUpload } from "../src/video";
+import { MAX_CLIP_BYTES, MAX_REVIEW_ATTEMPTS, clipList, clipsForReview, coerceVerdicts, nextReviewStep, parseClipPath, reviewSampling, runVideoReview, tooLargeToUpload } from "../src/video";
 
 const v4 = JSON.parse(readFileSync(new URL("../../shared/test-vectors-v4.json", import.meta.url), "utf8"));
 
@@ -421,6 +421,19 @@ describe("video review (v4.4)", () => {
     expect(JSON.parse(seen!.vars.plan).requirements).toHaveLength(2);
     expect(JSON.parse(seen!.vars.clips)).toEqual([{ sha256: CLIP_SHA, atS: 1, durationS: 35 }]);
     expect(JSON.parse(seen!.vars.sensors)).toHaveProperty("motionReps");
+  });
+  it("samples long footage sparsely at low resolution, short footage at the default (v4.14)", async () => {
+    expect(reviewSampling(35_000)).toEqual({ fps: null, timeoutMs: 93_500 });
+    expect(reviewSampling(4 * 60_000)).toEqual({ fps: 1, timeoutMs: 114_000 });
+    const half = reviewSampling(30 * 60_000);
+    expect(half).toEqual({ fps: 0.2, mediaResolution: "low", timeoutMs: 270_000 });
+    expect(reviewSampling(3 * 3600_000)).toEqual({ fps: 0.1, mediaResolution: "low", timeoutMs: 300_000 });
+    let seen: AiCall | undefined;
+    const long = { ...call(), clips: [{ ...clip(), durationMs: 30 * 60_000, gsUri: "gs://b/x.mp4" }] };
+    await runVideoReview(long as never, engine({ claims: [], cheating: { detected: false, signals: [] }, summary: "" }, (c) => (seen = c)));
+    expect(seen!.media![0]).toMatchObject({ videoMetadata: { fps: 0.2 } });
+    expect(seen!.mediaResolution).toBe("low");
+    expect(seen!.timeoutMs).toBe(270_000);
   });
   it("cheating signals and failures from the fake engine", async () => {
     const cheat = await runVideoReview(call({ intention: { text: "Clap 50 times #video-cheat", category: "other" } }) as never, fakeEngine);

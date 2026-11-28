@@ -14,7 +14,7 @@ import { getPrompt } from "./shared";
 export type Part =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } }
-  | { fileData: { fileUri: string; mimeType: string } };
+  | { fileData: { fileUri: string; mimeType: string }; videoMetadata?: { fps?: number } };
 
 export interface AiCall {
   /** Key in shared/prompts.json; must be `runsIn: "functions"`. */
@@ -24,6 +24,10 @@ export interface AiCall {
   media?: Part[];
   /** Deterministic answer for the fake engine (emulator / tests). */
   fake: () => unknown;
+  /** "low" spends ~66 tokens per sampled video frame instead of ~258 (long clips, reviewSampling in video.ts). */
+  mediaResolution?: "low";
+  /** Model call timeout; default 90 s. Long clips take longer to read. */
+  timeoutMs?: number;
 }
 
 export interface AiAnswer {
@@ -80,7 +84,8 @@ function vertexEngine(): AiEngine {
           responseMimeType: "application/json",
           responseJsonSchema: p.schema,
           temperature: 0.2,
-          httpOptions: { timeout: 90_000 },
+          ...(call.mediaResolution === "low" ? { mediaResolution: "MEDIA_RESOLUTION_LOW" as import("@google/genai").MediaResolution } : {}),
+          httpOptions: { timeout: call.timeoutMs ?? 90_000 },
         },
       });
       const text = res.text ?? "";

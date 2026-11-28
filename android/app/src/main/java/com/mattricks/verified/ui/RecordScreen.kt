@@ -56,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
+import com.mattricks.verified.data.ClipProfile
 import com.mattricks.verified.data.Prefs
 import com.mattricks.verified.devices.Devices
 import com.mattricks.verified.record.VideoClip
@@ -162,6 +163,7 @@ private fun LiveView(ui: RecUi, vm: RecordViewModel) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val cam = remember { CaptureController() }
+    cam.capSeconds = ClipProfile.capSeconds(ui.plan)
     val defaultMode by Prefs.captureMode.collectAsState()
     // v4.11: the record screen opens in the plan's recordMode ("Video" / "Photo"); no plan → the Settings default.
     var mode by remember {
@@ -681,6 +683,11 @@ private class CaptureController {
         canFlip = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) && provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
         if (!canFlip) front = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && !provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
         val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        if (mode == Prefs.CaptureMode.Video && recording == null) {
+            val ranges = runCatching { provider.getCameraInfo(selector).supportedFrameRateRanges.map { it.lower to it.upper } }.getOrDefault(emptyList())
+            val rotation = video.targetRotation
+            video = videoCapture(profile, ClipProfile.sensorRange(profile, ranges)).also { it.targetRotation = rotation }
+        }
         val capture: UseCase = if (mode == Prefs.CaptureMode.Video) video else image
         provider.unbindAll()
         this.mode = mode
@@ -708,9 +715,23 @@ private class CaptureController {
         // Torch is a continuous light: only in video mode, so photo flash isn't fighting it.
         camera?.cameraControl?.enableTorch(mode == Prefs.CaptureMode.Video && on)
     }
-    val video: VideoCapture<Recorder> = VideoCapture.withOutput(
-        Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))).build(),
-    )
+    /**
+     * v4.14: how long a clip may run (the plan's longest video requirement, 5 min to 2 h) and so how it is encoded.
+     * Set before the camera binds; takes effect on the next bind while not recording.
+     */
+    var capSeconds = ClipProfile.MIN_CAP_SECONDS
+        set(v) { field = v; profile = ClipProfile.forCap(v) }
+    private var profile = ClipProfile.LIVE
+
+    /** Encoded small at capture: a bitrate per tier (CameraX's default HD is ~10 Mbit/s, 200 MB in under 3 min). */
+    private fun videoCapture(p: ClipProfile, sensor: Pair<Int, Int>?): VideoCapture<Recorder> {
+        val quality = if (p.fps == null) QualitySelector.from(Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
+        else QualitySelector.from(Quality.SD, FallbackStrategy.higherQualityOrLowerThan(Quality.SD))
+        val recorder = Recorder.Builder().setQualitySelector(quality).setTargetVideoEncodingBitRate(p.videoBps).build()
+        return VideoCapture.Builder(recorder).apply { sensor?.let { setTargetFrameRate(android.util.Range(it.first, it.second)) } }.build()
+    }
+    var video: VideoCapture<Recorder> = videoCapture(profile, null)
+        private set
     private var recording: Recording? = null
     var recordingSince by mutableStateOf<Long?>(null)
         private set
@@ -726,7 +747,10 @@ private class CaptureController {
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Verified")
         }
-        val out = MediaStoreOutputOptions.Builder(ctx.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI).setContentValues(cv).build()
+        val out = MediaStoreOutputOptions.Builder(ctx.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI).setContentValues(cv)
+            .setDurationLimitMillis((capSeconds * 1000).toLong())
+            .setFileSizeLimit(ClipProfile.FILE_LIMIT_BYTES)
+            .build()
         var pending = video.output.prepareRecording(ctx, out)
         val mic = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (Prefs.videoAudio.value && mic) pending = pending.withAudioEnabled()
@@ -735,7 +759,12 @@ private class CaptureController {
                 if (ev is VideoRecordEvent.Finalize) {
                     val since = recordingSince ?: t
                     recording = null; recordingSince = null
-                    val ok = !ev.hasError() || ev.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE
+                    // Hitting the length cap or the size guard still leaves a complete, playable file.
+                    val ok = !ev.hasError() || ev.error in setOf(
+                        VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE,
+                        VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED,
+                        VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED,
+                    )
                     if (!ok) Log.e("VerifiedCam", "video finalize error ${ev.error}", ev.cause)
                     val uri = ev.outputResults.outputUri.takeIf { ok && it != Uri.EMPTY }
                     onDone?.invoke(uri, since, System.currentTimeMillis()); onDone = null
