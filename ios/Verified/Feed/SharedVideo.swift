@@ -179,101 +179,273 @@ final class PlayerLayerUIView: UIView {
   }
 }
 
-/// SwiftUI `VideoPlayer` turned by the Moment's `displayRotation` so the clip is upright and still fits its frame:
-/// for a quarter turn the player is laid out in the swapped size, then rotated. The system controls turn with it
-/// (sideways at 90/270, upside down at 180) and full screen shows the clip as stored; 0 is the plain player.
-struct RotatedVideoPlayer: View {
-  let player: AVPlayer
-  let rotation: Int
+// MARK: - Evidence room player
 
-  var body: some View {
-    let r = normalizeDisplayRotation(rotation)
-    if r == 0 {
-      VideoPlayer(player: player)
-    } else {
-      GeometryReader { g in
-        let size = displayRotatedSize(width: g.size.width, height: g.size.height, rotation: r)
-        VideoPlayer(player: player)
-          .frame(width: size.width, height: size.height)
-          .rotationEffect(.degrees(Double(r)))
-          .frame(width: g.size.width, height: g.size.height)
-      }
+/// One clip in the evidence room: an `AVPlayer` plus the state for upright SwiftUI controls (play/pause, position,
+/// duration, mute). Only the picture is turned (by `PlayerLayerView`); the controls never turn. Never autoplays.
+@Observable
+final class ClipPlayerModel {
+  private(set) var player: AVPlayer?
+  private(set) var failed = false
+  private(set) var playing = false
+  private(set) var muted = false
+  private(set) var time: Double = 0
+  private(set) var duration: Double = 0
+  /// Width / height of the picture as AVPlayer draws it (the track's `preferredTransform` applied), before the
+  /// Moment's `displayRotation`. nil until the track has loaded.
+  private(set) var naturalAspect: CGFloat?
+  /// The scrubber is being dragged: the periodic observer leaves `time` alone.
+  var scrubbing = false
+  @ObservationIgnored private var observer: Any?
+  @ObservationIgnored private var loadedPath: String?
+
+  func load(_ clip: SharedClip) async {
+    guard loadedPath != clip.path else { return }
+    loadedPath = clip.path
+    if clip.durationMs > 0 { duration = Double(clip.durationMs) / 1000 }
+    guard let url = await ClipURLCache.url(for: clip.path) else {
+      failed = true
+      return
     }
+    let asset = AVURLAsset(url: url)
+    let player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+    player.isMuted = muted
+    self.player = player
+    observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] t in
+      MainActor.assumeIsolated { self?.tick(t) }
+    }
+    if let tracks = try? await asset.loadTracks(withMediaType: .video), let track = tracks.first,
+       let loaded = try? await track.load(.naturalSize, .preferredTransform) {
+      // The picture AVPlayer draws: the natural size through the display matrix (a -90° matrix turns 1080×1920
+      // into 1920×1080). abs() because the transformed rect can have negative extents.
+      let r = CGRect(origin: .zero, size: loaded.0).applying(loaded.1)
+      let w = abs(r.width), h = abs(r.height)
+      if w > 0, h > 0 { naturalAspect = w / h }
+    }
+    if let d = try? await asset.load(.duration), d.isNumeric, d.seconds > 0 { duration = d.seconds }
+  }
+
+  private func tick(_ t: CMTime) {
+    guard let player else { return }
+    playing = player.rate != 0
+    if !scrubbing, t.isNumeric { time = max(0, t.seconds) }
+  }
+
+  func toggle() {
+    guard let player else { return }
+    if player.rate != 0 {
+      pause()
+      return
+    }
+    if duration > 0, time >= duration - 0.15 { seek(to: 0) }
+    ClipAudio.use(sound: !muted)
+    player.play()
+    playing = true
+  }
+
+  func pause() {
+    player?.pause()
+    playing = false
+  }
+
+  func toggleMute() {
+    muted.toggle()
+    player?.isMuted = muted
+    if playing { ClipAudio.use(sound: !muted) }
+  }
+
+  func seek(to s: Double) {
+    time = s
+    player?.seek(to: CMTime(seconds: s, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
   }
 }
 
-// MARK: - Evidence room
-
-/// Every uploaded clip of the Moment, playable with controls, never autoplayed.
-struct SharedClipsSection: View {
-  let clips: [SharedClip]
+/// The evidence-room player: the clip turned upright by the Moment's `displayRotation` and sized to its oriented
+/// aspect (never cropped, at most `maxHeight` tall), with an upright control bar under it. Tap the picture to play
+/// or pause. Pauses when it goes away.
+struct ClipPlayerView: View {
+  let clip: SharedClip
   /// The Moment's `displayRotation` (clockwise degrees).
   var rotation = 0
+  var maxHeight: CGFloat = 520
+  @State private var model = ClipPlayerModel()
 
   var body: some View {
-    if clips.count == 1, let clip = clips.first {
-      SharedClipRow(clip: clip, index: 1, count: 1, rotation: rotation)
-    } else {
-      // Several clips: a horizontal carousel instead of a tall stack.
-      ScrollView(.horizontal, showsIndicators: false) {
-        LazyHStack(alignment: .top, spacing: 10) {
-          ForEach(Array(clips.enumerated()), id: \.element.id) { i, clip in
-            SharedClipRow(clip: clip, index: i + 1, count: clips.count, rotation: rotation)
-              .frame(width: 272)
+    VStack(spacing: 8) {
+      picture
+        .aspectRatio(aspect, contentMode: .fit)
+        .frame(maxWidth: .infinity, maxHeight: maxHeight)
+      controls
+    }
+    .task(id: clip.path) { await model.load(clip) }
+    .onDisappear { model.pause() }
+  }
+
+  /// Oriented width / height: the track's own orientation, then a quarter turn of `displayRotation` swaps it.
+  private var aspect: CGFloat {
+    guard let a = model.naturalAspect else { return 1 }
+    return normalizeDisplayRotation(rotation) % 180 == 0 ? a : 1 / a
+  }
+
+  private var picture: some View {
+    ZStack {
+      Color.black
+      if let player = model.player {
+        PlayerLayerView(player: player, rotation: rotation) {}
+      } else if model.failed {
+        Label("Couldn't load this clip", systemImage: "video.slash")
+          .font(.footnote).foregroundStyle(.white.opacity(0.8))
+      } else {
+        ProgressView().tint(.white)
+      }
+      if model.player != nil, !model.playing {
+        Image(systemName: "play.fill")
+          .font(.system(size: 26, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(width: 64, height: 64)
+          .background(.black.opacity(0.45), in: Circle())
+          .allowsHitTesting(false)
+      }
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .contentShape(Rectangle())
+    .onTapGesture { model.toggle() }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(model.failed ? "Clip could not load" : "Video clip")
+    .accessibilityHint(model.playing ? "Pauses the clip" : "Plays the clip")
+    .accessibilityAddTraits(.isButton)
+    .accessibilityAction { model.toggle() }
+  }
+
+  private var controls: some View {
+    let total = max(model.duration, model.time, 0.1)
+    return HStack(spacing: 8) {
+      Button { model.toggle() } label: {
+        Image(systemName: model.playing ? "pause.fill" : "play.fill")
+          .font(.title3.weight(.semibold))
+          .frame(width: 44, height: 44)
+          .contentShape(Rectangle())
+      }
+      .accessibilityLabel(model.playing ? "Pause" : "Play")
+      Text(Self.clock(model.time)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+      Slider(value: Binding(get: { min(model.time, total) }, set: { model.seek(to: $0) }), in: 0...total) { editing in
+        model.scrubbing = editing
+      }
+      .tint(Theme.track)
+      .accessibilityLabel("Position")
+      .accessibilityValue("\(Self.clock(model.time)) of \(Self.clock(total))")
+      Text(Self.clock(total)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+      Button { model.toggleMute() } label: {
+        Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+          .font(.body.weight(.semibold))
+          .frame(width: 44, height: 44)
+          .contentShape(Rectangle())
+      }
+      .accessibilityLabel(model.muted ? "Unmute" : "Mute")
+    }
+    .buttonStyle(.plain)
+    .disabled(model.player == nil)
+  }
+
+  static func clock(_ s: Double) -> String {
+    formatDuration(ms: Int64((s.isFinite ? max(0, s) : 0) * 1000))
+  }
+}
+
+/// Full-screen clip viewer (the evidence room's media modal): one clip at a time, previous / next when there are
+/// several.
+struct ClipViewer: View {
+  let clips: [SharedClip]
+  var rotation = 0
+  @State private var index: Int
+  @Environment(\.dismiss) private var dismiss
+
+  init(clips: [SharedClip], start: Int = 0, rotation: Int = 0) {
+    self.clips = clips
+    self.rotation = rotation
+    _index = State(initialValue: min(max(0, start), max(0, clips.count - 1)))
+  }
+
+  var body: some View {
+    GeometryReader { g in
+      VStack(spacing: 12) {
+        HStack(spacing: 8) {
+          if clips.indices.contains(index) {
+            let clip = clips[index]
+            Text(clips.count > 1 ? "Clip \(index + 1) of \(clips.count)" : "Clip").font(.headline)
+            if clip.durationMs > 0 {
+              Text(formatDuration(ms: clip.durationMs)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            ClipHashMark(ok: clip.hashOk, long: true)
           }
+          Spacer(minLength: 0)
+          ModalCloseButton { dismiss() }
+        }
+        Spacer(minLength: 0)
+        if clips.indices.contains(index) {
+          let clip = clips[index]
+          ClipPlayerView(clip: clip, rotation: rotation,
+                         maxHeight: max(160, min(g.size.height * 0.8, g.size.height - 150)))
+            .id(clip.path)
+        }
+        Spacer(minLength: 0)
+        if clips.count > 1 {
+          HStack {
+            Button { index -= 1 } label: { Label("Previous", systemImage: "chevron.left") }
+              .disabled(index == 0)
+            Spacer()
+            Button { index += 1 } label: {
+              HStack(spacing: 6) { Text("Next"); Image(systemName: "chevron.right") }
+            }
+            .disabled(index >= clips.count - 1)
+          }
+          .font(.subheadline.weight(.semibold))
         }
       }
-      .scrollClipDisabled()
+      .padding(16)
+    }
+    .background(Theme.media.ignoresSafeArea())
+    .environment(\.colorScheme, .dark)
+  }
+}
+
+/// A clip's upload hash vs the chained hash: ✓ matches, ✗ (or a warning line when `long`) mismatch, nothing yet.
+struct ClipHashMark: View {
+  let ok: Bool?
+  var long = false
+
+  var body: some View {
+    switch ok {
+    case .some(true):
+      Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.ok).accessibilityLabel("Hash matches the chain")
+    case .some(false):
+      if long {
+        Label("Hash does not match the chain", systemImage: "exclamationmark.triangle.fill")
+          .font(.caption.weight(.semibold)).foregroundStyle(Theme.bad)
+      } else {
+        Image(systemName: "xmark.seal.fill").foregroundStyle(Theme.bad).accessibilityLabel("Hash does not match the chain")
+      }
+    case .none:
+      EmptyView()
     }
   }
 }
 
-private struct SharedClipRow: View {
-  let clip: SharedClip
-  let index: Int
-  let count: Int
-  var rotation = 0
-  @State private var player: AVPlayer?
-  @State private var failed = false
+/// The round close button of the evidence room's modals.
+struct ModalCloseButton: View {
+  let action: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      ZStack {
-        Color.black
-        if let player {
-          RotatedVideoPlayer(player: player, rotation: rotation)
-        } else if failed {
-          Label("Couldn't load this clip", systemImage: "video.slash")
-            .font(.footnote).foregroundStyle(.white.opacity(0.8))
-        } else {
-          ProgressView().tint(.white)
-        }
-      }
-      .frame(height: 220)
-      .frame(maxWidth: .infinity)
-      .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-      HStack(spacing: 4) {
-        Text(count > 1 ? "Clip \(index) of \(count)" : "Clip").font(.caption.weight(.semibold))
-        if clip.durationMs > 0 {
-          Text("· \(formatDuration(ms: clip.durationMs))").font(.caption.monospacedDigit())
-        }
-        Spacer(minLength: 0)
-      }
-      .foregroundStyle(.secondary)
-      if clip.hashOk == false {
-        Label("Hash does not match the chain", systemImage: "exclamationmark.triangle.fill")
-          .font(.caption.weight(.semibold)).foregroundStyle(Theme.bad)
-      }
+    Button(action: action) {
+      Image(systemName: "xmark")
+        .font(.body.weight(.bold))
+        .foregroundStyle(.primary)
+        .frame(width: 36, height: 36)
+        .background(.ultraThinMaterial, in: Circle())
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
-    .task(id: clip.path) {
-      guard player == nil else { return }
-      if let url = await ClipURLCache.url(for: clip.path) {
-        ClipAudio.use(sound: true)
-        player = AVPlayer(url: url)
-      } else {
-        failed = true
-      }
-    }
-    .onDisappear { player?.pause() }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Close")
   }
 }

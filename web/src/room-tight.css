@@ -1,0 +1,461 @@
+/* Tight evidence room: a compact summary card, then one tile per piece of evidence; each tile opens the pop-out
+   viewer (components/Modal). Loaded after room.css, so these win where they overlap. */
+
+.room-bar-title {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink-2);
+}
+.room .room-wp {
+  padding-bottom: 22px;
+}
+
+/* -------- summary card */
+
+.room-sum {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-areas:
+    "media body"
+    "media verdict"
+    "stats stats";
+  gap: 10px 16px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.room-ok .room-sum {
+  border-color: color-mix(in srgb, var(--gold) 70%, var(--rule));
+}
+.room-sum-media {
+  grid-area: media;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 150px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b1a1f;
+  color: #e8ece4;
+  cursor: zoom-in;
+}
+.room-sum-media:focus-visible {
+  outline: 3px solid var(--track);
+  outline-offset: 2px;
+}
+.room-sum-media .room-sum-img {
+  position: absolute;
+  inset: 0;
+}
+.room-no .room-sum-media .room-sum-img {
+  filter: grayscale(0.6);
+}
+.room-sum-body {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.room-sum-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.room-sum-who .gchip {
+  text-transform: capitalize;
+}
+.room .room-sum .room-intent-text {
+  font-size: clamp(1.3rem, 3.4vw, 2rem);
+  line-height: 1.08;
+  max-width: none;
+}
+.room-sum .hero-meta {
+  color: var(--ink-3);
+}
+.room-sum-verdict {
+  grid-area: verdict;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  align-self: end;
+}
+.room-sum-verdict .stamp {
+  margin: 0;
+}
+.room-sum-stats {
+  grid-area: stats;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+
+/* A round play badge over a photo. */
+.play-badge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #071419b8;
+  color: #fff;
+  box-shadow: 0 0 0 2px #ffffffcc;
+  pointer-events: none;
+}
+.play-badge .glyph {
+  width: 22px;
+  height: 22px;
+  margin-left: 3px;
+}
+
+/* -------- evidence tiles */
+
+.room .room-label {
+  margin: 4px 0 10px;
+}
+.room .room-label h2 {
+  font-size: 1.2rem;
+}
+.ev-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ev-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--sheet);
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    translate 0.15s;
+}
+.ev-tile:hover:not(:disabled) {
+  border-color: var(--track);
+  translate: 0 -1px;
+}
+.ev-tile:focus-visible {
+  outline: 3px solid var(--track);
+  outline-offset: 2px;
+}
+.ev-tile:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ev-thumb,
+.ev-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.ev-thumb {
+  background: #0b1a1f;
+  color: #e8ece4;
+}
+.ev-thumb .fit-media {
+  position: absolute;
+  inset: 0;
+}
+.ev-thumb .play-badge {
+  width: 28px;
+  height: 28px;
+}
+.ev-thumb .play-badge .glyph {
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+}
+.ev-icon {
+  background: color-mix(in srgb, var(--track) 14%, transparent);
+  color: var(--track);
+}
+.ev-icon .glyph {
+  width: 26px;
+  height: 26px;
+}
+.ev-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ev-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+}
+.ev-title .glyph {
+  width: 16px;
+  height: 16px;
+}
+.ev-stat {
+  font-size: 0.84rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ev-stat .ok {
+  color: var(--ok);
+}
+.ev-stat .bad {
+  color: var(--bad);
+}
+.room .coverage-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 2px 0;
+}
+.room .coverage-note .glyph {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+}
+.room .clips {
+  margin-top: 18px;
+}
+
+/* -------- result: the verdict card without a second stamp and ring */
+
+.room .room-verdict {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 14px 16px 2px;
+  border-radius: 16px;
+}
+.room .room-result .review {
+  margin-top: 18px;
+}
+
+/* -------- pop-out viewer (components/Modal) */
+
+.modal {
+  --clip-max-h: min(72vh, 760px);
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  background: var(--sheet);
+  color: var(--ink);
+  width: min(560px, calc(100vw - 24px));
+  max-width: none;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.35);
+  overscroll-behavior: contain;
+}
+.modal-wide {
+  width: min(920px, calc(100vw - 24px));
+}
+.modal-media {
+  background: #0b1a1f;
+  color: #e8ece4;
+  border-color: #ffffff1f;
+}
+.modal::backdrop {
+  background: rgb(4 12 15 / 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.modal-box {
+  display: flex;
+  flex-direction: column;
+}
+.modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 1000; /* over Leaflet panes and controls */
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 10px 18px;
+  background: var(--sheet);
+}
+.modal-media .modal-head {
+  background: #0b1a1f;
+}
+.modal-head h2 {
+  font-size: 1.1rem;
+  font-weight: 750;
+}
+.modal-head p {
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.modal-media .modal-head .muted {
+  color: #e8ece4a6;
+}
+.modal-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+.modal-close .glyph {
+  width: 20px;
+  height: 20px;
+}
+.modal-body {
+  padding: 0 14px 16px;
+}
+.modal .viewer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.room .modal .frame-stage {
+  aspect-ratio: auto;
+  height: min(58vh, 560px);
+  height: min(58dvh, 560px);
+  margin: 0;
+}
+.modal .map {
+  aspect-ratio: auto;
+  height: min(70vh, 640px);
+  height: min(70dvh, 640px);
+}
+.room .modal .chain {
+  margin-top: 0;
+}
+
+/* -------- a clip at its upright shape: width set inline from the aspect ratio, height capped by --clip-max-h */
+
+.clip-view {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.clip-stage {
+  position: relative;
+  max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+.clip-stage > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.clip-stage.rot-box {
+  cursor: pointer;
+  width: 100%;
+}
+.turned-player {
+  max-width: 100%;
+}
+.turned-player .turned-bar {
+  padding: 8px 2px 0;
+}
+.turned-player .turned-bar .btn .glyph {
+  width: 16px;
+  height: 16px;
+}
+.clip-big-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #071419b8;
+  color: #fff;
+  pointer-events: none;
+}
+.clip-big-play .glyph {
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+}
+.clip-view .clip-wait {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 240px;
+}
+.clip-view figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  color: #e8ece4b3;
+}
+.clip-view code {
+  font-family: var(--mono);
+}
+.clip-view .ok {
+  color: #7fd6a0;
+}
+.clip-view .bad {
+  color: #ff9a85;
+}
+
+@media (max-width: 600px) {
+  .room-sum {
+    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-areas:
+      "media body"
+      "verdict verdict"
+      "stats stats";
+    padding: 12px;
+  }
+  .room-sum-media {
+    width: 96px;
+    height: 128px;
+  }
+  .modal {
+    --clip-max-h: min(64vh, 640px);
+    width: calc(100vw - 12px);
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+    border-radius: 16px;
+  }
+  .modal-body {
+    padding: 0 8px 12px;
+  }
+}
