@@ -23,12 +23,13 @@ Web (Chrome) · Android · iOS
 
 - Live web app, guest mode, no sign-in: https://verified-99e74.web.app
 - iOS (TestFlight public link): https://testflight.apple.com/join/8SGF1Pqr
-- Android APK: **TODO** https://github.com/mattrickslauer/verified/releases
+- Android APK (Android 10+): https://github.com/mattrickslauer/verified/releases/latest/download/Verified.apk
+- Both apps on one page: https://verified-99e74.web.app/download
 - Source code (Apache-2.0): https://github.com/mattrickslauer/verified
 
 ## Video demo link
 
-**TODO** YouTube URL (public, ≤ 3:00, English with subtitles from `submission/Verified-demo.srt`)
+https://youtu.be/q_gJDhiZ5Sw (public, 2:38, English, captions burned in)
 
 ## Built with (25 max, comma-separated)
 
