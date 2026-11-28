@@ -130,6 +130,7 @@ const PATHS = {
   ),
   logout: <path d="M10 4H5.5v16H10M14.5 8l4 4-4 4M18.5 12H9" />,
   trash: <path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5" />,
+  download: <path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" />,
   upload: <path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.5-.6 4.6 4.6 0 0 1-.4 9.6M12 20v-8M9 14.5l3-3 3 3" />,
   offline: <path d="M7 18.5a4.5 4.5 0 0 1-.6-9M10 5.2a6 6 0 0 1 7.9 3.7 4.6 4.6 0 0 1 1.4 8.6M3 3l18 18" />,
   stop: <rect x="6" y="6" width="12" height="12" rx="2.5" className="g-fill" />,

@@ -825,3 +825,31 @@ body.immersive .theme {
     padding-bottom: 6px;
   }
 }
+
+/* Native-app CTA on the intro slide: both point at /download. */
+.intro-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 0;
+}
+.intro-app {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #e8ece459;
+  border-radius: 999px;
+  color: var(--t-ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.intro-app:hover {
+  background: #e8ece41f;
+}
+.intro-app .glyph {
+  width: 18px;
+  height: 18px;
+}

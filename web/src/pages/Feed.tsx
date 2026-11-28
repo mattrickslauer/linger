@@ -267,6 +267,14 @@ function Intro({ count, sealed, user }: { count: number | null; sealed: number; 
             Swipe up
           </span>
         </div>
+        <p className="intro-apps">
+          <Link to="/download" className="intro-app">
+            <Glyph name="download" /> Get it on iPhone
+          </Link>
+          <Link to="/download" className="intro-app">
+            <Glyph name="download" /> Get it on Android
+          </Link>
+        </p>
         <p className="intro-note">{user ? `Recording as ${user.displayName?.split(" ")[0] ?? "you"}` : "No account needed to record"}</p>
       </div>
     </section>

@@ -11,6 +11,7 @@ const Detail = lazy(() => import("./pages/Detail"));
 const Record = lazy(() => import("./pages/Record"));
 const Me = lazy(() => import("./pages/Me"));
 const Embed = lazy(() => import("./pages/Embed"));
+const Download = lazy(() => import("./pages/Download"));
 const ClaimSheet = lazy(() => import("./components/ClaimSheet"));
 const PurchaseReturn = lazy(() => import("./components/BuyCredits").then((m) => ({ default: m.PurchaseReturn })));
 
@@ -79,7 +80,7 @@ export default function App() {
     m.content = immersive ? "#071419" : dark ? "#0f2127" : "#e8ece4";
   }, [immersive, theme]);
   useEffect(() => {
-    document.title = route.name === "embed" ? "Embed Verified into your app" : "Verified";
+    document.title = route.name === "embed" ? "Embed Verified into your app" : route.name === "download" ? "Get Verified for iPhone and Android" : "Verified";
   }, [route.name]);
   // Raw vault: verify on start, on sign-in and every 30 s (no-op in fixture mode).
   useEffect(() => {
@@ -141,6 +142,7 @@ export default function App() {
           {route.name === "record" && <Record user={user} ready={ready} />}
           {route.name === "me" && <Me user={user} ready={ready} />}
           {route.name === "embed" && <Embed />}
+          {route.name === "download" && <Download />}
           {route.name === "missing" && (
             <div className="page empty">
               <Glyph name="gps" className="empty-glyph" />
@@ -155,6 +157,9 @@ export default function App() {
       <footer className="foot" hidden={immersive}>
         <p>
           <span>#BuildHybridAI · AI on device and in the cloud, sealed by Cloud Functions</span>
+          <Link to="/download">
+            <Glyph name="download" /> Get the apps
+          </Link>
           <Link to="/embed">
             <Glyph name="code" /> Embed Verified (soon)
           </Link>
